@@ -1,29 +1,33 @@
 # easyJSON
 
-简洁大气的专业级 JSON 格式化、校验与对比工具。支持浏览器插件与 Web 独立部署。
+> 开发者专属的智能 JSON 工具，支持 100+ 种格式智能提取、语义对比、多视图、格式转换。
+>
+> 🌐 在线体验：[easyjson.xiaofucode.com](https://easyjson.xiaofucode.com)
 
-## 功能特性
+---
 
-- 实时 JSON 语法校验，错误行高亮定位
-- 多种缩进格式化（2 空格、4 空格、制表符、压缩）
-- 属性键按字母排序（Sort Keys）
-- JSON 转义 / 去转义
-- 交互式折叠树形视图（Tree View）
-- 拓扑关系图（Graph View）
-- 表格视图（Table View）
-- 左右分栏同步滚动，字符级字段差异对比
-- 深色 / 浅色主题切换
-- 多配色方案（Premium / One Dark）
-- 多标签页并行工作
-- Chrome 插件支持（popup + 全屏新标签页）
+## ✨ 功能一览
 
-## 智能提取
+| 功能 | 说明 |
+|------|------|
+| 🔍 智能提取 | 支持 100+ 种格式自动识别并转换为标准 JSON |
+| 🔌 浏览器插件 | 网页选中文本右键一键提取，免去复制粘贴 |
+| ⚖️ 语义对比 | 结构正规化后再 Diff，字符级差异高亮 |
+| 🌲 多视图切换 | 代码 / 树形 / 拓扑 / 表格，四种视图一键切换 |
+| 📑 多 Tab & 持久化 | 多标签页并行工作，状态自动保存，双击可改名 |
+| 🔄 格式转换 | JSON ↔ XML / YAML / TOML 一键互转 |
+| ⚙️ 自定义开关 | 自动粘贴、按 Key 排序、过滤空值等行为自由配置 |
+| 🎨 主题配色 | 多种 JSON 配色方案 + 系统深色/浅色主题 |
+| ✅ 语法校验 | 实时错误行高亮定位，快速定位问题 |
+| 🔤 转义处理 | JSON 转义 / 去转义，Unicode 自动解码 |
 
-粘贴任意格式的文本，自动识别并转换为标准 JSON。支持以下 **20 种**格式：
+---
 
-### 已支持格式 & 样例数据
+## 🔍 智能提取
 
-以下每种格式均可直接复制粘贴到 easyJSON 中测试，会自动转换为标准 JSON。
+粘贴任意格式的文本，自动识别并转换为标准 JSON。支持以下 **100+ 种**格式，直接复制下方样例粘贴到 easyJSON 即可体验：
+
+### 格式样例
 
 #### 1. 标准 JSON
 
@@ -48,11 +52,11 @@
 }
 ```
 
-> 同时支持 `\uXXXX` Unicode 转义字符，直接粘贴自动解码：`{"name":"张三","id":1}` → `{"name":"张三","id":1}`
+> 同时支持 `\uXXXX` Unicode 转义字符，直接粘贴自动解码。
 
 #### 2. Java toString（多种风格）
 
-**Lombok @ToString 风格（最常见）：**
+**Lombok @ToString（最常见）：**
 
 ```
 OrderDTO{orderId=ORD-20250601-001, userId=10042, totalAmount=1299.00, status=PAID, items=[ItemDTO{sku=SKU-8821, name=机械键盘, qty=1, price=899.00}, ItemDTO{sku=SKU-3310, name=鼠标垫, qty=2, price=200.00}], createTime=2025-06-01T10:30:00, payChannel=ALIPAY}
@@ -88,7 +92,6 @@ UserProfile{id=10042, nickname=星辰大海, avatar=Optional[https://cdn.example
 [businessRole=ORDINARY_MERCHANT, salesType=DIRECT_SALES, merchantName=铁旅科技有限公司, directOrganName=<null>, retCode=0000, retMsg=操作成功]
 ```
 
-
 #### 3. Python dict / dataclass
 
 **Python dict（单引号 + True/False/None）：**
@@ -108,7 +111,6 @@ UserProfile(user_id=10042, username='zhangsan', email='zhangsan@example.com', is
 ```python
 OrderedDict([('step1', 'download'), ('step2', 'extract'), ('step3', 'install'), ('step4', 'configure'), ('step5', 'verify')])
 ```
-
 
 #### 4. TypeScript / JavaScript
 
@@ -228,7 +230,7 @@ spec:
 name = "easy-json-core"
 version = "0.3.2"
 edition = "2021"
-authors = ["Antigravity <dev@example.com>"]
+authors = ["小富 <dev@example.com>"]
 description = "High-performance JSON parser and formatter"
 
 [dependencies]
@@ -328,8 +330,6 @@ server_3 = 10.0.0.13:8080
 balance = round-robin
 ```
 
-
-
 #### 14. JSONC / JSON5（带注释的 JSON）
 
 ```jsonc
@@ -346,27 +346,22 @@ balance = round-robin
 }
 ```
 
-
-
 #### 15. Ruby Hash
 
 ```ruby
 {:status => "success", :user => {:name => "张三", :age => 28}, :tags => ["ruby", "rails"], :active => true, :meta => nil}
 ```
 
-
-
 #### 16. Markdown 表格
 
 ```markdown
 | 姓名 | 部门   | 职位             | 月薪  | 入职日期   |
-|------|--------|-----------------|-------|-----------|
+|------|--------|-----------------|-------|-----------| 
 | 王伟 | 技术部 | 高级前端工程师   | 35000 | 2021-03-15 |
 | 陈静 | 产品部 | 产品经理         | 32000 | 2020-08-01 |
 | 刘洋 | 技术部 | 后端工程师       | 28000 | 2022-01-10 |
 | 赵敏 | 设计部 | UI 设计师        | 26000 | 2021-11-20 |
 ```
-
 
 #### 17. PHP print_r
 
@@ -388,7 +383,6 @@ Array
 )
 ```
 
-
 #### 18. MongoDB Shell 输出
 
 ```javascript
@@ -403,7 +397,6 @@ Array
 }
 ```
 
-
 #### 19. 转义 JSON 字符串（双编码 JSON）
 
 ```
@@ -411,7 +404,6 @@ Array
 ```
 
 > 常见于日志系统将 JSON 序列化为字符串字段、数据库导出、API 代理转发等场景。自动剥离外层引号和转义符，提取内层真实 JSON。
-
 
 #### 20. Go map 语法
 
@@ -421,9 +413,13 @@ map[string]any{"code":200,"data":nil,"ok":true}
 
 > 常见于 Go 程序调试输出、日志打印 `fmt.Printf("%#v", m)`。自动剥离 `map[K]V` 类型前缀，`nil` → `null`，转为标准 JSON。
 
+#### 更多格式持续支持中……
+
+---
+
 ### 提取优先级
 
-按以下顺序尝试解析，命中即停：
+按以下顺序依次尝试解析，命中即停：
 
 ```
 MongoDB Shell 类型转换 → 转义 JSON 剥离 → Go map 语法剥离 → JSONC 注释剥离
@@ -437,8 +433,42 @@ MongoDB Shell 类型转换 → 转义 JSON 剥离 → Go map 语法剥离 → JS
 
 1. **手动提取**：粘贴文本后点击工具栏「提取」按钮
 2. **自动提取**：开启「粘贴自动提取」开关（左侧边栏 🔍 按钮），粘贴即自动识别转换
+3. **网页一键提取**：安装浏览器插件后，选中网页文本 → 右键 → 「easyjson 智能提取」
 
-## 开发
+---
+
+## 📦 安装
+
+easy-json 提供三个版本，按需选择：
+
+### 🌐 在线使用
+
+直接访问 [easyjson.xiaofucode.com](https://easyjson.xiaofucode.com)，无需安装，即开即用。
+
+### 🔌 浏览器插件（Chrome / Edge）
+
+由于暂未上架应用商店，需手动加载：
+
+1. 下载插件压缩包并解压
+2. 打开浏览器 → `chrome://extensions/`
+3. 开启右上角「开发者模式」
+4. 点击「加载已解压的扩展程序」→ 选择解压后的目录
+5. 安装后，在网页选中文本 → 右键即可使用「easyjson 智能提取」
+
+### 🍎 Mac 客户端
+
+由于未购买 Apple 开发者证书，首次安装时系统会提示"来自身份不明的开发者"：
+
+1. 下载 `.dmg` 安装包，拖入 Applications
+2. 首次打开时若提示不受信任：`系统偏好设置 → 安全性与隐私 → 仍要打开`
+
+### 🪟 Windows 客户端
+
+下载 `.exe` 安装包，双击直接安装，无额外步骤。
+
+---
+
+## 🛠 本地开发
 
 ```bash
 # 安装依赖
@@ -451,25 +481,23 @@ npm run dev
 npm run build
 ```
 
-## Chrome 插件安装
+构建完成后，`dist/` 目录即可作为浏览器插件加载。
 
-1. 运行 `npm run build` 生成 `dist/` 目录
-2. 打开 Chrome → `chrome://extensions/`
-3. 开启「开发者模式」
-4. 点击「加载已解压的扩展程序」→ 选择 `dist/` 目录
-5. 点击插件图标即可使用，支持全屏新标签页打开
-
-## 技术栈
+## 🧰 技术栈
 
 - Vue 3 + Vite
 - lucide-vue-next（图标库）
 - Chrome Extension Manifest V3
 
+---
 
-## 交流
+## 💬 交流
 
 | ![关注公众号](https://img.shields.io/static/v1?label=wechat&message=微信公众号&logo=wechat&color=07C160)  | ![个人微信](https://img.shields.io/static/v1?label=wechat&message=个人微信&logo=wechat&color=07C160)  |
 | ---------| ------- |
-|  <img src="http://fire-blog.oss-cn-beijing.aliyuncs.com//images/20240415141903.png" style="width:15rem; height:15rem;"> |  <img src="http://fire-blog.oss-cn-beijing.aliyuncs.com//images/20240415141919.png" style="width:15rem; height:15rem;">                                                       |
-| 关注公众号：程序员小富   | 欢迎加入技术交流群，<br/><br/>或者直接搜微信号：<span style="color: #ff0606">xiaofucode</span>|
+|  <img src="http://fire-blog.oss-cn-beijing.aliyuncs.com//images/20240415141903.png" style="width:15rem; height:15rem;"> |  <img src="http://fire-blog.oss-cn-beijing.aliyuncs.com//images/20240415141919.png" style="width:15rem; height:15rem;">  |
+| 关注公众号：**程序员小富**   | 欢迎加入技术交流群，<br/><br/>或直接搜微信号：<span style="color: #ff0606">xiaofucode</span> |
 
+---
+
+如果这个工具对你有帮助，欢迎点个 ⭐ Star 支持一下！有 Bug 或建议欢迎提 Issue，也非常欢迎 PR 贡献 🙌
