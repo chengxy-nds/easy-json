@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "description": "简洁大气的专业级 JSON 格式化、验证与字段差异对比工具。支持语法错误行高亮、按 Key 排序与字符级差异高亮的双栏对比。",
   "action": {
-    "default_popup": "index.html",
     "default_icon": {
       "16":  "icons/icon-16.png",
       "32":  "icons/icon-32.png",

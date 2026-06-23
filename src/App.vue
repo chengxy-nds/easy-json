@@ -158,6 +158,9 @@ onMounted(() => {
   if (isExtract) {
     currentView.value = 'editor'
     currentTab.value = 'format'
+  } else if (isTab) {
+    // 插件图标点击（全屏标签页）→ 直接进入格式化页面
+    currentView.value = 'editor'
   } else {
     // Restore view preference (home / editor) — default to home on first launch
     const savedView = localStorage.getItem('ej_view')

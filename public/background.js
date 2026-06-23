@@ -10,6 +10,18 @@ chrome.contextMenus.create({
   contexts: ['selection']
 }, () => void chrome.runtime.lastError)
 
+// 点击插件图标 → 在新标签页全屏打开（复用已有标签页）
+chrome.action.onClicked.addListener(() => {
+  const url = chrome.runtime.getURL('index.html?mode=tab')
+  chrome.tabs.query({ url: chrome.runtime.getURL('index.html') + '*' }, (tabs) => {
+    if (tabs.length > 0) {
+      chrome.tabs.update(tabs[0].id, { active: true })
+    } else {
+      chrome.tabs.create({ url })
+    }
+  })
+})
+
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'extract-json' && info.selectionText) {
     chrome.storage.local.set({ ej_extract_text: info.selectionText }, () => {

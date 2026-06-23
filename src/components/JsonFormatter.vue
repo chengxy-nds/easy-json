@@ -2228,6 +2228,8 @@ onBeforeUnmount(() => {
   height: 28px !important;
   justify-content: center;
   box-sizing: border-box !important;
+  background: #e3e3e3;
+    box-shadow: 20px 20px 60px #c1c1c1, -20px -20px 60px #ffffff;
 }
 
 .btn-icon {

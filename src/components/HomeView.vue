@@ -7,6 +7,10 @@ import {
   Check, Plus, X, ArrowUpDown, MousePointerClick, RefreshCw
 } from 'lucide-vue-next'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
+import { useHeroParticles } from '../composables/useHeroParticles.js'
+
+const heroRef = ref(null)
+const heroParticles = useHeroParticles()
 
 const emit = defineEmits(['go-to-app'])
 
@@ -414,6 +418,11 @@ const staticTabCompareB = highlightJson('{\n  "host": "0.0.0.0",\n  "port": 8080
 
 onMounted(() => {
   handleParse(playgroundInput.value)
+  if (heroRef.value) heroParticles.mount(heroRef.value)
+})
+
+onBeforeUnmount(() => {
+  heroParticles.unmount()
 })
 </script>
 
@@ -459,7 +468,7 @@ onMounted(() => {
       <div class="home-content-wrap">
 
         <!-- ─── Hero Section ─── -->
-        <section class="hero-section animate-fade-in">
+        <section ref="heroRef" class="hero-section animate-fade-in">
           <div class="hero-badge">
             <Terminal class="badge-icon-item" />
             <span>格式化</span>
@@ -986,7 +995,7 @@ onMounted(() => {
   --nav-badge-fs: clamp(9px, 0.75vw, 12px);
   --nav-link-fs: clamp(12px, 0.95vw, 14px);
   --nav-btn-fs: clamp(11px, 0.85vw, 13px);
-  --hero-title-fs: clamp(22px, 3.5vw, 56px);
+  --hero-title-fs: clamp(20px, 3vw, 48px);
   --hero-sub-fs: clamp(14px, 1.8vw, 28px);
   --hero-desc-fs: clamp(12px, 1.1vw, 17px);
   --hero-cta-fs: clamp(10px, 0.9vw, 14px);
@@ -1048,7 +1057,8 @@ onMounted(() => {
 .dark-mode .home-content-wrap > section{}
 
 /* ═══ HERO ═══ */
-.hero-section{position:relative;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 0 64px;background-image:radial-gradient(var(--graph-dot-color) 0.5px,transparent 0);background-size:18px 18px}
+.hero-section{position:relative;width:100%;min-height:66vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 0 96px;overflow:hidden}
+.hero-section > *:not(canvas){position:relative;z-index:1}
 .hero-badge{display:inline-flex;align-items:center;gap:6px;background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);color:var(--text-secondary);font-size:12px;font-weight:500;font-family:var(--font-sans);padding:5px 16px;border-radius:99px;margin:48px 0 24px;box-shadow:var(--glass-shadow-sm)}
 .dark-mode .hero-badge{background:var(--glass-bg-dark);border-color:var(--glass-border-dark)}
 .badge-icon-item{width:13px;height:13px;color:var(--text-secondary)}
