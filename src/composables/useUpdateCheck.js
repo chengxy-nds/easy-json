@@ -3,12 +3,44 @@ import { ref, onMounted } from 'vue'
 const APP_VERSION = '1.0.0'
 
 const GITHUB_API = 'https://api.github.com/repos/chengxy-nds/easy-json/releases/latest'
-const DOWNLOAD_URL = 'https://github.com/repos/chengxy-nds/easy-json/releases/latest'
+const FALLBACK_URL = 'https://github.com/repos/chengxy-nds/easy-json/releases/latest'
+
+// 根据当前操作系统匹配对应的下载文件
+const getPlatformAsset = (assets) => {
+  if (!assets || assets.length === 0) return null
+
+  const isMac = navigator.platform.toUpperCase().includes('MAC')
+  const isWin = navigator.platform.toUpperCase().includes('WIN')
+  const isLinux = navigator.platform.toUpperCase().includes('LINUX')
+
+  let pattern
+  if (isMac) {
+    // macOS: 优先 .dmg，其次 universal
+    pattern = /\.dmg$/i
+    const dmg = assets.find(a => pattern.test(a.name))
+    return dmg || null
+  }
+  if (isWin) {
+    // Windows: 优先 .exe
+    pattern = /\.exe$/i
+    const exe = assets.find(a => pattern.test(a.name))
+    return exe || null
+  }
+  if (isLinux) {
+    // Linux: AppImage > deb > rpm
+    const appimg = assets.find(a => /\.AppImage$/i.test(a.name))
+    if (appimg) return appimg
+    const deb = assets.find(a => /\.deb$/i.test(a.name))
+    if (deb) return deb
+    return null
+  }
+  return null
+}
 
 export function useUpdateCheck() {
   const hasUpdate = ref(false)
   const latestVersion = ref('')
-  const downloadUrl = ref(DOWNLOAD_URL)
+  const downloadUrl = ref(FALLBACK_URL)
 
   const check = async () => {
     try {
@@ -22,12 +54,10 @@ export function useUpdateCheck() {
       const remote = tag.replace(/^v/, '')
       if (!remote) return
 
-      // 优先匹配 .exe 下载链接
-      const exe = release.assets?.find(a =>
-        a.name?.endsWith('.exe') || a.name?.endsWith('-setup.exe')
-      )
-      if (exe?.browser_download_url) {
-        downloadUrl.value = exe.browser_download_url
+      // 根据当前操作系统匹配对应安装包
+      const asset = getPlatformAsset(release.assets)
+      if (asset?.browser_download_url) {
+        downloadUrl.value = asset.browser_download_url
       }
 
       hasUpdate.value = compareVersions(remote, APP_VERSION) > 0
