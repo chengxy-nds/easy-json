@@ -978,13 +978,44 @@ const copyToClipboard = () => {
   })
 }
 
-// Clear input and output panel state
+// Handle editor textarea focus (auto-paste support)
 const handleTextareaFocus = async () => {
   activeScrollTarget.value = 'left'
   if (!autoPaste.value) return
   const tab = activeTab.value
   // Only auto-paste into empty input
   if (tab.inputText.trim()) return
+
+  // 1. uTools environment
+  if (window.utools && typeof window.utools.readText === 'function') {
+    try {
+      const text = window.utools.readText()
+      if (text && text.trim()) {
+        tab.inputText = text
+        showToast('已自动粘贴')
+      }
+    } catch (e) {
+      console.warn('uTools clipboard read failed:', e)
+    }
+    return
+  }
+
+  // 2. Tauri native environment
+  if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const text = await invoke('read_clipboard')
+      if (text && text.trim()) {
+        tab.inputText = text
+        showToast('已自动粘贴')
+      }
+    } catch (e) {
+      console.error('Tauri clipboard read failed:', e)
+    }
+    return
+  }
+
+  // 3. Standard Web environment
   try {
     const text = await navigator.clipboard.readText()
     if (text && text.trim()) {

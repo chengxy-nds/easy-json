@@ -17,12 +17,18 @@ fn is_installed() -> bool {
     }
 }
 
+#[tauri::command]
+fn read_clipboard() -> Result<String, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.get_text().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![is_installed])
+        .invoke_handler(tauri::generate_handler![is_installed, read_clipboard])
         .setup(|app| {
             let show_item = MenuItemBuilder::with_id("show", "显示窗口").build(app)?;
             let quit_item = MenuItemBuilder::with_id("quit", "退出").build(app)?;
