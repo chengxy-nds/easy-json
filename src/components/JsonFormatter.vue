@@ -173,6 +173,73 @@ const setHoveredPath = (path) => {
   hoveredPath.value = path
 }
 
+watch(hoveredPath, (newPath) => {
+  const container = inputHighlightRef.value
+  if (!container) return
+  
+  // 1. Remove highlight class from all elements
+  const prevHighlight = container.querySelectorAll('.line-highlight-hover')
+  prevHighlight.forEach(el => el.classList.remove('line-highlight-hover'))
+  
+  // Only highlight if we are in graph or table view mode
+  const currentMode = activeTab.value?.viewMode
+  if (currentMode !== 'graph' && currentMode !== 'table') {
+    return
+  }
+  
+  // Only highlight if hover is driven by the right-side panel
+  if (activeScrollTarget.value !== 'right') {
+    return
+  }
+  
+  // 2. Add highlight class to matching elements
+  if (newPath && newPath.length > 0) {
+    const pathStr = JSON.stringify(newPath)
+    const elements = container.querySelectorAll('[data-path]')
+    for (const el of elements) {
+      if (el.getAttribute('data-path') === pathStr) {
+        el.classList.add('line-highlight-hover')
+        break
+      }
+    }
+  }
+})
+
+const handlePathClick = (path) => {
+  if (!path) return
+  
+  const highlightContainer = inputHighlightRef.value
+  if (!highlightContainer) return
+  
+  const elements = highlightContainer.querySelectorAll('[data-path]')
+  let targetEl = null
+  const pathStr = JSON.stringify(path)
+  
+  for (const el of elements) {
+    const attr = el.getAttribute('data-path')
+    if (attr === pathStr) {
+      targetEl = el
+      break
+    }
+  }
+  
+  if (targetEl) {
+    const offsetTop = targetEl.offsetTop
+    if (textareaRef.value) {
+      textareaRef.value.scrollTo({
+        top: offsetTop - 100,
+        behavior: 'smooth'
+      })
+    }
+    
+    // Add clicked highlight blink animation
+    targetEl.classList.add('line-highlight-blink')
+    setTimeout(() => {
+      targetEl.classList.remove('line-highlight-blink')
+    }, 1500)
+  }
+}
+
 const DEMO_JSON = `{
   "name": "easyJSON",
   "version": "1.0.0",
@@ -1556,8 +1623,15 @@ const wrapLinesWithHighlight = (html, errorLine, dupLines) => {
     const lineNum = index + 1
     const isError = errorLine === lineNum
     const isDup = setDups.has(lineNum)
+    
+    let pathAttr = ''
+    const match = line.match(/data-path="([^"]+)"/)
+    if (match) {
+      pathAttr = ` data-path="${match[1]}"`
+    }
+    
     const cls = isError ? 'editor-line has-error' : isDup ? 'editor-line has-duplicate' : 'editor-line'
-    return `<div class="${cls}">${line || ' '}</div>`
+    return `<div class="${cls}"${pathAttr}>${line || ' '}</div>`
   })
   return mapped.join('')
 }
@@ -2487,6 +2561,9 @@ onBeforeUnmount(() => {
               :parsedObj="activeTab.parsedObj"
               :hoveredPath="hoveredPath"
               @hover-path="setHoveredPath"
+              @click-path="handlePathClick"
+              @mouseenter="activeScrollTarget = 'right'"
+              @touchstart="activeScrollTarget = 'right'"
               key="graph"
             />
 
@@ -2496,6 +2573,8 @@ onBeforeUnmount(() => {
               :data="activeTab.parsedObj"
               :hoveredPath="hoveredPath"
               @hover-path="setHoveredPath"
+              @mouseenter="activeScrollTarget = 'right'"
+              @touchstart="activeScrollTarget = 'right'"
               key="table"
             />
           </Transition>
@@ -3092,12 +3171,13 @@ onBeforeUnmount(() => {
   opacity: 0.4;
 }
 
-/* Hover style in highlight pre */
+/* Hover style in highlight pre
 :deep(.editor-highlight [data-path].is-hovered) {
   background-color: var(--json-hover-bg);
   border-radius: 6px;
   box-shadow: 0 0 0 2px var(--json-hover-bg);
 }
+*/
 
 
 

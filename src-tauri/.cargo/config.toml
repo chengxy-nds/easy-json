@@ -1,0 +1,6 @@
+# [target.x86_64-pc-windows-gnu]
+# linker = "rust-lld"
+# rustflags = ["-C", "link-arg=-flavor", "-C", "link-arg=gnu"]
+# 
+# [unstable]
+# # 让 rust-lld 直接链接，跳过 dlltool 生成 import lib

@@ -18,15 +18,19 @@ const props = defineProps({
   hoveredPath: { type: Array, default: null }
 })
 
-const emit = defineEmits(['hover-path'])
+const emit = defineEmits(['hover-path', 'click-path'])
+
+const emitClick = (path) => {
+  emit('click-path', path)
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const CARD_ROW_H  = 26   // height of each row inside a card
-const CARD_PAD    = 10   // vertical padding inside card
+const CARD_ROW_H  = 18.8 // height of each row inside a card
+const CARD_PAD    = 6    // vertical padding inside card
 const CARD_KEY_W  = 130  // card key column width
 const CARD_VAL_W  = 200  // card value column width
-const CARD_GAP    = 22   // vertical gap between cards
-const BULLET_R    = 4.5  // bullet circle radius
+const CARD_GAP    = 12   // vertical gap between cards
+const BULLET_R    = 3.5  // bullet circle radius
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const isPrimitive = (v) => v === null || typeof v !== 'object'
@@ -42,8 +46,16 @@ const getPreview = (v) => {
   if (v === null) return 'null'
   if (Array.isArray(v)) return `[${v.length}]`
   if (typeof v === 'object') return `{${Object.keys(v).length}}`
-  if (typeof v === 'string') return v.length > 30 ? v.slice(0, 30) + '…' : v
+  if (typeof v === 'string') return v.length > 90 ? `"${v.slice(0, 90)}…"` : `"${v}"`
   if (typeof v === 'boolean') return v ? 'true' : 'false'
+  return String(v)
+}
+
+const getTooltipText = (v) => {
+  if (v === null) return 'null'
+  if (typeof v === 'object') {
+    return JSON.stringify(v, null, 2)
+  }
   return String(v)
 }
 
@@ -66,9 +78,10 @@ const layout = computed(() => {
   if (obj === null || typeof obj !== 'object') return null
 
   const nodesMap = new Map()
+  const maxColWidths = []
 
   // 1. Recursive function to construct nodes tree
-  const buildTreeNodes = (currentObj, path = [], key = "", parentId = null, parentRowIdx = null) => {
+  const buildTreeNodes = (currentObj, path = [], key = "", parentId = null, parentRowIdx = null, depth = 0) => {
     const isArray = Array.isArray(currentObj)
     const entries = isArray
       ? currentObj.map((v, i) => [String(i), v])
@@ -92,8 +105,23 @@ const layout = computed(() => {
       }
     })
 
+    // Calculate dynamic width based on content character lengths
+    let maxKLen = 0
+    let maxPLen = 0
+    cardEntries.forEach(e => {
+      if (e.key.length > maxKLen) maxKLen = e.key.length
+      if (e.preview.length > maxPLen) maxPLen = e.preview.length
+    })
+
+    const keyW = isArray ? Math.max(20, maxKLen * 6 + 4) : Math.max(100, Math.min(600, maxKLen * 8 + 16))
+    const valW = isArray ? Math.max(30, maxPLen * 6 + 4) : Math.max(60, Math.min(600, maxPLen * 8 + 16))
+    const width = isArray ? Math.max(75, keyW + valW + 16) : Math.max(140, keyW + valW + 32)
     const height = CARD_PAD * 2 + Math.max(cardEntries.length, 1) * CARD_ROW_H
-    const width = CARD_KEY_W + CARD_VAL_W
+
+    // Track max width for this depth level
+    if (!maxColWidths[depth] || width > maxColWidths[depth]) {
+      maxColWidths[depth] = width
+    }
 
     const node = {
       id: nodeId,
@@ -105,8 +133,10 @@ const layout = computed(() => {
       entries: cardEntries,
       width,
       height,
+      depth,
       x: 0,
       y: 0,
+      keyW,
       childrenIds: cardEntries.filter(e => e.isComplex).map(e => e.childNodeId)
     }
 
@@ -116,7 +146,7 @@ const layout = computed(() => {
     cardEntries.forEach(entry => {
       if (entry.isComplex) {
         const childPath = [...path, isArray ? Number(entry.key) : entry.key]
-        buildTreeNodes(entry.value, childPath, entry.key, nodeId, entry.rowIdx)
+        buildTreeNodes(entry.value, childPath, entry.key, nodeId, entry.rowIdx, depth + 1)
       }
     })
 
@@ -125,7 +155,7 @@ const layout = computed(() => {
 
   // Build the root tree
   const rootId = JSON.stringify([])
-  buildTreeNodes(obj, [], "")
+  buildTreeNodes(obj, [], "", null, null, 0)
 
   // 2. Compute vertical footprint of each subtree (post-order height calculation)
   const subtreeHeights = new Map()
@@ -157,7 +187,12 @@ const layout = computed(() => {
     const node = nodesMap.get(nodeId)
     if (!node) return
 
-    node.x = depth * (node.width + 120) // X position based on depth step
+    // Calculate x coordinate by summing up max widths of previous columns
+    let x = 0
+    for (let i = 0; i < depth; i++) {
+      x += (maxColWidths[i] || 330) + 90
+    }
+    node.x = x
 
     const nodeSubtreeH = subtreeHeights.get(nodeId)
 
@@ -166,8 +201,8 @@ const layout = computed(() => {
       return
     }
 
-    // Center parent relative to subtree height span
-    node.y = startY + (nodeSubtreeH - node.height) / 2
+    // Align parent to the top of the subtree
+    node.y = startY
 
     // Center children relative to parent if parent card is taller
     let currentChildY = startY
@@ -259,11 +294,21 @@ const doPan = (e) => {
 }
 const stopPan = () => { isPanning.value = false }
 
+const wheelMode = ref('scroll') // 'zoom' or 'scroll'
+const toggleWheelMode = () => {
+  wheelMode.value = wheelMode.value === 'zoom' ? 'scroll' : 'zoom'
+}
+
 const doZoom = (e) => {
   e.preventDefault()
-  // Smooth zoom speed (slower factor)
-  const factor = e.deltaY < 0 ? 1.04 : 0.96
-  scale.value = Math.min(3, Math.max(0.1, scale.value * factor))
+  if (wheelMode.value === 'zoom') {
+    // Smooth zoom speed (slower factor)
+    const factor = e.deltaY < 0 ? 1.04 : 0.96
+    scale.value = Math.min(3, Math.max(0.1, scale.value * factor))
+  } else {
+    // Scroll vertically
+    ty.value -= e.deltaY * 0.8
+  }
 }
 
 const zoomIn  = () => { scale.value = Math.min(3,    scale.value * 1.08) }
@@ -274,13 +319,19 @@ const fitToScreen = () => {
   const { wsW, wsH } = layout.value
   const cw = containerRef.value.clientWidth
   const ch = containerRef.value.clientHeight
-  const s = Math.min(cw / (wsW + 40), ch / (wsH + 40), 1)
+  
+  // Multiply by 0.9 to make the fit slightly smaller/spaced
+  let s = Math.min(cw / (wsW + 40), ch / (wsH + 40)) * 0.9
+  // Keep it bounded so it doesn't get too large or too small
+  s = Math.min(Math.max(s, 1.0), 1.25)
+  
   scale.value = s
-  tx.value = (cw - wsW * s) / 2
-  ty.value = (ch - wsH * s) / 2
+  // Shift the entire graph slightly to the top-left (using 0.2 factor instead of 0.5 centering)
+  tx.value = Math.max(40, (cw - wsW * s) * 0.2)
+  ty.value = Math.max(40, (ch - wsH * s) * 0.2)
 }
 
-const resetView = () => { tx.value = 60; ty.value = 60; scale.value = 1 }
+const resetView = () => { tx.value = 60; ty.value = 60; scale.value = 1.1 }
 
 onMounted(fitToScreen)
 watch(() => props.parsedObj, fitToScreen)
@@ -296,9 +347,13 @@ const isPathHovered = (path) => {
 }
 
 const isCardHovered = (node) => {
-  if (!props.hoveredPath || props.hoveredPath.length === 0) return false
-  if (node.path.length !== props.hoveredPath.length - 1) return false
-  return node.path.every((v, i) => v === props.hoveredPath[i])
+  if (!props.hoveredPath) return false
+  const lenH = props.hoveredPath.length
+  const lenN = node.path.length
+  if (lenH === lenN || lenH === lenN + 1) {
+    return node.path.every((v, i) => v === props.hoveredPath[i])
+  }
+  return false
 }
 
 const isCurveHovered = (curve) => {
@@ -394,19 +449,22 @@ const graphViewStyle = computed(() => {
           top:  node.y + 'px',
           width: node.width + 'px'
         }"
+        @click="emitClick(node.path)"
       >
         <div
           v-for="entry in node.entries"
           :key="entry.key"
           class="card-row"
-          :class="{ 'is-hovered': isPathHovered(getEntryPath(node, entry)) }"
+          :class="{ 'is-hovered': isPathHovered(getEntryPath(node, entry)), 'card-row--array': node.isArray }"
           :style="{ height: CARD_ROW_H + 'px' }"
           @mouseenter="emitHover(getEntryPath(node, entry))"
           @mouseleave="emitHover(null)"
+          @click.stop="emitClick(getEntryPath(node, entry))"
         >
-          <span class="card-key node-key" :class="{ 'card-key--index': node.isArray, 'root-key--complex': entry.isComplex }" v-html="highlightText(entry.key, searchQuery)">
+          <span class="card-key node-key" :title="entry.key" :class="{ 'card-key--index': node.isArray, 'root-key--complex': entry.isComplex }" :style="node.isArray ? {} : { width: node.keyW + 'px', minWidth: node.keyW + 'px', maxWidth: node.keyW + 'px' }" v-html="highlightText(entry.key, searchQuery)">
           </span>
-          <span class="card-val" :class="[getValueColorClass(entry.valueType), `cval-${entry.valueType}`]" v-html="highlightText(entry.preview, searchQuery)">
+          <span class="card-val" :title="getTooltipText(entry.value)">
+            <span class="val-text" :class="[getValueColorClass(entry.valueType), `cval-${entry.valueType}`, entry.valueType === 'boolean' ? (entry.value ? 'cval-boolean-true' : 'cval-boolean-false') : '']" v-html="highlightText(entry.preview, searchQuery)"></span>
           </span>
         </div>
       </div>
@@ -417,7 +475,9 @@ const graphViewStyle = computed(() => {
       <button class="ctrl-btn" @click.stop="zoomIn"     title="放大">＋</button>
       <button class="ctrl-btn" @click.stop="zoomOut"    title="缩小">－</button>
       <button class="ctrl-btn" @click.stop="fitToScreen" title="适应屏幕">⊡</button>
-      <button class="ctrl-btn" @click.stop="resetView"  title="重置视图">⟳</button>
+      <button class="ctrl-btn" @click.stop="toggleWheelMode" :title="wheelMode === 'zoom' ? '当前模式: 滚轮缩放 (点击切换为滚动)' : '当前模式: 滚轮滚动 (点击切换为缩放)'">
+        {{ wheelMode === 'zoom' ? '🔍' : '↕' }}
+      </button>
     </div>
 
     <!-- Watermark -->
@@ -435,7 +495,7 @@ const graphViewStyle = computed(() => {
   user-select: none;
   background-color: var(--bg-panel);
   background-image: radial-gradient(var(--graph-dot-color) 0.8px, transparent 0);
-  background-size: 16px 16px;
+  background-size: 14px 14px;
 }
 .graph-view.panning { cursor: grabbing; }
 
@@ -467,14 +527,14 @@ const graphViewStyle = computed(() => {
   position: absolute;
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  /* border-radius: 4px; */
+  /* box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02); */
   overflow: hidden;
 }
 
 /* ── Root node special styling ── */
 .root-node {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
 }
 
 .card-row {
@@ -482,9 +542,14 @@ const graphViewStyle = computed(() => {
   align-items: center;
   padding: 0 12px;
   gap: 8px;
-  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  /* border-bottom: 1px solid var(--border-color); */
 }
 .card-row:last-child { border-bottom: none; }
+.card-row--array {
+  padding: 0 6px !important;
+  gap: 4px !important;
+}
 
 .card-key {
   font-family: var(--font-mono);
@@ -496,8 +561,20 @@ const graphViewStyle = computed(() => {
   text-overflow: ellipsis;
 }
 .card-key--index {
-  color: var(--json-number);
-  font-weight: 600;
+  color: #0000004d;
+  font-weight: normal;
+  min-width: auto !important;
+}
+.dark-mode .card-key--index {
+  color: rgba(255, 255, 255, 0.3);
+}
+.card-row--array .card-key,
+.card-row--array .val-text {
+  color: #0000004d !important;
+}
+.dark-mode .card-row--array .card-key,
+.dark-mode .card-row--array .val-text {
+  color: rgba(255, 255, 255, 0.3) !important;
 }
 .root-key--complex {
   font-weight: 600;
@@ -512,10 +589,45 @@ const graphViewStyle = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.val-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  line-height: 1.2;
+}
 .cval-string  { color: var(--json-string); }
-.cval-number  { color: var(--json-number); }
-.cval-boolean { color: var(--json-boolean); }
-.cval-null    { color: var(--json-null); font-style: italic; }
+.cval-number  { color: var(--json-number); font-weight: 600; }
+.cval-boolean {
+  font-weight: 600;
+}
+.cval-boolean-true {
+  color: #16a34a;
+}
+.dark-mode .cval-boolean-true {
+  color: #4ade80;
+}
+.cval-boolean-false {
+  color: #dc2626;
+}
+.dark-mode .cval-boolean-false {
+  color: #fca5a5;
+}
+.cval-null {
+  color: var(--json-null);
+  font-style: italic;
+  font-weight: 500;
+}
+.cval-array {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.cval-object {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
 
 /* ── Controls ── */
 .graph-controls {
@@ -552,7 +664,10 @@ const graphViewStyle = computed(() => {
   transition: background-color 0.15s ease;
 }
 .card-row.is-hovered {
-  background-color: var(--json-hover-bg);
+  background-color: rgba(249, 115, 22, 0.12);
+}
+.dark-mode .card-row.is-hovered {
+  background-color: rgba(249, 115, 22, 0.22);
 }
 
 .graph-edge {
@@ -577,7 +692,7 @@ const graphViewStyle = computed(() => {
 }
 .graph-node.is-hovered {
   border-color: var(--json-key);
-  box-shadow: 0 0 10px var(--json-hover-bg);
+  /* box-shadow: 0 0 10px var(--json-hover-bg); */
 }
 
 /* ── Watermark ── */

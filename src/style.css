@@ -36,7 +36,7 @@
   --success-text: #16a34a;
 
   --grid-line-color: rgba(0, 0, 0, 0.04);
-  --graph-dot-color: rgba(0, 0, 0, 0.22);
+  --graph-dot-color: rgba(0, 0, 0, 0.18);
 
   --font-sans: "Inter Display SemiBold", "Inter Display SemiBold Placeholder", sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code',
@@ -1508,3 +1508,22 @@ mark.search-match-current {
   opacity: 1;
   transform: translate(0, -50%);
 }
+
+/* Click-to-highlight line blink animation */
+@keyframes lineBlink {
+  0% { background-color: rgba(249, 115, 22, 0.45); }
+  100% { background-color: transparent; }
+}
+
+.line-highlight-blink {
+  animation: lineBlink 1.5s ease-out !important;
+}
+
+/* Hover-to-highlight line style */
+.editor-line.line-highlight-hover {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+  box-shadow: inset 2.5px 0 0 #f97316 !important;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+

@@ -5,4 +5,13 @@ import vue from '@vitejs/plugin-vue'
 export default defineConfig({
   base: './',
   plugins: [vue()],
+  build: {
+    rollupOptions: {
+      onLog(level, log, handler) {
+        // 屏蔽 @vueuse/core 的 PURE annotation 无害警告
+        if (log.code === 'INVALID_ANNOTATION' && log.message?.includes('@vueuse')) return
+        handler(level, log)
+      }
+    }
+  },
 })
