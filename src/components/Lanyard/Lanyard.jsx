@@ -144,44 +144,23 @@ function Band({
       const rh = rect.h * H
 
       if (isFront) {
-        // Silver gray card background (#a4a4a4)
-        ctx.fillStyle = '#d1d1d1ff'
+        // ① 纯白背景铺满整个正面
+        ctx.fillStyle = '#eaeaeaff'
         ctx.fillRect(rx, ry, rw, rh)
 
-        // Subtle silver accent border around card perimeter
-        ctx.save()
-        ctx.strokeStyle = 'rgba(193, 193, 193, 0.18)'
-        ctx.lineWidth = 8
-        ctx.strokeRect(rx + 4, ry + 4, rw - 8, rh - 8)
-        ctx.restore()
-
-        // Clean white inner badge box for QR code readability
-        const padX = rw * 0.08
-        const padY = rh * 0.08
-        const frw = rw - padX * 2
-        const frh = rh - padY * 2
-
-        ctx.save()
-        ctx.fillStyle = '#ffffff'
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)'
-        ctx.shadowBlur = 24
-        ctx.shadowOffsetY = 4
-        ctx.fillRect(rx + padX, ry + padY, frw, frh)
-        ctx.restore()
-
-        const scale = Math.min(frw / img.width, frh / img.height)
+        // ② 图片 contain 填满整个正面区域，不再二次缩小
+        const scale = Math.min(rw / img.width, rh / img.height)
         const dw = img.width * scale
         const dh = img.height * scale
-        const dx = rx + padX + (frw - dw) / 2
-        const dy = ry + padY + (frh - dh) / 2
+        const dx = rx + (rw - dw) / 2
+        const dy = ry + (rh - dh) / 2
 
         ctx.save()
         ctx.beginPath()
-        ctx.rect(rx + padX, ry + padY, frw, frh)
+        ctx.rect(rx, ry, rw, rh)
         ctx.clip()
         ctx.imageSmoothingEnabled = true
         ctx.imageSmoothingQuality = 'high'
-        ctx.filter = 'contrast(1.15) saturate(1.1)'
         ctx.drawImage(img, dx, dy, dw, dh)
         ctx.restore()
       } else {
@@ -299,10 +278,9 @@ function Band({
               <meshPhysicalMaterial
                 map={cardMap}
                 map-anisotropy={16}
-                clearcoat={isMobile ? 0 : 1}
-                clearcoatRoughness={0.15}
-                roughness={0.25}
-                metalness={0.2}
+                clearcoat={0}
+                roughness={0.05}
+                metalness={0}
               />
             </mesh>
             <mesh geometry={nodes.clip.geometry} material={materials.metal} material-roughness={0.3} />
