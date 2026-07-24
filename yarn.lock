@@ -91,7 +91,7 @@
     utility-types "^3.11.0"
     zustand "^5.0.1"
 
-"@react-three/fiber@^9.6.1":
+"@react-three/fiber@^9.0.0", "@react-three/fiber@^9.0.4", "@react-three/fiber@^9.6.1":
   version "9.6.1"
   resolved "https://registry.npmjs.org/@react-three/fiber/-/fiber-9.6.1.tgz"
   integrity sha512-zF0rsKcVYpcJwbFEnv2HkHX9cvOEgsfQo/X8lwmR2dn13S4qEQJXir9fxf5js2LQFoXqxOY7MDkOkYx2uZ4gSg==
@@ -116,10 +116,10 @@
     suspend-react "^0.1.3"
     three-stdlib "^2.35.12"
 
-"@rolldown/binding-win32-x64-msvc@1.0.3":
+"@rolldown/binding-darwin-arm64@1.0.3":
   version "1.0.3"
-  resolved "https://mirrors.huaweicloud.com/repository/npm/@rolldown/binding-win32-x64-msvc/-/binding-win32-x64-msvc-1.0.3.tgz"
-  integrity sha512-eXB7CHuaQdqmJcc3koCNtNPmT/bj2gc999kUFgBxG8Ac0NdgXc4rkCHhqrgrhN3zddvvvrgzj1e90SuSfmyIXA==
+  resolved "https://mirrors.huaweicloud.com/repository/npm/@rolldown/binding-darwin-arm64/-/binding-darwin-arm64-1.0.3.tgz"
+  integrity sha512-PcAhP+ynjURNyy8SKGl5DQP94aGuB/7JrXJb/t7P+hanXvQVMWzUvRRhBAcg/lNRadBhoUPqSoP4xw5tR/KBEA==
 
 "@rolldown/pluginutils@^1.0.0", "@rolldown/pluginutils@^1.0.1":
   version "1.0.1"
@@ -131,10 +131,10 @@
   resolved "https://registry.npmjs.org/@tauri-apps/api/-/api-2.11.1.tgz"
   integrity sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==
 
-"@tauri-apps/cli-win32-x64-msvc@2.11.3":
+"@tauri-apps/cli-darwin-arm64@2.11.3":
   version "2.11.3"
-  resolved "https://registry.npmjs.org/@tauri-apps/cli-win32-x64-msvc/-/cli-win32-x64-msvc-2.11.3.tgz"
-  integrity sha512-GlciF75GdbseajOyib2aCHwE3BXIqZ1liGKWLFRvCdN5wm8h8hFssEVKQ/6E+2jsMLg9v7LCTb983YFnn0QSww==
+  resolved "https://registry.npmjs.org/@tauri-apps/cli-darwin-arm64/-/cli-darwin-arm64-2.11.3.tgz"
+  integrity sha512-BxpaM8bsCoXs3wd4WKYhas/G1gs7+r7B+e4WnyRk2GEoVOouJB1hoL6E6YLXZDXbYci6VFdrNnobQwd2uVL4ew==
 
 "@tauri-apps/cli@^2.11.3":
   version "2.11.3"
@@ -173,12 +173,19 @@
   resolved "https://registry.npmjs.org/@types/react-reconciler/-/react-reconciler-0.28.9.tgz"
   integrity sha512-HHM3nxyUZ3zAylX8ZEyrDNd2XZOnQ0D5XfunJF5FLQnZbHHYq4UWvW1QfelQNXv1ICNkwYhfxjwfnqivYB6bFg==
 
+"@types/react@*", "@types/react@>=16.8", "@types/react@>=18.0.0":
+  version "19.2.17"
+  resolved "https://mirrors.huaweicloud.com/repository/npm/@types/react/-/react-19.2.17.tgz"
+  integrity sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw==
+  dependencies:
+    csstype "^3.2.2"
+
 "@types/stats.js@*":
   version "0.17.4"
   resolved "https://registry.npmjs.org/@types/stats.js/-/stats.js-0.17.4.tgz"
   integrity sha512-jIBvWWShCvlBqBNIZt0KAshWpvSjhkwkEu4ZUcASoAvhmrgAUI2t1dXrjSL4xXVLB4FznPrIsX3nKXFl/Dt4vA==
 
-"@types/three@*":
+"@types/three@*", "@types/three@>=0.134.0":
   version "0.185.1"
   resolved "https://registry.npmjs.org/@types/three/-/three-0.185.1.tgz"
   integrity sha512-db1xTb+EgYF2didW+eudSvVPtn75zo+fGsY8ShQrJY/B5ZBmC2Fiaykv3aImHAlCNEGuMPkPGXBJGLwzu5mC7A==
@@ -389,7 +396,7 @@ cross-spawn@^7.0.1:
     shebang-command "^2.0.0"
     which "^2.0.1"
 
-csstype@^3.2.3:
+csstype@^3.2.2, csstype@^3.2.3:
   version "3.2.3"
   resolved "https://mirrors.huaweicloud.com/repository/npm/csstype/-/csstype-3.2.3.tgz"
   integrity sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==
@@ -441,6 +448,11 @@ fflate@~0.8.2:
   resolved "https://registry.npmjs.org/fflate/-/fflate-0.8.3.tgz"
   integrity sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA==
 
+fsevents@~2.3.3:
+  version "2.3.3"
+  resolved "https://mirrors.huaweicloud.com/repository/npm/fsevents/-/fsevents-2.3.3.tgz"
+  integrity sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==
+
 glsl-noise@^0.0.0:
   version "0.0.0"
   resolved "https://registry.npmjs.org/glsl-noise/-/glsl-noise-0.0.0.tgz"
@@ -485,10 +497,10 @@ lie@^3.0.2:
   dependencies:
     immediate "~3.0.5"
 
-lightningcss-win32-x64-msvc@1.32.0:
+lightningcss-darwin-arm64@1.32.0:
   version "1.32.0"
-  resolved "https://mirrors.huaweicloud.com/repository/npm/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.32.0.tgz"
-  integrity sha512-Amq9B/SoZYdDi1kFrojnoqPLxYhQ4Wo5XiL8EVJrVsB8ARoC1PWW6VGtT0WKCemjy8aC+louJnjS7U18x3b06Q==
+  resolved "https://mirrors.huaweicloud.com/repository/npm/lightningcss-darwin-arm64/-/lightningcss-darwin-arm64-1.32.0.tgz"
+  integrity sha512-RzeG9Ju5bag2Bv1/lwlVJvBE3q6TtXskdZLLCyfg5pt+HLz9BqlICO7LZM7VHNTTn/5PRhHFBSjk5lc4cmscPQ==
 
 lightningcss@^1.32.0:
   version "1.32.0"
@@ -531,7 +543,7 @@ marked-highlight@^2.2.4:
   resolved "https://registry.npmjs.org/marked-highlight/-/marked-highlight-2.2.4.tgz"
   integrity sha512-PZxisNMJDduSjc0q6uvjsnqqHCXc9s0eyzxDO9sB1eNGJnd/H1/Fu+z6g/liC1dfJdFW4SftMwMlLvsBhUPrqQ==
 
-marked@^18.0.4:
+marked@^18.0.4, "marked@>=4 <19":
   version "18.0.6"
   resolved "https://registry.npmjs.org/marked/-/marked-18.0.6.tgz"
   integrity sha512-MrV5puXBfuiy6wl6DLaq3BtIJQAJToAd5zt/ZKhRfGRAuFPALE7/4Y7jnxRQoEgK/pBgurGqLyAuRgZ2xOjr6w==
@@ -561,7 +573,7 @@ picocolors@^1.1.1:
   resolved "https://mirrors.huaweicloud.com/repository/npm/picocolors/-/picocolors-1.1.1.tgz"
   integrity sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==
 
-picomatch@^4.0.4:
+"picomatch@^3 || ^4", picomatch@^4.0.4:
   version "4.0.4"
   resolved "https://mirrors.huaweicloud.com/repository/npm/picomatch/-/picomatch-4.0.4.tgz"
   integrity sha512-QP88BAKvMam/3NxH6vj2o21R6MjxZUAd6nlwAS/pnGvN9IVLocLHxGYIzFhg6fUQ+5th6P4dv4eW9jX3DSIj7A==
@@ -588,7 +600,7 @@ promise-worker-transferable@^1.0.4:
     is-promise "^2.1.0"
     lie "^3.0.2"
 
-react-dom@^19.2.8:
+react-dom@^19, react-dom@^19.2.8, react-dom@>=16.13, "react-dom@>=19 <19.3":
   version "19.2.8"
   resolved "https://registry.npmjs.org/react-dom/-/react-dom-19.2.8.tgz"
   integrity sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==
@@ -600,7 +612,7 @@ react-use-measure@^2.1.7:
   resolved "https://registry.npmjs.org/react-use-measure/-/react-use-measure-2.1.7.tgz"
   integrity sha512-KrvcAo13I/60HpwGO5jpW7E9DfusKyLPLvuHlUyP5zqnmAPhNc6qTRjUQrdTADl0lpPpDVU2/Gg51UlOGHXbdg==
 
-react@^19.2.8:
+"react@^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", react@^19, react@^19.0.0, react@^19.2.8, "react@>= 16.8.0", react@>=16.13, react@>=16.8, react@>=17.0, react@>=18.0.0, "react@>=19 <19.3":
   version "19.2.8"
   resolved "https://registry.npmjs.org/react/-/react-19.2.8.tgz"
   integrity sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==
@@ -701,7 +713,7 @@ three@^0.170.0:
   resolved "https://registry.npmjs.org/three/-/three-0.170.0.tgz"
   integrity sha512-FQK+LEpYc0fBD+J8g6oSEyyNzjp+Q7Ks1C568WWaoMRLW+TkNNWmenWeGgJjV105Gd+p/2ql1ZcjYvNiPZBhuQ==
 
-three@^0.185.1:
+three@^0.185.1, "three@>= 0.159.0", three@>=0.125.0, three@>=0.126.1, three@>=0.128.0, three@>=0.134.0, three@>=0.137, three@>=0.156, three@>=0.159, three@>=0.159.0:
   version "0.185.1"
   resolved "https://registry.npmjs.org/three/-/three-0.185.1.tgz"
   integrity sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==
@@ -741,7 +753,7 @@ tunnel-rat@^0.1.2:
   dependencies:
     zustand "^4.3.2"
 
-use-sync-external-store@^1.2.2, use-sync-external-store@^1.4.0:
+use-sync-external-store@^1.2.2, use-sync-external-store@^1.4.0, use-sync-external-store@>=1.2.0:
   version "1.6.0"
   resolved "https://registry.npmjs.org/use-sync-external-store/-/use-sync-external-store-1.6.0.tgz"
   integrity sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==
@@ -751,7 +763,7 @@ utility-types@^3.11.0:
   resolved "https://registry.npmjs.org/utility-types/-/utility-types-3.11.0.tgz"
   integrity sha512-6Z7Ma2aVEWisaL6TvBCy7P8rm2LQoPv6dJ7ecIaIixHcwfbJ0x7mWdbcwlIM5IGQxPZSFYeqRCqlOOeKoJYMkw==
 
-vite@^8.0.12:
+"vite@^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0", vite@^8.0.0, vite@^8.0.12:
   version "8.0.16"
   resolved "https://mirrors.huaweicloud.com/repository/npm/vite/-/vite-8.0.16.tgz"
   integrity sha512-h9bXPmJichP5fLmVQo3PyaGSDE2n3aPuomeAlVRm0JLmt4rY6zmPKd59HYI4LNW8oTK7tlTsuC7l/m7awx9Jcw==
@@ -764,7 +776,7 @@ vite@^8.0.12:
   optionalDependencies:
     fsevents "~2.3.3"
 
-vue@^3.5.34, vue@^3.5.35:
+vue@^3.2.25, vue@^3.5.0, vue@^3.5.34, vue@^3.5.35, vue@>=3.0.1, vue@3.5.35:
   version "3.5.35"
   resolved "https://mirrors.huaweicloud.com/repository/npm/vue/-/vue-3.5.35.tgz"
   integrity sha512-cx89fnr+0kVGHiNFG6y6s0bdjypJRFNZn6x3WPstNdQR1bi1mbB7h4v5IBGTsPJU3nK1+0Iqj3Zf+hZWMieR4Q==

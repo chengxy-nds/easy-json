@@ -901,7 +901,7 @@ watch(
     formatJSON()
     saveFormatterState()
     // Sync textareaValue when inputText changes from external sources (not from user editing)
-    if (isTextareaFocused.value && activeTab.value) {
+    if (!isTextareaFocused.value && activeTab.value) {
       textareaValue.value = activeTab.value.inputText
     }
   }
@@ -1905,6 +1905,7 @@ const handleEscape = () => {
       tab.parsedObj = null
       tab.validationError = null
       tab.errorLine = null
+      textareaValue.value = tab.inputText
       showToast('转义成功')
       autoCopyResult(tab.inputText)
     } catch (err) {
@@ -1917,6 +1918,7 @@ const handleEscape = () => {
         tab.parsedObj = null
         tab.validationError = null
         tab.errorLine = null
+        textareaValue.value = tab.inputText
         showToast('转义成功')
         autoCopyResult(tab.inputText)
       } catch (e2) {
@@ -1925,12 +1927,13 @@ const handleEscape = () => {
         tab.parsedObj = null
         tab.validationError = null
         tab.errorLine = null
+        textareaValue.value = tab.inputText
         showToast('转义成功')
         autoCopyResult(tab.inputText)
       }
     }
   } finally {
-    formatGuard = false
+    nextTick(() => { formatGuard = false })
   }
   saveFormatterState()
 }
@@ -2027,6 +2030,7 @@ const handleUnescape = () => {
       tab.parsedObj = null
       tab.validationError = null
       tab.errorLine = null
+      textareaValue.value = tab.inputText
       showToast('去转义成功')
       autoCopyResult(tab.inputText)
       saveFormatterState()
@@ -2047,12 +2051,13 @@ const handleUnescape = () => {
     tab.parsedObj = null
     tab.validationError = null
     tab.errorLine = null
+    textareaValue.value = tab.inputText
     showToast('去转义成功')
     autoCopyResult(tab.inputText)
   } catch (err) {
     tab.validationError = `去转义失败: ${err.message}`
   } finally {
-    formatGuard = false
+    nextTick(() => { formatGuard = false })
     saveFormatterState()
   }
 }
