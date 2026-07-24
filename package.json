@@ -16,14 +16,22 @@
     "build:plugin": "vite build --outDir easyjson-plugin"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@react-three/rapier": "^2.2.0",
     "@waline/client": "^3.15.2",
     "diff": "^9.0.0",
     "lucide-vue-next": "^1.0.0",
+    "meshline": "^3.3.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "three": "^0.185.1",
     "vue": "^3.5.34"
   },
   "devDependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/cli": "^2.11.3",
+    "@vitejs/plugin-react": "^6.0.4",
     "@vitejs/plugin-vue": "^6.0.6",
     "vite": "^8.0.12"
   }

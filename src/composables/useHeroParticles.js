@@ -230,8 +230,10 @@ export function useHeroParticles() {
 
     const scaleY = (height * 0.73) / 300
     const scaleX = scaleY * 1.55
-    const leftXOffset = width * 0.165 - 50 * scaleX
-    const rightXOffset = width * 0.835 - 50 * scaleX
+    const centerX = width / 2
+    const braceOffset = Math.min(width * 0.28, 410 * dpr)
+    const leftXOffset = centerX - braceOffset - 50 * scaleX
+    const rightXOffset = centerX + braceOffset - 50 * scaleX
     const yOffset = (height / 2) - 150 * scaleY
 
     drawContouredBoldBrackets(oCtx, true, leftXOffset, yOffset, scaleX, scaleY)
@@ -307,7 +309,9 @@ export function useHeroParticles() {
     }
   })
 
-  function mount(el) {
+  let hoverTargets = []
+
+  function mount(el, triggerEl) {
     container = el
 
     canvas = document.createElement('canvas')
@@ -317,9 +321,14 @@ export function useHeroParticles() {
 
     initParticleSystem()
 
-    el.addEventListener('mouseenter', onMouseEnter)
-    el.addEventListener('mouseleave', onMouseLeave)
-    el.addEventListener('mousemove', onMouseMove, { passive: true })
+    const targets = Array.isArray(triggerEl) ? triggerEl : (triggerEl ? [triggerEl] : [el])
+    hoverTargets = targets.filter(Boolean)
+
+    for (const target of hoverTargets) {
+      target.addEventListener('mouseenter', onMouseEnter)
+      target.addEventListener('mouseleave', onMouseLeave)
+      target.addEventListener('mousemove', onMouseMove, { passive: true })
+    }
 
     resizeObserver = new ResizeObserver(() => { initParticleSystem() })
     resizeObserver.observe(el)
@@ -335,13 +344,14 @@ export function useHeroParticles() {
     if (animId) cancelAnimationFrame(animId)
     if (resizeObserver) resizeObserver.disconnect()
     themeObserver.disconnect()
-    if (container) {
-      container.removeEventListener('mouseenter', onMouseEnter)
-      container.removeEventListener('mouseleave', onMouseLeave)
-      container.removeEventListener('mousemove', onMouseMove)
+    for (const target of hoverTargets) {
+      target.removeEventListener('mouseenter', onMouseEnter)
+      target.removeEventListener('mouseleave', onMouseLeave)
+      target.removeEventListener('mousemove', onMouseMove)
     }
     if (canvas?.parentNode) canvas.parentNode.removeChild(canvas)
     particles = []
+    hoverTargets = []
   }
 
   return { mount, unmount }

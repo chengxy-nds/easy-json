@@ -10,6 +10,7 @@ import {
 
 const isDark = inject('isDark')
 const toggleTheme = inject('toggleTheme')
+import LanyardWrapper from './Lanyard/LanyardWrapper.vue'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
 import { useHeroParticles } from '../composables/useHeroParticles.js'
 
@@ -440,9 +441,13 @@ const staticTabYaml = highlightJson('database:\n  host: "127.0.0.1"\n  port: 330
 const staticTabCompareA = highlightJson('{\n  "host": "127.0.0.1",\n  "port": 3306,\n  "username": "root"\n}')
 const staticTabCompareB = highlightJson('{\n  "host": "0.0.0.0",\n  "port": 8080,\n  "max_conn": 100\n}')
 
+const heroContentRef = ref(null)
+
 onMounted(() => {
   handleParse(playgroundInput.value)
-  if (heroRef.value) heroParticles.mount(heroRef.value)
+  if (heroRef.value && heroContentRef.value) {
+    heroParticles.mount(heroRef.value, heroContentRef.value)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -452,53 +457,57 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="home-page">
-    <!-- ─── Navbar ─── -->
-    <header class="home-nav">
-      <nav class="home-nav-inner">
-        <!-- Left: Logo + badge -->
-        <div class="home-nav-left">
-          <a class="home-nav-logo" @click.prevent="$emit('go-to-app')" href="#">
-            <img src="/images/logo.png" class="home-nav-logo-icon" alt="easyJSON logo" />
-            <span class="home-nav-logo-text">EASY JSON</span>
-          </a>
-          <span class="home-nav-badge">v1.0.0</span>
-          <span class="home-nav-sep" />
-        </div>
+    <!-- ─── 100% Full-Width Combined Top Hero Block (Navbar + Hero Section) ─── -->
+    <div ref="heroRef" class="hero-top-block animate-fade-in">
+      <!-- Floating 3D Physics Lanyard Card (Positioned at Top-Right Corner of Screen) -->
+      <div class="hero-right-lanyard">
+        <LanyardWrapper :position="[0, 0, 20]" :gravity="[0, -40, 0]" frontImage="/images/image.png" backImage="/images/beimian.png" :lanyardWidth="1.2" />
+      </div>
 
-        <!-- Center: Nav links -->
-        <div class="home-nav-links">
-          <a href="http://xiaofucode.com" target="_blank" class="home-nav-link">面试专题</a>
-          <a href="#contact" class="home-nav-link">联系交流</a>
-          <a class="home-nav-link" @click.prevent="$emit('go-to-comment')" href="#">
-            <MessageCircle :size="15" class="home-nav-link-icon" />
-            评论
-          </a>
-        </div>
+      <!-- ─── Navbar ─── -->
+      <header class="home-nav">
+        <nav class="home-nav-inner">
+          <!-- Left: Logo + badge -->
+          <div class="home-nav-left">
+            <a class="home-nav-logo" @click.prevent="$emit('go-to-app')" href="#">
+              <img src="/images/logo.png" class="home-nav-logo-icon" alt="easyJSON logo" />
+              <span class="home-nav-logo-text">EASY JSON</span>
+            </a>
+            <span class="home-nav-badge">v1.0.0</span>
+            <span class="home-nav-sep" />
+          </div>
 
-        <!-- Right: CTA + GitHub -->
-        <div class="home-nav-right">
-          <button class="home-btn-primary" @click="$emit('go-to-app')" id="home-open-app-btn">
-            进入
-          </button>
-          <a href="https://github.com/chengxy-nds/easy-json" target="_blank" class="home-nav-ghost-btn" title="GitHub">
-            <svg fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" class="home-nav-gh-icon">
-              <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
-            </svg>
-          </a>
-          <button class="home-nav-theme-btn" @click="toggleTheme" :title="isDark ? '切换至浅色' : '切换至深色'">
-            <Sun v-if="isDark" :size="16" />
-            <Moon v-else :size="16" />
-          </button>
-        </div>
-      </nav>
-    </header>
+          <!-- Center: Nav links -->
+          <div class="home-nav-links">
+            <a href="http://xiaofucode.com" target="_blank" class="home-nav-link">面试专题</a>
+            <a href="#contact" class="home-nav-link">联系交流</a>
+            <a class="home-nav-link" @click.prevent="$emit('go-to-comment')" href="#">
+              <MessageCircle :size="15" class="home-nav-link-icon" />
+              评论
+            </a>
+          </div>
 
-    <!-- ─── Main Content ─── -->
-    <main class="home-main">
-      <div class="home-content-wrap">
+          <!-- Right: CTA + GitHub -->
+          <div class="home-nav-right">
+            <button class="home-btn-primary" @click="$emit('go-to-app')" id="home-open-app-btn">
+              进入
+            </button>
+            <a href="https://github.com/chengxy-nds/easy-json" target="_blank" class="home-nav-ghost-btn" title="GitHub">
+              <svg fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" class="home-nav-gh-icon">
+                <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+              </svg>
+            </a>
+            <button class="home-nav-theme-btn" @click="toggleTheme" :title="isDark ? '切换至浅色' : '切换至深色'">
+              <Sun v-if="isDark" :size="16" />
+              <Moon v-else :size="16" />
+            </button>
+          </div>
+        </nav>
+      </header>
 
-        <!-- ─── Hero Section ─── -->
-        <section ref="heroRef" class="hero-section animate-fade-in">
+      <!-- ─── Hero Section ─── -->
+      <section class="hero-section">
+        <div ref="heroContentRef" class="hero-content-inner">
           <div class="hero-badge">
             <Terminal class="badge-icon-item" />
             <span>格式化</span>
@@ -506,7 +515,7 @@ onBeforeUnmount(() => {
             <span>Diff</span>
             <span class="badge-divider">/</span>
             <span>多格式提取</span>  <span class="badge-divider">/</span>
-                                          <span>网页右键直接提取</span>
+            <span>网页右键直接提取</span>
           </div>
 
           <h1 class="hero-title">
@@ -585,7 +594,13 @@ onBeforeUnmount(() => {
               开始使用 <ArrowRight class="btn-arrow" />
             </button>
           </div>
-        </section>
+        </div>
+      </section>
+    </div>
+
+    <!-- ─── Main Content ─── -->
+    <main class="home-main">
+      <div class="home-content-wrap">
 
         <!-- ─── Supported Formats Showroom Grid ─── -->
         <section id="formats" class="formats-section">
@@ -1092,14 +1107,10 @@ onBeforeUnmount(() => {
 /* ═══ NAVBAR (Z-10) ═══ */
 .home-nav {
   position:sticky;top:0;z-index:10;
-  background:rgba(255,255,255,0.65);
-  backdrop-filter:blur(24px) saturate(180%);
-  -webkit-backdrop-filter:blur(24px) saturate(180%);
-  border-bottom:1px solid rgba(0,0,0,0.06);
   height:50px;display:flex;align-items:center;justify-content:center;width:100%;
 }
 .dark-mode .home-nav{background:rgba(30,30,34,0.7);border-bottom-color:rgba(255,255,255,0.05)}
-.home-nav-inner{display:flex;align-items:center;width:100%;max-width:1160px;padding:0 24px;height:100%}
+.home-nav-inner{display:flex;align-items:center;width:100%;max-width:1160px;padding:0 24px;height:100%;box-sizing:border-box}
 .home-nav-left{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .home-nav-logo{display:flex;align-items:center;gap:7px;text-decoration:none;color:var(--text-primary);cursor:pointer}
 .home-nav-logo-icon{width:24px;height:24px;flex-shrink:0}
@@ -1136,8 +1147,40 @@ onBeforeUnmount(() => {
 .home-content-wrap > section:last-child{margin-bottom:0}
 .dark-mode .home-content-wrap > section{}
 
+/* ═══ COMBINED HERO TOP BLOCK (100% WIDTH) ═══ */
+.hero-top-block{position:relative;z-index:50;width:100%;display:flex;flex-direction:column;align-items:center;overflow:visible}
+.hero-top-block > canvas{position:absolute;top:0;left:0;width:100%!important;height:100%!important;pointer-events:none}
+
 /* ═══ HERO ═══ */
-.hero-section{position:relative;width:100%;min-height:35rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 0 96px}
+.hero-section{position:relative;width:100%;max-width:100%;min-height:37rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 24px 120px;box-sizing:border-box}
+.hero-content-inner{display:flex;flex-direction:column;align-items:center;width:max-content;max-width:860px;position:relative;z-index:1}
+.hero-right-lanyard{
+  position: absolute;
+  top: 0;
+  right: -25px;
+  width: 380px;
+  height: 580px;
+  z-index: 20;
+  pointer-events: auto;
+}
+@media (max-width: 1200px) {
+  .hero-right-lanyard{
+    right: -30px;
+    width: 320px;
+    height: 480px;
+  }
+}
+@media (max-width: 960px) {
+  .hero-right-lanyard{
+    position: relative;
+    right: auto;
+    top: auto;
+    width: 100%;
+    max-width: 360px;
+    height: 360px;
+    margin: 24px auto 0;
+  }
+}
 .hero-section > *:not(canvas){position:relative;z-index:1}
 .hero-badge{display:inline-flex;align-items:center;gap:6px;background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);color:var(--text-secondary);font-size:12px;font-weight:500;font-family:var(--font-sans);padding:5px 16px;border-radius:99px;margin:48px 0 24px;box-shadow:var(--glass-shadow-sm)}
 .dark-mode .hero-badge{background:var(--glass-bg-dark);border-color:var(--glass-border-dark)}
@@ -1153,24 +1196,25 @@ onBeforeUnmount(() => {
 .hero-cta:hover .btn-arrow{transform:translateX(3px)}
 
 /* Download button + horizontal dropdown panel */
-.hero-download-wrap{position:relative}
+.hero-download-wrap{position:relative;z-index:120}
 .hero-download-btn{display:inline-flex;align-items:center;gap:6px;height:42px;padding:0 24px;border:none;background:linear-gradient(180deg,rgba(255,255,255,0.92) 0%,rgba(242,242,246,0.72) 100%);color:var(--text-primary);font-size:var(--hero-cta-fs);font-weight:600;font-family:var(--font-mono);letter-spacing:0.02em;border-radius:8px;cursor:pointer;transition:all 0.35s cubic-bezier(0.16,1,0.3,1);white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.05),0 4px 20px rgba(175,180,195,0.28),0 0 50px rgba(185,190,205,0.15),0 0 90px rgba(195,200,215,0.07)}
 .hero-download-btn:hover{background:linear-gradient(180deg,rgba(255,255,255,0.98) 0%,rgba(248,248,252,0.88) 100%);box-shadow:0 1px 2px rgba(0,0,0,0.05),0 6px 28px rgba(170,175,195,0.38),0 0 70px rgba(180,185,205,0.22),0 0 120px rgba(190,195,215,0.12),0 0 180px rgba(200,205,220,0.06)}
 .hero-download-icon{width:15px;height:15px;opacity:0.6}
-.hero-download-dropdown{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,0.12);opacity:0;visibility:hidden;transition:all 0.2s cubic-bezier(0.16,1,0.3,1);z-index:50;display:flex;gap:14px}
+.hero-download-dropdown{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;padding:12px;box-shadow:0 16px 48px rgba(0,0,0,0.18);opacity:0;visibility:hidden;transition:all 0.2s cubic-bezier(0.16,1,0.3,1);z-index:200;display:flex;gap:10px}
 .hero-download-wrap:hover .hero-download-dropdown{opacity:1;visibility:visible}
 
 /* Horizontal card per platform */
-.hero-dl-card{display:flex;flex-direction:column;align-items:center;text-align:center;width:190px;padding:18px 14px;border-radius:8px;border:1px solid transparent;transition:all 0.2s;cursor:default;gap:8px}
+.hero-dl-card{display:flex;flex-direction:column;align-items:center;text-align:center;width:155px;padding:12px 10px;border-radius:8px;border:1px solid transparent;transition:all 0.2s;cursor:default;gap:5px}
 .hero-dl-card:hover{border-color:rgba(0,0,0,0.06);background:rgba(0,0,0,0.015)}
-.hero-dl-card-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-bottom:2px}
+.hero-dl-card-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-bottom:0}
+.hero-dl-card-icon svg{width:20px;height:20px}
 .dark-mode .hero-dl-card-icon{opacity:0.9}
 .dark-mode .hero-dl-card-icon svg[data-macos] path{fill:#d4d4d4}
-.hero-dl-card-title{font-size:13px;font-weight:700;color:var(--text-primary);margin:0}
-.hero-dl-card-desc{font-size:11px;color:var(--text-secondary);margin:0;line-height:1.4}
-.hero-dl-card-meta{font-size:10px;color:var(--text-muted);font-family:var(--font-mono);margin:0}
-.hero-dl-card-btns{display:flex;gap:6px;margin-top:4px}
-.hero-dl-card-btn{display:inline-flex;align-items:center;justify-content:center;padding:5px 14px;border-radius:5px;font-size:11px;font-weight:600;font-family:var(--font-mono);text-decoration:none;background:var(--accent);color:#fff;border:none;cursor:pointer;transition:all 0.15s;white-space:nowrap}
+.hero-dl-card-title{font-size:12px;font-weight:700;color:var(--text-primary);margin:0}
+.hero-dl-card-desc{font-size:10px;color:var(--text-secondary);margin:0;line-height:1.3;max-width:140px}
+.hero-dl-card-meta{font-size:9.5px;color:var(--text-muted);font-family:var(--font-mono);margin:0}
+.hero-dl-card-btns{display:flex;gap:4px;margin-top:2px}
+.hero-dl-card-btn{display:inline-flex;align-items:center;justify-content:center;padding:4px 10px;border-radius:5px;font-size:10px;font-weight:600;font-family:var(--font-mono);text-decoration:none;background:var(--accent);color:#fff;border:none;cursor:pointer;transition:all 0.15s;white-space:nowrap}
 .hero-dl-card-btn:hover{background:#059669;box-shadow:0 2px 6px rgba(16,185,129,0.25)}
 .hero-dl-card-btn--alt{background:transparent;color:var(--text-primary);border:1px solid rgba(0,0,0,0.12)}
 .hero-dl-card-btn--alt:hover{background:rgba(0,0,0,0.04);box-shadow:none;color:var(--text-primary)}
