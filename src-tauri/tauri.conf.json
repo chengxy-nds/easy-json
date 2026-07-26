@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/schema.json",
   "productName": "easyJSON",
   "version": "1.0.0",
-  "identifier": "com.easyjson.app",
+  "identifier": "com.easyjson.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
