@@ -58,13 +58,37 @@ function getWebviewHtml(webview, context, selectedText = '') {
 }
 
 class EasyJsonSidebarViewProvider {
-  constructor(context) {
+  constructor(context, openWebviewFn) {
     this.context = context;
+    this.openWebviewFn = openWebviewFn;
   }
 
   resolveWebviewView(webviewView, context, token) {
-    // 点击左侧活动栏图标时，自动在右侧编辑器主区域打开全功能大屏 Tab 面板
-    vscode.commands.executeCommand('easyjson.open');
+    const triggerOpen = () => {
+      setTimeout(() => {
+        try {
+          if (typeof this.openWebviewFn === 'function') {
+            const editor = vscode.window.activeTextEditor;
+            const selectedText = editor ? editor.document.getText(editor.selection) : '';
+            this.openWebviewFn(selectedText);
+          } else {
+            vscode.commands.executeCommand('easyjson.open');
+          }
+        } catch (e) {
+          console.error('[easyJSON] Error opening webview tab:', e);
+        }
+      }, 50);
+    };
+
+    // 首次唤醒时，自动在右侧编辑器主区域打开大屏 Tab 面板
+    triggerOpen();
+
+    // 每次点击左侧 Activity Bar 图标（侧边栏变为可见）时，自动重新唤醒/聚焦右侧大屏 Tab 面板
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        triggerOpen();
+      }
+    });
 
     webviewView.webview.options = { enableScripts: true };
     webviewView.webview.html = `
@@ -135,7 +159,7 @@ class EasyJsonSidebarViewProvider {
 
     webviewView.webview.onDidReceiveMessage((message) => {
       if (message === 'open') {
-        vscode.commands.executeCommand('easyjson.open');
+        triggerOpen();
       }
     });
   }
@@ -143,12 +167,6 @@ class EasyJsonSidebarViewProvider {
 
 function activate(context) {
   let activePanel = null;
-
-  // Register Activity Bar Sidebar View
-  const sidebarProvider = new EasyJsonSidebarViewProvider(context);
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('easyjson.sidebarView', sidebarProvider)
-  );
 
   function openEasyJsonWebview(selectedText = '') {
     const column = vscode.window.activeTextEditor
@@ -204,6 +222,12 @@ function activate(context) {
       }, 800);
     }
   }
+
+  // Register Activity Bar Sidebar View Provider
+  const sidebarProvider = new EasyJsonSidebarViewProvider(context, openEasyJsonWebview);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('easyjson.sidebarView', sidebarProvider)
+  );
 
   // Register commands
   context.subscriptions.push(

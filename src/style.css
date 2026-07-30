@@ -502,16 +502,44 @@ html.popup-mode .app-layout {
   height: 600px;
 }
 
-/* VS Code Mode Native Theme & Layout Integration */
+/* VS Code Mode Native Theme & Layout Integration (color-mix dynamic adaptation) */
 body.vscode-mode {
+  /* 智能背景：完全跟随 VS Code 编辑器原生背景 */
   --bg-app: var(--vscode-editor-background, #1e1e1e);
   --bg-panel: var(--vscode-editor-background, #1e1e1e);
   --bg-input: var(--vscode-editor-background, #1e1e1e);
   --bg-header: var(--vscode-editor-background, #1e1e1e);
-  --action-btn-bg: var(--vscode-button-secondaryBackground, rgba(255, 255, 255, 0.08));
+
+  /* 智能文本色：完全跟随 VS Code 编辑器文字色 */
   --text-primary: var(--vscode-editor-foreground, #d4d4d4);
-  --border-color: var(--vscode-widget-border, rgba(255, 255, 255, 0.10));
+  --text-secondary: var(--vscode-descriptionForeground, color-mix(in srgb, var(--vscode-editor-foreground, #d4d4d4) 75%, transparent));
+  --text-muted: var(--vscode-disabledForeground, color-mix(in srgb, var(--vscode-editor-foreground, #d4d4d4) 50%, transparent));
+
+  /* 智能自适应边框：使用 color-mix 根据前景色动态计算（深色变亮线，浅色变暗线，自动适配所有第三方主题） */
+  --border-color: var(
+    --vscode-panel-border,
+    var(--vscode-editorGroup-border,
+    color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 16%, transparent))
+  ) !important;
+  --border-color-active: var(
+    --vscode-focusBorder,
+    color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 35%, transparent)
+  ) !important;
+
+  /* 智能按钮与 Hover 悬浮状态 */
+  --action-btn-bg: transparent;
+  --bg-hover: color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 8%, transparent);
+  --segmented-bg: color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 6%, transparent);
+  --segmented-indicator-bg: var(--vscode-editor-background, #1e1e1e);
+  --segmented-hover-bg: color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 10%, transparent);
+
+  /* 智能主色调与选中高亮：使用 VS Code 的 Focus/Button 原生强调色 */
+  --primary-color: var(--vscode-button-background, var(--vscode-focusBorder, #2563eb));
+  --primary-light: color-mix(in srgb, var(--vscode-button-background, var(--vscode-focusBorder, #2563eb)) 15%, transparent);
+
+  /* 字体自动继承用户 VS Code 的 editor.fontFamily */
   --font-mono: var(--vscode-editor-font-family, 'JetBrains Mono', monospace);
+
   height: 100vh;
   width: 100vw;
   margin: 0;
@@ -522,6 +550,52 @@ body.vscode-mode {
 body.vscode-mode #app {
   height: 100%;
   width: 100%;
+}
+
+/* VS Code 模式下左侧 Sidebar 选中与 Hover 智能透明高亮 */
+body.vscode-mode .sidebar-btn {
+  color: var(--text-secondary);
+}
+
+body.vscode-mode .sidebar-btn:hover {
+  background-color: var(--bg-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+body.vscode-mode .sidebar-btn.active {
+  background-color: var(--primary-light) !important;
+  color: var(--primary-color) !important;
+  border: 1px solid var(--primary-color) !important;
+}
+
+/* VS Code 模式下顶部按钮与 View Switcher 智能分格 */
+body.vscode-mode .segmented-control {
+  border: 1px solid var(--border-color);
+  background-color: var(--segmented-bg);
+}
+
+body.vscode-mode .segmented-indicator {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--border-color);
+  background-color: var(--vscode-editor-background, #ffffff);
+}
+
+body.vscode-mode .icon-text-btn,
+body.vscode-mode .tool-btn-small,
+body.vscode-mode .toolbar-item,
+body.vscode-mode .sr-action-btn {
+  background-color: transparent !important;
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+body.vscode-mode .icon-text-btn:hover,
+body.vscode-mode .tool-btn-small:hover,
+body.vscode-mode .toolbar-item:hover,
+body.vscode-mode .sr-action-btn:hover {
+  background-color: var(--bg-hover) !important;
+  border-color: var(--border-color-active) !important;
 }
 
 /* Sidebar — 自适应屏幕分辨率 */

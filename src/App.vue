@@ -210,7 +210,7 @@ const handlePopState = () => {
 onMounted(() => {
   window.addEventListener('popstate', handlePopState)
 
-  // VS Code Webview 环境：直接进入编辑器并实时同步 VS Code 主题
+  // VS Code Webview 环境：直接进入编辑器
   const inVsCode = typeof acquireVsCodeApi === 'function' || (typeof window !== 'undefined' && (window.__VSCODE__ || window.vscodeApi))
   if (inVsCode) {
     isVscode.value = true
@@ -220,16 +220,28 @@ onMounted(() => {
       incomingExtractText.value = window.__VSCODE_INIT_TEXT__
     }
 
-    // 自动同步 VS Code 的浅色/深色主题
-    const syncVscodeTheme = () => {
-      const isLight = document.body.classList.contains('vscode-light') || document.body.getAttribute('data-vscode-theme-kind') === 'vscode-light'
+    // 动态同步组件 Vue 响应式状态（例如代码高亮与语法树）
+    const checkVscodeDark = () => {
+      const bodyClass = document.body.className || ''
+      const themeKind = document.body.getAttribute('data-vscode-theme-kind') || ''
+      let isLight = bodyClass.includes('vscode-light') || themeKind.includes('vscode-light')
+      try {
+        const bg = window.getComputedStyle(document.body).backgroundColor
+        const match = bg.match(/\d+/g)
+        if (match && match.length >= 3) {
+          const r = parseInt(match[0]), g = parseInt(match[1]), b = parseInt(match[2])
+          const brightness = (r * 299 + g * 587 + b * 114) / 1000
+          if (brightness > 140) {
+            isLight = true
+          }
+        }
+      } catch (e) {}
       isDark.value = !isLight
       updateThemeClass()
     }
-    syncVscodeTheme()
+    checkVscodeDark()
 
-    // 监听 VS Code 主题实时切换（如按 Ctrl+K Ctrl+T 切换主题）
-    const themeObserver = new MutationObserver(() => syncVscodeTheme())
+    const themeObserver = new MutationObserver(() => checkVscodeDark())
     themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-vscode-theme-kind'] })
 
     try {
@@ -501,7 +513,7 @@ onBeforeUnmount(() => {
         <button class="sidebar-btn" @click="toggleSyntaxTheme" :data-tooltip-right="isPremiumTheme ? '切换至 One Dark' : '切换至 Premium'">
           <Palette class="sidebar-btn-icon" />
         </button>
-        <button class="sidebar-btn" @click="toggleTheme" :data-tooltip-right="isDark ? '切换至浅色' : '切换至深色'">
+        <button v-if="!isVscode" class="sidebar-btn" @click="toggleTheme" :data-tooltip-right="isDark ? '切换至浅色' : '切换至深色'">
           <Sun v-if="isDark" class="sidebar-btn-icon" />
           <Moon v-else class="sidebar-btn-icon" />
         </button>
