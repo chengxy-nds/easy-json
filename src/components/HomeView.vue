@@ -28,6 +28,8 @@ const trackDownload = (platform) => {
       eventName = 'download_plugin'
     } else if (platform === 'uTools插件') {
       eventName = 'download_utools'
+    } else if (platform === 'VS Code插件') {
+      eventName = 'download_vscode'
     }
     window.LA.track(eventName)
   }
@@ -588,6 +590,18 @@ onBeforeUnmount(() => {
                   <p class="hero-dl-card-desc">快捷键呼出，即用即走</p>
                   <span class="hero-dl-card-meta">macOS / Windows · uTools 平台</span>
                   <a href="https://www.u-tools.cn/plugins/" target="_blank" class="hero-dl-card-btn" @click="trackDownload('uTools插件')">前往插件市场</a>
+                </div>
+                <!-- VS Code -->
+                <div class="hero-dl-card">
+                  <div class="hero-dl-card-icon">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M23.15 2.587L18.21.21a1.494 1.494 0 00-1.705.29l-9.46 8.63-4.12-3.12a.999.999 0 00-1.276.064L.366 7.234a.999.999 0 00.04 1.464l4.28 3.8-4.28 3.8a1 1 0 00-.04 1.465l1.283 1.16c.382.345.955.37 1.276.064l4.12-3.12 9.46 8.63c.47.43 1.15.54 1.705.29l4.94-2.377A1.5 1.5 0 0024 21.656V3.844a1.5 1.5 0 00-.85-1.257zM18 16.5l-5.5-4.5L18 7.5v9z" fill="#007ACC"/>
+                    </svg>
+                  </div>
+                  <h4 class="hero-dl-card-title">VS Code 插件</h4>
+                  <p class="hero-dl-card-desc">右键选中文本即刻提取，无缝集成编辑区</p>
+                  <span class="hero-dl-card-meta">macOS / Windows / Linux · VS Code 平台</span>
+                  <a href="https://marketplace.visualstudio.com/items?itemName=xiaofucode.easyjson" target="_blank" class="hero-dl-card-btn" @click="trackDownload('VS Code插件')">前往插件市场</a>
                 </div>
               </div>
             </div>
