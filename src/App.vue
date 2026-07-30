@@ -218,6 +218,23 @@ onMounted(() => {
     if (savedTab === 'format' || savedTab === 'compare') {
       currentTab.value = savedTab
     }
+
+    // 监听 uTools 自动匹配：剪贴板 / 输入框 / 选中文本匹配时自动打开并导入
+    if (window.utools && typeof window.utools.onPluginEnter === 'function') {
+      const cmdKeywords = ['easyjson', 'json', 'json格式化', 'json对比', 'json校验', 'json提取', '格式化', '对比']
+      window.utools.onPluginEnter(({ code, type, payload }) => {
+        if (payload && typeof payload === 'string') {
+          const trimmed = payload.trim()
+          const lower = trimmed.toLowerCase()
+          // 只要不是纯指令关键字（例如只敲了 "json"），就把匹配到的 JSON 文本直接作为数据导入
+          if (!cmdKeywords.includes(lower)) {
+            setTimeout(() => {
+              incomingExtractText.value = payload
+            }, 300)
+          }
+        }
+      })
+    }
   } else {
     const path = window.location.pathname.replace(/\/$/, '')
     if (path === '/test' || path.endsWith('/test')) {

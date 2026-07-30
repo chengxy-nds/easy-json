@@ -1,8 +1,8 @@
 {
   "pluginName": "easyJSON",
-  "description": "专业级 JSON 格式化、校验与对比工具",
+  "description": "专业级 JSON 格式化、提取、校验与对比工具",
   "main": "index.html",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "preload": "preload.js",
   "logo": "logo.png",
   "platform": ["win32", "darwin", "linux"],
@@ -12,8 +12,24 @@
   "features": [
     {
       "code": "easyJSON",
-      "explain": "JSON 格式化、校验、对比",
-      "cmds": ["easyJSON", "JSON", "json格式化", "json对比", "json校验"],
+      "explain": "JSON 格式化、提取、校验与对比",
+      "cmds": [
+        "easyJSON",
+        "JSON",
+        "json格式化",
+        {
+          "type": "regex",
+          "label": "easyJSON - 格式化 JSON",
+          "match": "/\\{[\\s\\S]*\\}|\\[[\\s\\S]*\\]|\"[^\"]*\"\\s*:\\s*|\\b\\w+\\([\\s\\S]*\\)/i",
+          "minLength": 2,
+          "maxLength": 1048576
+        },
+        {
+          "type": "over",
+          "label": "easyJSON - 格式化选中文本",
+          "minLength": 2
+        }
+      ],
       "platform": ["win32", "darwin", "linux"]
     }
   ]

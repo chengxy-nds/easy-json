@@ -16,6 +16,7 @@ import { useHeroParticles } from '../composables/useHeroParticles.js'
 
 const heroRef = ref(null)
 const heroParticles = useHeroParticles()
+const isUTools = computed(() => typeof window !== 'undefined' && !!(window.__UTOOLS__ || window.utools || document.body?.classList?.contains('utools-mode')))
 
 const trackDownload = (platform) => {
   // 51.la 自定义事件追踪 (LA.track)
@@ -460,7 +461,7 @@ onBeforeUnmount(() => {
     <!-- ─── 100% Full-Width Combined Top Hero Block (Navbar + Hero Section) ─── -->
     <div ref="heroRef" class="hero-top-block animate-fade-in">
       <!-- Floating 3D Physics Lanyard Card (Positioned at Top-Right Corner of Screen) -->
-      <div class="hero-right-lanyard">
+      <div v-if="!isUTools" class="hero-right-lanyard">
         <LanyardWrapper :position="[0, 0, 20]" :gravity="[0, -40, 0]" frontImage="/images/image.png" backImage="/images/beimian.png" :lanyardWidth="1.2" />
       </div>
 
@@ -1156,7 +1157,7 @@ onBeforeUnmount(() => {
 .hero-top-block > canvas{position:absolute;top:0;left:0;width:100%!important;height:100%!important;pointer-events:none}
 
 /* ═══ HERO ═══ */
-.hero-section{position:relative;width:100%;max-width:100%;min-height:37rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 24px 120px;box-sizing:border-box}
+.hero-section{position:relative;width:100%;max-width:100%;min-height:37rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 24px 120px;box-sizing:border-box}@media(max-width:960px){.hero-section{min-height:auto;padding:24px 16px 64px}}
 .hero-content-inner{display:flex;flex-direction:column;align-items:center;width:max-content;max-width:860px;position:relative;z-index:1}
 /* hero-right-lanyard: layout placeholder only — actual canvas is fixed full-viewport */
 .hero-right-lanyard{
@@ -1188,6 +1189,21 @@ onBeforeUnmount(() => {
     height: 360px;
     margin: 24px auto 0;
   }
+}
+
+/* uTools Mode Layout Adjustments (Hide 3D Lanyard Card & compact hero layout) */
+body.utools-mode .hero-right-lanyard {
+  display: none !important;
+}
+
+body.utools-mode .hero-section {
+  min-height: auto !important;
+  padding: 12px 24px 32px !important;
+  justify-content: flex-start !important;
+}
+
+body.utools-mode .hero-badge {
+  margin: 12px 0 16px !important;
 }
 .hero-section > *:not(canvas){position:relative;z-index:1}
 .hero-badge{display:inline-flex;align-items:center;gap:6px;background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);border:1px solid var(--glass-border);color:var(--text-secondary);font-size:12px;font-weight:500;font-family:var(--font-sans);padding:5px 16px;border-radius:99px;margin:48px 0 24px;box-shadow:var(--glass-shadow-sm)}
