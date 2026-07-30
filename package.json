@@ -13,6 +13,7 @@
     "build:win": "powershell -ExecutionPolicy Bypass -File build-win.ps1",
     "build:mac:universal": "tauri build --target universal-apple-darwin",
     "build:utools": "node scripts/build-utools.mjs",
+    "build:vscode": "node scripts/build-vscode.mjs",
     "build:plugin": "vite build --outDir easyjson-plugin"
   },
   "dependencies": {

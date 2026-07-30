@@ -16,7 +16,7 @@ import { useHeroParticles } from '../composables/useHeroParticles.js'
 
 const heroRef = ref(null)
 const heroParticles = useHeroParticles()
-const isUTools = computed(() => typeof window !== 'undefined' && !!(window.__UTOOLS__ || window.utools || document.body?.classList?.contains('utools-mode')))
+const isUTools = computed(() => typeof window !== 'undefined' && !!(window.__UTOOLS__ || window.utools || window.__VSCODE__ || document.body?.classList?.contains('utools-mode') || document.body?.classList?.contains('vscode-mode')))
 
 const trackDownload = (platform) => {
   // 51.la 自定义事件追踪 (LA.track)

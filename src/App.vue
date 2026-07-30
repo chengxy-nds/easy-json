@@ -12,6 +12,7 @@ import { useInstallCheck } from './composables/useInstallCheck.js'
 const currentView = ref('home') // 'home' | 'editor' | 'test' | 'comment'
 const isPopup = ref(false)
 const isUtools = ref(false)
+const isVscode = ref(false)
 
 // ── 版本更新检查 ──
 const { hasUpdate, latestVersion, downloadUrl } = useUpdateCheck()
@@ -208,6 +209,49 @@ const handlePopState = () => {
 
 onMounted(() => {
   window.addEventListener('popstate', handlePopState)
+
+  // VS Code Webview 环境：直接进入编辑器并实时同步 VS Code 主题
+  const inVsCode = typeof acquireVsCodeApi === 'function' || (typeof window !== 'undefined' && (window.__VSCODE__ || window.vscodeApi))
+  if (inVsCode) {
+    isVscode.value = true
+    document.body.classList.add('vscode-mode')
+    currentView.value = 'editor'
+    if (window.__VSCODE_INIT_TEXT__) {
+      incomingExtractText.value = window.__VSCODE_INIT_TEXT__
+    }
+
+    // 自动同步 VS Code 的浅色/深色主题
+    const syncVscodeTheme = () => {
+      const isLight = document.body.classList.contains('vscode-light') || document.body.getAttribute('data-vscode-theme-kind') === 'vscode-light'
+      isDark.value = !isLight
+      updateThemeClass()
+    }
+    syncVscodeTheme()
+
+    // 监听 VS Code 主题实时切换（如按 Ctrl+K Ctrl+T 切换主题）
+    const themeObserver = new MutationObserver(() => syncVscodeTheme())
+    themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class', 'data-vscode-theme-kind'] })
+
+    try {
+      const vscodeApi = window.vscodeApi || (typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null)
+      if (vscodeApi && typeof vscodeApi.postMessage === 'function') {
+        vscodeApi.postMessage({ type: 'ready' })
+      }
+    } catch(e) {}
+  }
+
+  // 监听来自 VS Code postMessage 消息
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', (event) => {
+      const data = event.data
+      if (data && data.type === 'extractText' && data.text) {
+        isVscode.value = true
+        document.body.classList.add('vscode-mode')
+        currentView.value = 'editor'
+        incomingExtractText.value = data.text
+      }
+    })
+  }
 
   // uTools 环境：直接进入编辑器，跳过首页
   if (window.__UTOOLS__) {
@@ -407,7 +451,7 @@ onBeforeUnmount(() => {
         <div class="sidebar-logo" data-tooltip-right="easyJSON" @click="goToHome" style="cursor: pointer;">
           <img src="/images/logo.png" class="sidebar-logo-icon" alt="easyJSON" />
         </div>
-        <button v-if="!isUtools" class="sidebar-btn" @click="goToHome" data-tooltip-right="返回主页">
+        <button v-if="!isUtools && !isVscode" class="sidebar-btn" @click="goToHome" data-tooltip-right="返回主页">
           <Home class="sidebar-btn-icon" />
         </button>
         <button

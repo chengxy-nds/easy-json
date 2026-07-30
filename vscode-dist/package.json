@@ -1,0 +1,58 @@
+{
+  "name": "easyjson-vscode",
+  "displayName": "easyJSON - 智能格式化与对比工具",
+  "description": "专业级 JSON 智能提取、格式化、校验与语义对比工具。支持 Lombok、Python dict、YAML、海量日志提炼与四维结构化视图。",
+  "version": "1.0.1",
+  "publisher": "xiaofucode",
+  "icon": "media/logo.png",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Formatters",
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "easyjson-sidebar",
+          "title": "easyJSON",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "easyjson-sidebar": [
+        {
+          "type": "webview",
+          "id": "easyjson.sidebarView",
+          "name": "easyJSON 智能提取与对比"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "easyjson.open",
+        "title": "easyJSON: 打开 JSON 格式化与对比面板",
+        "category": "easyJSON"
+      },
+      {
+        "command": "easyjson.formatSelection",
+        "title": "easyJSON: 格式化/提取选中文本",
+        "category": "easyJSON"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "easyjson.formatSelection",
+          "when": "editorHasSelection",
+          "group": "1_modification"
+        }
+      ]
+    }
+  }
+}

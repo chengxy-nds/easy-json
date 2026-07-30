@@ -360,7 +360,7 @@ watch(incomingExtractText, (text) => {
   scrollTabsToEnd()
   nextTick(() => applyAutoExtract(tabs.value.find(t => t.id === newId)))
   incomingExtractText.value = null
-})
+}, { immediate: true })
 
 let canSave = false
 const saveFormatterState = () => {
