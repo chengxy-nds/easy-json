@@ -1,5 +1,17 @@
 {
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+  "routes": [
+    {
+      "src": "/(\\.(git|env|vscode|idea|svn|htaccess|ds_store)|wp-admin|wp-includes|phpmyadmin|administrator|phpinfo|xmlrpc\\.php|package\\.json|composer\\.json|Dockerfile|.*\\.bak|.*\\.sql|.*\\.log)(/.*|$)",
+      "status": 403
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
   ]
 }
+
+
