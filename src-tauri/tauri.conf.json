@@ -38,8 +38,7 @@
         "installMode": "currentUser"
       },
       "webviewInstallMode": {
-        "type": "embedBootstrapper",
-        "silent": true
+        "type": "skip"
       }
     },
     "macOS": {

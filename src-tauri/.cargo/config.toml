@@ -1,0 +1,2 @@
+# Cargo config for easy-json Tauri build
+# MinGW-w64 toolchain is expected on PATH

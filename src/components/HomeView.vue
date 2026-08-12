@@ -541,72 +541,68 @@ onBeforeUnmount(() => {
               </button>
               <div class="hero-download-dropdown">
                 <!-- Chrome Extension -->
-                <div class="hero-dl-card">
-                  <div class="hero-dl-card-icon">
-                    <svg viewBox="0 0 1024 1024" width="24" height="24">
-                      <path d="M123.648 178.346667C361.642667-98.602667 802.986667-43.946667 967.936 279.68h-396.501333c-71.424 0-117.546667-1.621333-167.509334 24.661333-58.709333 30.933333-102.997333 88.234667-118.485333 155.52L123.648 178.389333z" fill="#EA4335" />
-                      <path d="M341.674667 512c0 93.866667 76.330667 170.24 170.154666 170.24 93.866667 0 170.154667-76.373333 170.154667-170.24s-76.330667-170.24-170.154667-170.24c-93.866667 0-170.154667 76.373333-170.154666 170.24z" fill="#4285F4" />
-                      <path d="M577.877333 734.848c-95.530667 28.373333-207.274667-3.114667-268.501333-108.8-46.762667-80.64-170.24-295.765333-226.346667-393.557333-196.565333 301.226667-27.136 711.808 329.685334 781.866666l165.12-279.509333z" fill="#34A853" />
-                      <path d="M669.866667 341.76a233.130667 233.130667 0 0 1 43.008 286.634667c-40.576 69.973333-170.154667 288.682667-232.96 394.581333 367.658667 22.656 635.733333-337.664 514.645333-681.258667H669.866667z" fill="#FBBC05" />
-                      <circle cx="512" cy="512" r="170.24" fill="#4285F4" />
-                      <circle cx="512" cy="512" r="102" fill="#fff" />
-                    </svg>
+                <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson-plugin.zip" class="cursor-target hero-dl-card" @click="trackDownload('Chrome插件')">
+                  <div class="hero-dl-card-main">
+                    <div class="hero-dl-card-icon">
+                      <svg viewBox="0 0 1024 1024" width="20" height="20">
+                        <path d="M123.648 178.346667C361.642667-98.602667 802.986667-43.946667 967.936 279.68h-396.501333c-71.424 0-117.546667-1.621333-167.509334 24.661333-58.709333 30.933333-102.997333 88.234667-118.485333 155.52L123.648 178.389333z" fill="#EA4335" />
+                        <path d="M341.674667 512c0 93.866667 76.330667 170.24 170.154666 170.24 93.866667 0 170.154667-76.373333 170.154667-170.24s-76.330667-170.24-170.154667-170.24c-93.866667 0-170.154667 76.373333-170.154666 170.24z" fill="#4285F4" />
+                        <path d="M577.877333 734.848c-95.530667 28.373333-207.274667-3.114667-268.501333-108.8-46.762667-80.64-170.24-295.765333-226.346667-393.557333-196.565333 301.226667-27.136 711.808 329.685334 781.866666l165.12-279.509333z" fill="#34A853" />
+                        <path d="M669.866667 341.76a233.130667 233.130667 0 0 1 43.008 286.634667c-40.576 69.973333-170.154667 288.682667-232.96 394.581333 367.658667 22.656 635.733333-337.664 514.645333-681.258667H669.866667z" fill="#FBBC05" />
+                        <circle cx="512" cy="512" r="170.24" fill="#4285F4" />
+                        <circle cx="512" cy="512" r="102" fill="#fff" />
+                      </svg>
+                    </div>
+                    <span class="hero-dl-card-title">Chrome 插件</span>
                   </div>
-                  <h4 class="hero-dl-card-title">Chrome 插件</h4>
-                  <p class="hero-dl-card-desc">网页选中文本右键即可提取 JSON</p>
-                  <span class="hero-dl-card-meta">Chrome / Edge / Firefox</span>
-                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson-plugin.zip" class="cursor-target hero-dl-card-btn" @click="trackDownload('Chrome插件')">安装插件</a>
-                </div>
+                </a>
                 <!-- macOS -->
-                <div class="hero-dl-card">
-                  <div class="hero-dl-card-icon">
-                    <svg data-macos viewBox="0 0 1024 1024" width="24" height="24">
-                      <path d="M928.768 750.592c-1.536 4.096-21.504 74.24-70.656 145.92-43.008 62.464-87.04 124.928-156.672 125.952-68.608 1.024-90.624-40.96-168.96-40.96s-102.912 39.936-167.936 41.984c-67.072 2.56-118.784-68.096-161.792-130.048C115.2 767.488 47.616 534.528 138.24 378.88c44.544-77.824 124.928-127.488 211.968-129.024 65.536-1.024 128.512 44.544 168.448 44.544 40.96 0 116.736-55.296 196.608-47.104 33.28 1.536 126.976 13.824 186.88 101.376-4.608 3.072-111.616 66.56-110.592 195.072 1.024 155.136 135.68 206.336 137.216 206.848m-266.24-586.24c35.84-44.032 59.904-104.448 53.248-164.352-51.2 2.048-114.176 34.304-151.04 77.824-32.768 37.888-61.952 99.328-53.76 158.72 56.832 3.072 115.712-30.208 151.552-72.192" fill="#040000" />
-                    </svg>
+                <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson.dmg" class="cursor-target hero-dl-card" @click="trackDownload('macOS客户端')">
+                  <div class="hero-dl-card-main">
+                    <div class="hero-dl-card-icon">
+                      <svg data-macos viewBox="0 0 1024 1024" width="20" height="20">
+                        <path d="M928.768 750.592c-1.536 4.096-21.504 74.24-70.656 145.92-43.008 62.464-87.04 124.928-156.672 125.952-68.608 1.024-90.624-40.96-168.96-40.96s-102.912 39.936-167.936 41.984c-67.072 2.56-118.784-68.096-161.792-130.048C115.2 767.488 47.616 534.528 138.24 378.88c44.544-77.824 124.928-127.488 211.968-129.024 65.536-1.024 128.512 44.544 168.448 44.544 40.96 0 116.736-55.296 196.608-47.104 33.28 1.536 126.976 13.824 186.88 101.376-4.608 3.072-111.616 66.56-110.592 195.072 1.024 155.136 135.68 206.336 137.216 206.848m-266.24-586.24c35.84-44.032 59.904-104.448 53.248-164.352-51.2 2.048-114.176 34.304-151.04 77.824-32.768 37.888-61.952 99.328-53.76 158.72 56.832 3.072 115.712-30.208 151.552-72.192" fill="#040000" />
+                      </svg>
+                    </div>
+                    <span class="hero-dl-card-title">macOS</span>
                   </div>
-                  <h4 class="hero-dl-card-title">macOS 客户端</h4>
-                  <p class="hero-dl-card-desc">原生 Electron，支持 Apple Silicon 和 Intel</p>
-                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson.dmg" class="cursor-target hero-dl-card-btn" @click="trackDownload('macOS客户端')">下载 macOS 版</a>
-                </div>
+                </a>
                 <!-- Windows -->
-                <div class="hero-dl-card">
-                  <div class="hero-dl-card-icon">
-                    <svg viewBox="0 0 1024 1024" width="24" height="24">
-                      <path d="M456 484V160.1l-335.9 72V484H456zM512 484h391.8V64.2l-391.8 84V484zM456 540H120.2v251.9l335.9 72V540zM512 540v335.9l391.8 84V540H512z" fill="#00adef" />
-                    </svg>
+                <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson.exe" class="cursor-target hero-dl-card" @click="trackDownload('Windows客户端')">
+                  <div class="hero-dl-card-main">
+                    <div class="hero-dl-card-icon">
+                      <svg viewBox="0 0 1024 1024" width="20" height="20">
+                        <path d="M456 484V160.1l-335.9 72V484H456zM512 484h391.8V64.2l-391.8 84V484zM456 540H120.2v251.9l335.9 72V540zM512 540v335.9l391.8 84V540H512z" fill="#00adef" />
+                      </svg>
+                    </div>
+                    <span class="hero-dl-card-title">Windows</span>
                   </div>
-                  <h4 class="hero-dl-card-title">Windows 客户端</h4>
-                  <p class="hero-dl-card-desc">NSIS 安装包，即装即用</p>
-                  <span class="hero-dl-card-meta">Windows 10 / 11 · 64位</span>
-                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson.exe" class="cursor-target hero-dl-card-btn" @click="trackDownload('Windows客户端')">下载 .exe</a>
-                </div>
+                </a>
                 <!-- uTools -->
-                <div class="hero-dl-card">
-                  <div class="hero-dl-card-icon">
-                    <svg viewBox="0 0 1024 1024" width="24" height="24">
-                      <path d="M512 64L160 288v448l352 224 352-224V288L512 64z" fill="#6366f1" opacity="0.15" />
-                      <path d="M512 128L224 320v384l288 192 288-192V320L512 128z" fill="none" stroke="#6366f1" stroke-width="32" />
-                      <circle cx="512" cy="512" r="120" fill="#6366f1" opacity="0.9" />
-                      <path d="M480 448l64 64-64 64" fill="none" stroke="#fff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" />
-                    </svg>
+                <a href="https://www.u-tools.cn/plugins/" target="_blank" class="cursor-target hero-dl-card" @click="trackDownload('uTools插件')">
+                  <div class="hero-dl-card-main">
+                    <div class="hero-dl-card-icon">
+                      <svg viewBox="0 0 1024 1024" width="20" height="20">
+                        <path d="M512 64L160 288v448l352 224 352-224V288L512 64z" fill="#6366f1" opacity="0.15" />
+                        <path d="M512 128L224 320v384l288 192 288-192V320L512 128z" fill="none" stroke="#6366f1" stroke-width="32" />
+                        <circle cx="512" cy="512" r="120" fill="#6366f1" opacity="0.9" />
+                        <path d="M480 448l64 64-64 64" fill="none" stroke="#fff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </div>
+                    <span class="hero-dl-card-title">uTools</span>
                   </div>
-                  <h4 class="hero-dl-card-title">uTools 插件</h4>
-                  <p class="hero-dl-card-desc">快捷键呼出，即用即走</p>
-                  <span class="hero-dl-card-meta">macOS / Windows · uTools 平台</span>
-                  <a href="https://www.u-tools.cn/plugins/" target="_blank" class="cursor-target hero-dl-card-btn" @click="trackDownload('uTools插件')">前往插件市场</a>
-                </div>
+                </a>
                 <!-- VS Code -->
-                <div class="hero-dl-card">
-                  <div class="hero-dl-card-icon">
-                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M23.15 2.587L18.21.21a1.494 1.494 0 00-1.705.29l-9.46 8.63-4.12-3.12a.999.999 0 00-1.276.064L.366 7.234a.999.999 0 00.04 1.464l4.28 3.8-4.28 3.8a1 1 0 00-.04 1.465l1.283 1.16c.382.345.955.37 1.276.064l4.12-3.12 9.46 8.63c.47.43 1.15.54 1.705.29l4.94-2.377A1.5 1.5 0 0024 21.656V3.844a1.5 1.5 0 00-.85-1.257zM18 16.5l-5.5-4.5L18 7.5v9z" fill="#007ACC"/>
-                    </svg>
+                <a href="https://marketplace.visualstudio.com/items?itemName=xiaofucode.easyjson" target="_blank" class="cursor-target hero-dl-card" @click="trackDownload('VS Code插件')">
+                  <div class="hero-dl-card-main">
+                    <div class="hero-dl-card-icon">
+                      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M23.15 2.587L18.21.21a1.494 1.494 0 00-1.705.29l-9.46 8.63-4.12-3.12a.999.999 0 00-1.276.064L.366 7.234a.999.999 0 00.04 1.464l4.28 3.8-4.28 3.8a1 1 0 00-.04 1.465l1.283 1.16c.382.345.955.37 1.276.064l4.12-3.12 9.46 8.63c.47.43 1.15.54 1.705.29l4.94-2.377A1.5 1.5 0 0024 21.656V3.844a1.5 1.5 0 00-.85-1.257zM18 16.5l-5.5-4.5L18 7.5v9z" fill="#007ACC"/>
+                      </svg>
+                    </div>
+                    <span class="hero-dl-card-title">VS Code</span>
                   </div>
-                  <h4 class="hero-dl-card-title">VS Code 插件</h4>
-                  <p class="hero-dl-card-desc">右键选中文本即刻提取，无缝集成编辑区</p>
-                  <span class="hero-dl-card-meta">macOS / Windows / Linux · VS Code 平台</span>
-                  <a href="https://marketplace.visualstudio.com/items?itemName=xiaofucode.easyjson" target="_blank" class="cursor-target hero-dl-card-btn" @click="trackDownload('VS Code插件')">前往插件市场</a>
-                </div>
+                </a>
               </div>
             </div>
             <button class="cursor-target home-btn-primary hero-cta" @click="$emit('go-to-app')" id="hero-try-now-btn">
@@ -1242,24 +1238,19 @@ body.utools-mode .hero-badge {
 .hero-download-btn{display:inline-flex;align-items:center;gap:6px;height:42px;padding:0 24px;border:none;background:linear-gradient(180deg,rgba(255,255,255,0.92) 0%,rgba(242,242,246,0.72) 100%);color:var(--text-primary);font-size:var(--hero-cta-fs);font-weight:600;font-family:var(--font-mono);letter-spacing:0.02em;border-radius:8px;cursor:pointer;transition:all 0.35s cubic-bezier(0.16,1,0.3,1);white-space:nowrap;box-shadow:0 1px 2px rgba(0,0,0,0.05),0 4px 20px rgba(175,180,195,0.28),0 0 50px rgba(185,190,205,0.15),0 0 90px rgba(195,200,215,0.07)}
 .hero-download-btn:hover{background:linear-gradient(180deg,rgba(255,255,255,0.98) 0%,rgba(248,248,252,0.88) 100%);box-shadow:0 1px 2px rgba(0,0,0,0.05),0 6px 28px rgba(170,175,195,0.38),0 0 70px rgba(180,185,205,0.22),0 0 120px rgba(190,195,215,0.12),0 0 180px rgba(200,205,220,0.06)}
 .hero-download-icon{width:15px;height:15px;opacity:0.6}
-.hero-download-dropdown{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:12px;padding:12px;box-shadow:0 16px 48px rgba(0,0,0,0.18);opacity:0;visibility:hidden;transition:all 0.2s cubic-bezier(0.16,1,0.3,1);z-index:200;display:flex;gap:10px}
+.hero-download-dropdown{position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#fff;border:1px solid rgba(0,0,0,0.08);border-radius:10px;padding:6px;box-shadow:0 16px 48px rgba(0,0,0,0.18);opacity:0;visibility:hidden;transition:all 0.2s cubic-bezier(0.16,1,0.3,1);z-index:200;display:flex;gap:4px;height:6rem}
 .hero-download-wrap:hover .hero-download-dropdown{opacity:1;visibility:visible}
 
 /* Horizontal card per platform */
-.hero-dl-card{display:flex;flex-direction:column;align-items:center;text-align:center;width:155px;padding:12px 10px;border-radius:8px;border:1px solid transparent;transition:all 0.2s;cursor:default;gap:5px}
+.hero-dl-card{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;width:100px;height:100%;padding:0;border-radius:7px;border:1px solid transparent;transition:all 0.2s;cursor:pointer;position:relative;overflow:hidden;text-decoration:none;color:inherit}
 .hero-dl-card:hover{border-color:rgba(0,0,0,0.06);background:rgba(0,0,0,0.015)}
-.hero-dl-card-icon{width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-bottom:0}
-.hero-dl-card-icon svg{width:20px;height:20px}
+.hero-dl-card-main{display:flex;flex-direction:column;align-items:center;gap:4px;transition:transform 0.2s cubic-bezier(0.16,1,0.3,1)}
+.hero-dl-card:hover .hero-dl-card-main{transform:translateY(-4px)}
+.hero-dl-card-icon{width:24px;height:24px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.hero-dl-card-icon svg{width:18px;height:18px}
 .dark-mode .hero-dl-card-icon{opacity:0.9}
 .dark-mode .hero-dl-card-icon svg[data-macos] path{fill:#d4d4d4}
-.hero-dl-card-title{font-size:12px;font-weight:700;color:var(--text-primary);margin:0}
-.hero-dl-card-desc{font-size:10px;color:var(--text-secondary);margin:0;line-height:1.3;max-width:140px}
-.hero-dl-card-meta{font-size:9.5px;color:var(--text-muted);font-family:var(--font-mono);margin:0}
-.hero-dl-card-btns{display:flex;gap:4px;margin-top:2px}
-.hero-dl-card-btn{display:inline-flex;align-items:center;justify-content:center;padding:4px 10px;border-radius:5px;font-size:10px;font-weight:600;font-family:var(--font-mono);text-decoration:none;background:var(--accent);color:#fff;border:none;cursor:pointer;transition:all 0.15s;white-space:nowrap}
-.hero-dl-card-btn:hover{background:#059669;box-shadow:0 2px 6px rgba(16,185,129,0.25)}
-.hero-dl-card-btn--alt{background:transparent;color:var(--text-primary);border:1px solid rgba(0,0,0,0.12)}
-.hero-dl-card-btn--alt:hover{background:rgba(0,0,0,0.04);box-shadow:none;color:var(--text-primary)}
+.hero-dl-card-title{font-size:11px;font-weight:500;color:var(--text-primary);margin:0;white-space:nowrap}
 .dark-mode .hero-download-btn{background:linear-gradient(180deg,rgba(40,44,55,0.85) 0%,rgba(30,32,40,0.75) 100%);color:var(--text-primary);box-shadow:0 1px 2px rgba(0,0,0,0.2),0 4px 24px rgba(160,165,180,0.2),0 0 55px rgba(170,175,190,0.1),0 0 100px rgba(180,185,200,0.05)}
 .dark-mode .hero-download-btn:hover{background:linear-gradient(180deg,rgba(50,55,68,0.92) 0%,rgba(38,42,52,0.85) 100%);box-shadow:0 1px 2px rgba(0,0,0,0.2),0 6px 32px rgba(155,160,180,0.3),0 0 75px rgba(165,170,190,0.18),0 0 130px rgba(175,180,200,0.08)}
 .dark-mode .hero-download-dropdown{background:#1c1e24;border-color:rgba(255,255,255,0.08)}
@@ -1594,9 +1585,11 @@ body.utools-mode .hero-badge {
   .showcase-content,.interactive-showcase-section.reverse .showcase-content{grid-template-columns:1fr;gap:32px}
   .mv-cards{grid-template-columns:repeat(2,1fr)}
   .tabs-feature-row{grid-template-columns:1fr}
-  .hero-download-dropdown{flex-direction:column;gap:8px;padding:12px;left:auto;right:0;transform:none}
-  .hero-dl-card{width:100%;min-width:180px;flex-direction:row;text-align:left;padding:10px 12px;gap:10px;align-items:center}
-  .hero-dl-card-icon{width:28px;height:28px;margin-bottom:0}
+  .hero-download-dropdown{flex-direction:column;gap:2px;padding:6px;left:auto;right:0;transform:none;height:auto}
+  .hero-dl-card{width:100%;flex-direction:row;text-align:left;padding:8px 10px;gap:0;height:auto;overflow:visible}
+  .hero-dl-card-main{flex-direction:row;align-items:center;gap:8px}
+  .hero-dl-card:hover .hero-dl-card-main{transform:none}
+  .hero-dl-card-icon{width:22px;height:22px}
   .hero-dl-card-desc{display:none}
   .hero-dl-card-meta{font-size:9px}
 }

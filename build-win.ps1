@@ -1,42 +1,42 @@
-# easyJSON Windows 打包脚本
-# 用法: 右键 → "使用 PowerShell 运行"  或 终端输入 .\build-win.ps1
+# easyJSON Windows build script
+# Prerequisites: Rust GNU toolchain + MinGW-w64 on PATH
 
-$ErrorActionPreference = "Continue"
+$ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-Write-Host "=== easyJSON Windows 打包 ===" -ForegroundColor Cyan
+Write-Host "=== easyJSON Windows Build ===" -ForegroundColor Cyan
 
-# 1. 确保 MSVC 工具链
-rustup default stable-x86_64-pc-windows-msvc 2>$null
-rustup override set stable-x86_64-pc-windows-msvc --path . 2>$null
-Write-Host "[1/5] Rust MSVC 工具链就绪" -ForegroundColor Green
+# 1. Verify toolchain
+Write-Host "[1/4] Verifying toolchain..." -ForegroundColor Yellow
+cargo --version 2>$null
+if ($LASTEXITCODE -ne 0) { throw "Cargo not found. Install Rust with GNU toolchain." }
+rustup default stable-x86_64-pc-windows-gnu 2>$null
+Write-Host "       Toolchain ready" -ForegroundColor Green
 
-# 2. 构建前端
-Write-Host "[2/5] 构建前端..." -ForegroundColor Yellow
+# 2. Build frontend
+Write-Host "[2/4] Building frontend..." -ForegroundColor Yellow
 npm run build
-if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
+if ($LASTEXITCODE -ne 0) { throw "Frontend build failed" }
+Write-Host "       Frontend built" -ForegroundColor Green
 
-# 3. 编译 Tauri (Rust)
-Write-Host "[3/5] 编译 Rust 后端..." -ForegroundColor Yellow
-npm run tauri:build 2>&1 | Out-Null
+# 3. Build Tauri (Rust backend + bundler)
+Write-Host "[3/4] Building Tauri app..." -ForegroundColor Yellow
+npm run tauri:build
 $exitCode = $LASTEXITCODE
 
-# 4. 如果缺 WebView2Loader.dll，补上后重试
-if ($exitCode -ne 0) {
-    Write-Host "[4/5] 修补 WebView2Loader.dll..." -ForegroundColor Yellow
-    $dll = Get-ChildItem "$env:USERPROFILE\.cargo\registry" -Recurse -Filter "WebView2Loader.dll" -ErrorAction SilentlyContinue | Where-Object { $_.Directory.Name -eq "x64" } | Select-Object -First 1
-    if ($dll) {
-        Copy-Item $dll.FullName "src-tauri\target\release\" -Force
-        npm run tauri:build
+# 4. Check result
+if ($exitCode -eq 0) {
+    $installer = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $exe = Get-ChildItem "src-tauri\target\release\easy-json.exe" -ErrorAction SilentlyContinue
+    if ($installer) {
+        Write-Host "[4/4] Build complete!" -ForegroundColor Green
+        Write-Host "       Installer: $($installer.FullName)" -ForegroundColor White
+    } elseif ($exe) {
+        Write-Host "[4/4] Build complete (exe only)" -ForegroundColor Green
+        Write-Host "       Binary: $($exe.FullName)" -ForegroundColor White
+    } else {
+        Write-Host "[4/4] Build artifacts not found" -ForegroundColor Yellow
     }
-}
-
-# 5. 完成
-$installer = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($installer) {
-    Write-Host "[5/5] 打包完成!" -ForegroundColor Green
-    Write-Host "       $($installer.FullName)" -ForegroundColor White
 } else {
-    Write-Host "[warn] 未找到安装包，检查编译日志" -ForegroundColor Yellow
-    Get-ChildItem "src-tauri\target\release\easy-json.exe" -ErrorAction SilentlyContinue
+    Write-Host "[4/4] Build failed (exit code: $exitCode)" -ForegroundColor Red
 }
