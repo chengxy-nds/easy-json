@@ -11,6 +11,7 @@ import {
 const isDark = inject('isDark')
 const toggleTheme = inject('toggleTheme')
 import LanyardWrapper from './Lanyard/LanyardWrapper.vue'
+import TargetCursor from './TargetCursor.vue'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js'
 import { useHeroParticles } from '../composables/useHeroParticles.js'
@@ -461,6 +462,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="home-page">
+    <TargetCursor />
     <!-- ─── 100% Full-Width Combined Top Hero Block (Navbar + Hero Section) ─── -->
     <div ref="heroRef" class="hero-top-block animate-fade-in">
       <!-- Floating 3D Physics Lanyard Card (Positioned at Top-Right Corner of Screen) -->
@@ -473,7 +475,7 @@ onBeforeUnmount(() => {
         <nav class="home-nav-inner">
           <!-- Left: Logo + badge -->
           <div class="home-nav-left">
-            <a class="home-nav-logo" @click.prevent="$emit('go-to-app')" href="#">
+            <a class="cursor-target home-nav-logo" @click.prevent="$emit('go-to-app')" href="#">
               <img src="/images/logo.png" class="home-nav-logo-icon" alt="easyJSON logo" />
               <span class="home-nav-logo-text">EASY JSON</span>
             </a>
@@ -483,10 +485,10 @@ onBeforeUnmount(() => {
 
           <!-- Center: Nav links -->
           <div class="home-nav-links">
-            <a href="http://xiaofucode.com" target="_blank" class="home-nav-link">面试专题</a>
-            <a href="#contact" class="home-nav-link">联系交流</a>
-            <a class="home-nav-link" @click.prevent="$emit('go-to-changelog')" href="#">更新历史</a>
-            <a class="home-nav-link" @click.prevent="$emit('go-to-comment')" href="#">
+            <a href="http://xiaofucode.com" target="_blank" class="cursor-target home-nav-link">面试专题</a>
+            <a href="#contact" class="cursor-target home-nav-link">联系交流</a>
+            <a class="cursor-target home-nav-link" @click.prevent="$emit('go-to-changelog')" href="#">更新历史</a>
+            <a class="cursor-target home-nav-link" @click.prevent="$emit('go-to-comment')" href="#">
               <MessageCircle :size="15" class="home-nav-link-icon" />
               评论
             </a>
@@ -494,15 +496,15 @@ onBeforeUnmount(() => {
 
           <!-- Right: CTA + GitHub -->
           <div class="home-nav-right">
-            <button class="home-btn-primary" @click="$emit('go-to-app')" id="home-open-app-btn">
+            <button class="cursor-target home-btn-primary" @click="$emit('go-to-app')" id="home-open-app-btn">
               进入
             </button>
-            <a href="https://github.com/chengxy-nds/easy-json" target="_blank" class="home-nav-ghost-btn" title="GitHub">
+            <a href="https://github.com/chengxy-nds/easy-json" target="_blank" class="cursor-target home-nav-ghost-btn" title="GitHub">
               <svg fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" class="home-nav-gh-icon">
                 <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
               </svg>
             </a>
-            <button class="home-nav-theme-btn" @click="toggleTheme" :title="isDark ? '切换至浅色' : '切换至深色'">
+            <button class="cursor-target home-nav-theme-btn" @click="toggleTheme" :title="isDark ? '切换至浅色' : '切换至深色'">
               <Sun v-if="isDark" :size="16" />
               <Moon v-else :size="16" />
             </button>
@@ -533,7 +535,7 @@ onBeforeUnmount(() => {
           </p>
           <div class="hero-actions">
             <div class="hero-download-wrap">
-              <button class="hero-download-btn">
+              <button class="cursor-target hero-download-btn">
                 <svg class="hero-download-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 下载
               </button>
@@ -553,7 +555,7 @@ onBeforeUnmount(() => {
                   <h4 class="hero-dl-card-title">Chrome 插件</h4>
                   <p class="hero-dl-card-desc">网页选中文本右键即可提取 JSON</p>
                   <span class="hero-dl-card-meta">Chrome / Edge / Firefox</span>
-                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson-plugin.zip" class="hero-dl-card-btn" @click="trackDownload('Chrome插件')">安装插件</a>
+                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson-plugin.zip" class="cursor-target hero-dl-card-btn" @click="trackDownload('Chrome插件')">安装插件</a>
                 </div>
                 <!-- macOS -->
                 <div class="hero-dl-card">
@@ -564,7 +566,7 @@ onBeforeUnmount(() => {
                   </div>
                   <h4 class="hero-dl-card-title">macOS 客户端</h4>
                   <p class="hero-dl-card-desc">原生 Electron，支持 Apple Silicon 和 Intel</p>
-                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson.dmg" class="hero-dl-card-btn" @click="trackDownload('macOS客户端')">下载 macOS 版</a>
+                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson.dmg" class="cursor-target hero-dl-card-btn" @click="trackDownload('macOS客户端')">下载 macOS 版</a>
                 </div>
                 <!-- Windows -->
                 <div class="hero-dl-card">
@@ -576,7 +578,7 @@ onBeforeUnmount(() => {
                   <h4 class="hero-dl-card-title">Windows 客户端</h4>
                   <p class="hero-dl-card-desc">NSIS 安装包，即装即用</p>
                   <span class="hero-dl-card-meta">Windows 10 / 11 · 64位</span>
-                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson.exe" class="hero-dl-card-btn" @click="trackDownload('Windows客户端')">下载 .exe</a>
+                  <a href="https://croot-report.oss-cn-beijing.aliyuncs.com/easyjson.exe" class="cursor-target hero-dl-card-btn" @click="trackDownload('Windows客户端')">下载 .exe</a>
                 </div>
                 <!-- uTools -->
                 <div class="hero-dl-card">
@@ -591,7 +593,7 @@ onBeforeUnmount(() => {
                   <h4 class="hero-dl-card-title">uTools 插件</h4>
                   <p class="hero-dl-card-desc">快捷键呼出，即用即走</p>
                   <span class="hero-dl-card-meta">macOS / Windows · uTools 平台</span>
-                  <a href="https://www.u-tools.cn/plugins/" target="_blank" class="hero-dl-card-btn" @click="trackDownload('uTools插件')">前往插件市场</a>
+                  <a href="https://www.u-tools.cn/plugins/" target="_blank" class="cursor-target hero-dl-card-btn" @click="trackDownload('uTools插件')">前往插件市场</a>
                 </div>
                 <!-- VS Code -->
                 <div class="hero-dl-card">
@@ -603,11 +605,11 @@ onBeforeUnmount(() => {
                   <h4 class="hero-dl-card-title">VS Code 插件</h4>
                   <p class="hero-dl-card-desc">右键选中文本即刻提取，无缝集成编辑区</p>
                   <span class="hero-dl-card-meta">macOS / Windows / Linux · VS Code 平台</span>
-                  <a href="https://marketplace.visualstudio.com/items?itemName=xiaofucode.easyjson" target="_blank" class="hero-dl-card-btn" @click="trackDownload('VS Code插件')">前往插件市场</a>
+                  <a href="https://marketplace.visualstudio.com/items?itemName=xiaofucode.easyjson" target="_blank" class="cursor-target hero-dl-card-btn" @click="trackDownload('VS Code插件')">前往插件市场</a>
                 </div>
               </div>
             </div>
-            <button class="home-btn-primary hero-cta" @click="$emit('go-to-app')" id="hero-try-now-btn">
+            <button class="cursor-target home-btn-primary hero-cta" @click="$emit('go-to-app')" id="hero-try-now-btn">
               开始使用 <ArrowRight class="btn-arrow" />
             </button>
           </div>
@@ -636,7 +638,7 @@ onBeforeUnmount(() => {
                 <h4>{{ card.name }}</h4>
               </div>
               <p>{{ card.desc }}</p>
-              <button class="try-card-btn" @click="tryFormat(card.key)">
+              <button class="cursor-target try-card-btn" @click="tryFormat(card.key)">
                 try it <MousePointerClick class="try-icon" />
               </button>
             </div>
@@ -658,7 +660,7 @@ onBeforeUnmount(() => {
                 <button
                   v-for="(data, key) in presets"
                   :key="key"
-                  class="preset-btn"
+                  class="cursor-target preset-btn"
                   :class="{ active: activePresetKey === key }"
                   @click="selectPreset(key)"
                 >
@@ -668,7 +670,7 @@ onBeforeUnmount(() => {
                 <button
                   v-for="(data, key) in presets"
                   :key="'dup-'+key"
-                  class="preset-btn"
+                  class="cursor-target preset-btn"
                   :class="{ active: activePresetKey === key }"
                   @click="selectPreset(key)"
                 >
@@ -882,7 +884,7 @@ onBeforeUnmount(() => {
               <button
                 v-for="v in multiViews"
                 :key="v.key"
-                class="mv-seg-btn"
+                class="cursor-target mv-seg-btn"
                 :class="{ active: activeViewType === v.key }"
                 @click="activeViewType = v.key"
               >
@@ -1065,7 +1067,7 @@ onBeforeUnmount(() => {
             width="20"
             height="20"
             alt="easyJSON"
-            class="footer-logo-btn"
+            class="cursor-target footer-logo-btn"
             @click="emit('go-to-test')"
           />
           <span>© 2026 easyJSON</span>
