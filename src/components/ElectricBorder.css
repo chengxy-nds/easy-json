@@ -1,5 +1,8 @@
 .electric-border {
-  --electric-light-color: oklch(from var(--electric-border-color) l c h);
+  --electric-light-color: #e0f7fa;
+  --electric-light-color: color-mix(in srgb, var(--electric-border-color, #7df9ff), #ffffff 50%);
+  --electric-glow-color: rgba(125, 249, 255, 0.8);
+  --electric-glow-color: color-mix(in srgb, var(--electric-border-color, #7df9ff) 80%, transparent);
   position: relative;
   border-radius: inherit;
   overflow: visible;
@@ -17,6 +20,7 @@
 
 .eb-canvas {
   display: block;
+  filter: drop-shadow(0 0 3px var(--electric-border-color, #7df9ff)) drop-shadow(0 0 8px var(--electric-border-color, #7df9ff));
 }
 
 .eb-content {
@@ -44,19 +48,25 @@
 }
 
 .eb-glow-1 {
-  border: 2px solid oklch(from var(--electric-border-color) l c h / 0.6);
+  border: 2px solid rgba(125, 249, 255, 0.75);
+  border: 2px solid color-mix(in srgb, var(--electric-border-color, #7df9ff) 75%, transparent);
   filter: blur(1px);
+  box-shadow: 0 0 10px rgba(125, 249, 255, 0.5);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--electric-border-color, #7df9ff) 50%, transparent);
 }
 
 .eb-glow-2 {
+  border: 2px solid #e0f7fa;
   border: 2px solid var(--electric-light-color);
   filter: blur(4px);
+  box-shadow: inset 0 0 14px rgba(125, 249, 255, 0.3);
+  box-shadow: inset 0 0 14px color-mix(in srgb, var(--electric-border-color, #7df9ff) 30%, transparent);
 }
 
 .eb-background-glow {
   z-index: -1;
-  transform: scale(1.1);
-  filter: blur(32px);
-  opacity: 0.3;
-  background: linear-gradient(-30deg, var(--electric-light-color), transparent, var(--electric-border-color));
+  transform: scale(1.05);
+  filter: blur(28px);
+  opacity: 0.5;
+  background: radial-gradient(circle at 50% 50%, var(--electric-light-color), var(--electric-border-color, #7df9ff) 60%, transparent 85%);
 }

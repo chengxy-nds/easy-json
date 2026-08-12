@@ -4,7 +4,7 @@ import { ArrowLeft, History, Sparkles, Bug, Zap, Plus, Wrench, ChevronDown } fro
 import ElectricBorder from './ElectricBorder.vue'
 
 const electricColor = computed(() => {
-  return getComputedStyle(document.documentElement).getPropertyValue('--primary-color').trim() || '#2563eb'
+  return '#38bdf8'
 })
 
 const emit = defineEmits(['go-back'])
@@ -182,9 +182,9 @@ const toggleVersion = (version) => {
             <ElectricBorder
               v-if="index === 0"
               :color="electricColor"
-              :speed="0.8"
-              :chaos="0.08"
-              :border-radius="10"
+              :speed="1"
+              :chaos="0.12"
+              :border-radius="12"
               style="flex:1;min-width:0;margin-bottom:16px;"
             >
               <div class="cl-card-wrap is-latest-card">
@@ -489,6 +489,7 @@ const toggleVersion = (version) => {
   background: var(--bg-panel);
   border-radius: 10px;
   overflow: hidden;
+  margin-bottom: 0;
 }
 .cl-entry:hover .cl-card-wrap {
   background: var(--bg-panel);
