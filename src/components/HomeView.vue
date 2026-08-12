@@ -485,7 +485,7 @@ onBeforeUnmount(() => {
           <div class="home-nav-links">
             <a href="http://xiaofucode.com" target="_blank" class="home-nav-link">面试专题</a>
             <a href="#contact" class="home-nav-link">联系交流</a>
-            <a class="home-nav-link" @click.prevent="$emit('go-to-changelog')" href="#">更新记录</a>
+            <a class="home-nav-link" @click.prevent="$emit('go-to-changelog')" href="#">更新历史</a>
             <a class="home-nav-link" @click.prevent="$emit('go-to-comment')" href="#">
               <MessageCircle :size="15" class="home-nav-link-icon" />
               评论

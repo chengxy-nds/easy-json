@@ -2,15 +2,17 @@
   <div class="comment-page">
     <!-- 顶栏 -->
     <header class="comment-topbar">
-      <button class="comment-back-btn" @click="$emit('go-back')">
-        <ArrowLeft :size="16" />
-        <span>返回</span>
-      </button>
-      <div class="comment-topbar-title">
-        <MessageCircle :size="18" class="comment-topbar-icon" />
-        <span>评论交流</span>
+      <div class="comment-topbar-inner">
+        <button class="comment-back-btn" @click="$emit('go-back')">
+          <ArrowLeft :size="16" />
+          <span>返回</span>
+        </button>
+        <div class="comment-topbar-title">
+          <MessageCircle :size="18" class="comment-topbar-icon" />
+          <span>评论交流</span>
+        </div>
+        <div class="comment-topbar-spacer"></div>
       </div>
-      <div class="comment-topbar-spacer"></div>
     </header>
 
     <!-- 主体 -->
@@ -90,6 +92,7 @@ const initWaline = () => {
     dark: 'html.dark-mode',
     pageview: true,
     comment: true,
+    avatar: 'https://cravatar.cn/avatar/',
     locale: {
       placeholder: '欢迎沟通交流…',
       nick: '昵称',
@@ -117,13 +120,18 @@ onUnmounted(() => { if (walineInstance) walineInstance.destroy() })
 
 /* ─── 顶栏 ─── */
 .comment-topbar {
-  display: flex;
-  align-items: center;
-  padding: 0 24px;
   height: 48px;
   background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+}
+.comment-topbar-inner {
+  display: flex;
+  align-items: center;
+  max-width: 1100px;
+  width: 100%;
+  height: 100%;
+  margin: 0 auto;
+  padding: 0 24px;
 }
 .comment-back-btn {
   display: inline-flex;
@@ -187,7 +195,6 @@ onUnmounted(() => { if (walineInstance) walineInstance.destroy() })
 }
 .comment-card {
   background: var(--bg-panel);
-  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 28px 24px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
@@ -259,7 +266,6 @@ onUnmounted(() => { if (walineInstance) walineInstance.destroy() })
   flex: 1;
   min-width: 0;
   background: var(--bg-panel);
-  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 32px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
@@ -435,7 +441,6 @@ onUnmounted(() => { if (walineInstance) walineInstance.destroy() })
   margin-top: 24px !important;
 }
 :deep(.wl-cards .wl-card) {
-  padding: 24px 0 !important;
   border-bottom: 1px solid var(--border-color) !important;
   transition: all 0.2s ease !important;
 }
@@ -445,10 +450,20 @@ onUnmounted(() => { if (walineInstance) walineInstance.destroy() })
 
 /* 用户头像 */
 :deep(.wl-avatar) {
-  border: 1px solid var(--border-color) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+  border: none !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
+  border-radius: 50% !important;
   overflow: hidden !important;
-  background: var(--bg-panel) !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23e0e7ff'/%3E%3Cstop offset='100%25' style='stop-color:%23c7d2fe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='80' height='80' fill='url(%23g)'/%3E%3Ccircle cx='40' cy='30' r='15' fill='%23a5b4fc'/%3E%3Cellipse cx='40' cy='68' rx='32' ry='22' fill='%23a5b4fc'/%3E%3C/svg%3E") !important;
+  background-size: cover !important;
+}
+.dark-mode :deep(.wl-avatar) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23374151'/%3E%3Cstop offset='100%25' style='stop-color:%234B5563'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='80' height='80' fill='url(%23g)'/%3E%3Ccircle cx='40' cy='30' r='15' fill='%236B7280'/%3E%3Cellipse cx='40' cy='68' rx='32' ry='22' fill='%236B7280'/%3E%3C/svg%3E") !important;
+}
+:deep(.wl-avatar img) {
+  border-radius: 50% !important;
+  position: relative !important;
+  z-index: 1 !important;
 }
 
 /* 用户昵称 */
@@ -480,7 +495,6 @@ onUnmounted(() => { if (walineInstance) walineInstance.destroy() })
   font-size: 11px !important;
   color: var(--text-muted) !important;
   background: var(--bg-app) !important;
-  border: 1px solid var(--border-color) !important;
   padding: 1px 6px !important;
   border-radius: 4px !important;
   margin-right: 4px !important;
@@ -503,9 +517,8 @@ onUnmounted(() => { if (walineInstance) walineInstance.destroy() })
 
 /* 评论引用回复卡片 */
 :deep(.wl-quote) {
-  border-left: 3px solid var(--primary-color) !important;
   background: var(--bg-app) !important;
-  border-radius: 6px !important;
+  border-radius: 8px !important;
   padding: 12px 16px !important;
   margin-top: 12px !important;
 }
