@@ -1,6 +1,7 @@
 <script setup>
 import { ref, inject, onMounted, onBeforeUnmount } from 'vue'
 import { UploadCloud, Terminal, Globe, FileCode, RefreshCw } from 'lucide-vue-next'
+import { safeParse, safeStringify } from '../utils/jsonBigInt.js'
 
 const emit = defineEmits(['import-text'])
 const showToast = inject('showToast')
@@ -194,7 +195,7 @@ const parseFetchFormat = (cmd) => {
       try {
         // 尝试用 eval 解析（安全风险低，因为是用户自己粘贴的代码）
         const parsed = new Function(`return ${stringifyMatch[1]}`)()
-        body = JSON.stringify(parsed)
+        body = safeStringify(parsed)
       } catch (e) {
         body = stringifyMatch[1].trim()
       }
@@ -204,7 +205,7 @@ const parseFetchFormat = (cmd) => {
       if (objMatch) {
         try {
           const parsed = new Function(`return ${objMatch[1]}`)()
-          body = JSON.stringify(parsed)
+          body = safeStringify(parsed)
         } catch (e) {
           body = objMatch[1].trim()
         }
@@ -275,8 +276,8 @@ const parseCurl = (cmd) => {
   // 尝试格式化 JSON body
   try {
     if (result.body) {
-      const parsed = JSON.parse(result.body)
-      result.body = JSON.stringify(parsed, null, 2)
+      const parsed = safeParse(result.body)
+      result.body = safeStringify(parsed, null, 2)
     }
   } catch (e) {}
 
@@ -286,7 +287,7 @@ const parseCurl = (cmd) => {
 
 // 美化 JSON 文本
 const beautify = (text) => {
-  try { return JSON.stringify(JSON.parse(text), null, 2) } catch { return text }
+  try { return safeStringify(safeParse(text), null, 2) } catch { return text }
 }
 
 // 本地文件导入

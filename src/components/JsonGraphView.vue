@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch, inject } from 'vue'
+import { safeStringify } from '../utils/jsonBigInt.js'
 
 const searchQuery = inject('searchQuery', ref(''))
 
@@ -54,7 +55,7 @@ const getPreview = (v) => {
 const getTooltipText = (v) => {
   if (v === null) return 'null'
   if (typeof v === 'object') {
-    return JSON.stringify(v, null, 2)
+    return safeStringify(v, null, 2)
   }
   return String(v)
 }

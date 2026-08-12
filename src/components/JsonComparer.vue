@@ -8,6 +8,7 @@ import {
 import * as diff from 'diff'
 import { useTabsDrag } from '../composables/useTabsDrag'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
+import { safeParse, safeStringify } from '../utils/jsonBigInt.js'
 
 const showToast = inject('showToast')
 
@@ -394,7 +395,7 @@ const validateJson = (text, isLeft) => {
     return
   }
   try {
-    JSON.parse(text)
+    safeParse(text)
     if (isLeft) {
       tab.leftError = null
       tab.leftErrorLine = null
@@ -468,8 +469,8 @@ watch(() => activeTab.value?.leftText, (newVal) => {
     const tab = activeTab.value
     if (!tab) return
     try {
-      const parsed = JSON.parse(newVal)
-      const formatted = JSON.stringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
+      const parsed = safeParse(newVal)
+      const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
       if (newVal.trim() !== formatted.trim()) {
         const el = leftTextareaRef.value
         const isFocused = document.activeElement === el
@@ -497,8 +498,8 @@ watch(() => activeTab.value?.rightText, (newVal) => {
     const tab = activeTab.value
     if (!tab) return
     try {
-      const parsed = JSON.parse(newVal)
-      const formatted = JSON.stringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
+      const parsed = safeParse(newVal)
+      const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
       if (newVal.trim() !== formatted.trim()) {
         const el = rightTextareaRef.value
         const isFocused = document.activeElement === el
@@ -527,11 +528,11 @@ watch(sortKeys, () => {
 const getFormattedText = (rawText) => {
   if (!rawText || !rawText.trim()) return ''
   try {
-    let parsed = JSON.parse(rawText)
+    let parsed = safeParse(rawText)
     if (sortKeys.value) {
       parsed = sortJSONKeys(parsed, sortKeys.value === 2)
     }
-    return JSON.stringify(parsed, null, 2)
+    return safeStringify(parsed, null, 2)
   } catch (err) {
     return rawText
   }
@@ -572,7 +573,7 @@ const convertJsObjectToJson = (text) => {
   if (obj === null || typeof obj !== 'object') {
     throw new Error('求值结果不是有效的对象或数组。')
   }
-  return JSON.stringify(obj, null, 2)
+  return safeStringify(obj, null, 2)
 }
 
 const checkEscapedJson = (text) => {
@@ -581,14 +582,14 @@ const checkEscapedJson = (text) => {
   
   // If it's already valid standard JSON or JS object, it's NOT escaped JSON
   try {
-    const parsed = JSON.parse(current)
+    const parsed = safeParse(current)
     if (parsed !== null && typeof parsed === 'object') {
       return null
     }
   } catch (e) {
     try {
       const jsonStr = convertJsObjectToJson(current)
-      const parsed = JSON.parse(jsonStr)
+      const parsed = safeParse(jsonStr)
       if (parsed !== null && typeof parsed === 'object') {
         return null
       }
@@ -602,17 +603,17 @@ const checkEscapedJson = (text) => {
     let unescaped = current
     if (unescaped.startsWith('"') && unescaped.endsWith('"')) {
       try {
-        unescaped = JSON.parse(unescaped)
+        unescaped = safeParse(unescaped)
       } catch (e) {}
     }
     unescaped = unescaped.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
     try {
       let obj
       try {
-        obj = JSON.parse(unescaped)
+        obj = safeParse(unescaped)
       } catch (e) {
         const jsonStr = convertJsObjectToJson(unescaped)
-        obj = JSON.parse(jsonStr)
+        obj = safeParse(jsonStr)
       }
       if (obj !== null && typeof obj === 'object') {
         return { valid: true, parsedObj: obj, depth: depth }
@@ -632,11 +633,11 @@ const formatInputs = () => {
   let success = false
   if (tab.leftText && tab.leftText.trim()) {
     try {
-      let parsed = JSON.parse(tab.leftText)
+      let parsed = safeParse(tab.leftText)
       if (sortKeys.value) {
         parsed = sortJSONKeys(parsed, sortKeys.value === 2)
       }
-      const formatted = JSON.stringify(parsed, null, 2)
+      const formatted = safeStringify(parsed, null, 2)
       tab.leftText = formatted
       tab.leftError = null
       tab.leftErrorLine = null
@@ -650,11 +651,11 @@ const formatInputs = () => {
   }
   if (tab.rightText && tab.rightText.trim()) {
     try {
-      let parsed = JSON.parse(tab.rightText)
+      let parsed = safeParse(tab.rightText)
       if (sortKeys.value) {
         parsed = sortJSONKeys(parsed, sortKeys.value === 2)
       }
-      const formatted = JSON.stringify(parsed, null, 2)
+      const formatted = safeStringify(parsed, null, 2)
       tab.rightText = formatted
       tab.rightError = null
       tab.rightErrorLine = null
@@ -678,7 +679,7 @@ const minifyInputs = () => {
   let success = false
   if (tab.leftText && tab.leftText.trim()) {
     try {
-      tab.leftText = JSON.stringify(JSON.parse(tab.leftText))
+      tab.leftText = safeStringify(safeParse(tab.leftText))
       tab.leftError = null
       tab.leftErrorLine = null
       success = true
@@ -690,7 +691,7 @@ const minifyInputs = () => {
   }
   if (tab.rightText && tab.rightText.trim()) {
     try {
-      tab.rightText = JSON.stringify(JSON.parse(tab.rightText))
+      tab.rightText = safeStringify(safeParse(tab.rightText))
       tab.rightError = null
       tab.rightErrorLine = null
       success = true
@@ -1000,9 +1001,9 @@ const applyAutoExtract = (isLeft) => {
   
   // If already valid JSON, format if enabled
   try {
-    const parsed = JSON.parse(text)
+    const parsed = safeParse(text)
     if (autoFormat.value) {
-      const formatted = JSON.stringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
+      const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
       if (text.trim() !== formatted.trim()) {
         if (isLeft) tab.leftText = formatted
         else tab.rightText = formatted
@@ -1033,8 +1034,8 @@ const applyAutoExtract = (isLeft) => {
       
       if (autoFormat.value) {
         try {
-          const obj = JSON.parse(result.json)
-          const formatted = JSON.stringify(sortKeys.value ? sortJSONKeys(obj, sortKeys.value === 2) : obj, null, 2)
+          const obj = safeParse(result.json)
+          const formatted = safeStringify(sortKeys.value ? sortJSONKeys(obj, sortKeys.value === 2) : obj, null, 2)
           if (isLeft) tab.leftText = formatted
           else tab.rightText = formatted
           
@@ -1089,8 +1090,8 @@ const handleFormatLeft = () => {
   const tab = activeTab.value
   if (!tab || !tab.leftText) return
   try {
-    const parsed = JSON.parse(tab.leftText)
-    const formatted = JSON.stringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
+    const parsed = safeParse(tab.leftText)
+    const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
     tab.leftText = formatted
     tab.leftError = null
     tab.leftErrorLine = null
@@ -1105,8 +1106,8 @@ const handleFormatRight = () => {
   const tab = activeTab.value
   if (!tab || !tab.rightText) return
   try {
-    const parsed = JSON.parse(tab.rightText)
-    const formatted = JSON.stringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
+    const parsed = safeParse(tab.rightText)
+    const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
     tab.rightText = formatted
     tab.rightError = null
     tab.rightErrorLine = null
@@ -1123,8 +1124,8 @@ const handlePasteLeft = () => {
       const tab = activeTab.value
       if (tab && tab.leftText) {
         try {
-          const parsed = JSON.parse(tab.leftText)
-          const formatted = JSON.stringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
+          const parsed = safeParse(tab.leftText)
+          const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
           tab.leftText = formatted
           tab.leftError = null
           tab.leftErrorLine = null
@@ -1141,8 +1142,8 @@ const handlePasteRight = () => {
       const tab = activeTab.value
       if (tab && tab.rightText) {
         try {
-          const parsed = JSON.parse(tab.rightText)
-          const formatted = JSON.stringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
+          const parsed = safeParse(tab.rightText)
+          const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
           tab.rightText = formatted
           tab.rightError = null
           tab.rightErrorLine = null
@@ -1323,11 +1324,11 @@ const stopEditingLeft = () => {
   if (!tab || !tab.leftText) return
   if (autoFormat.value) {
     try {
-      let parsed = JSON.parse(tab.leftText)
+      let parsed = safeParse(tab.leftText)
       if (sortKeys.value) {
         parsed = sortJSONKeys(parsed, sortKeys.value === 2)
       }
-      const formatted = JSON.stringify(parsed, null, 2)
+      const formatted = safeStringify(parsed, null, 2)
       tab.leftText = formatted
       tab.leftError = null
       tab.leftErrorLine = null
@@ -1345,11 +1346,11 @@ const stopEditingRight = () => {
   if (!tab || !tab.rightText) return
   if (autoFormat.value) {
     try {
-      let parsed = JSON.parse(tab.rightText)
+      let parsed = safeParse(tab.rightText)
       if (sortKeys.value) {
         parsed = sortJSONKeys(parsed, sortKeys.value === 2)
       }
-      const formatted = JSON.stringify(parsed, null, 2)
+      const formatted = safeStringify(parsed, null, 2)
       tab.rightText = formatted
       tab.rightError = null
       tab.rightErrorLine = null

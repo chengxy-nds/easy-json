@@ -1,12 +1,14 @@
 // ─── JSON → 其他格式转换工具 ───
 
+import { safeParse, safeStringify } from './jsonBigInt.js'
+
 // 递归判断 JSON 值是对象还是数组
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const isArray  = (v) => v !== null && typeof v === 'object' &&  Array.isArray(v)
 
 // ═══ 1. JSON → XML ═══
 export const jsonToXml = (jsonStr) => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const build = (node, name) => {
     if (isArray(node)) {
       return node.map((item, i) => build(item, name || 'item')).join('\n')
@@ -34,7 +36,7 @@ const indent = (s) => s.split('\n').map(l => '  ' + l).join('\n')
 
 // ═══ 2. JSON → CSV ═══
 export const jsonToCsv = (jsonStr) => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   let rows = isArray(obj) ? obj : [obj]
   rows = rows.map(r => {
     if (isObject(r)) return r
@@ -60,7 +62,7 @@ export const jsonToCsv = (jsonStr) => {
 
 // ═══ 3. JSON → YAML ═══
 export const jsonToYaml = (jsonStr) => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const toYaml = (node, depth = 0) => {
     const pad = '  '.repeat(depth)
     if (isArray(node)) {
@@ -105,7 +107,7 @@ const formatScalar = (v) => {
 
 // ═══ 4. JSON → TOML ═══
 export const jsonToToml = (jsonStr) => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const toToml = (node, prefix = '') => {
     const lines = []
     for (const [k, v] of Object.entries(node)) {
@@ -151,7 +153,7 @@ const tomlValue = (v) => {
 
 // ═══ 5. JSON → Java POJO ═══
 export const jsonToJavaPojo = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const classes = []
   const generated = new Set()
 
@@ -210,7 +212,7 @@ export const jsonToJavaPojo = (jsonStr, rootName = 'Root') => {
 
 // ═══ 6. JSON → TypeScript Interface ═══
 export const jsonToTsInterface = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const interfaces = []
   const generated = new Set()
 
@@ -249,7 +251,7 @@ export const jsonToTsInterface = (jsonStr, rootName = 'Root') => {
 
 // ═══ 7. JSON → MySQL CREATE TABLE ═══
 export const jsonToMysql = (jsonStr, tableName = 'my_table') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const rows = isArray(obj) ? obj : [obj]
   // 从多行数据推断列类型（取最宽泛的类型）
   const columns = {}
@@ -309,7 +311,7 @@ const mysqlType = (v) => {
 
 // ═══ 8. JSON → Go Struct ═══
 export const jsonToGoStruct = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const structs = []
   const generated = new Set()
 
@@ -351,7 +353,7 @@ export const jsonToGoStruct = (jsonStr, rootName = 'Root') => {
 
 // ═══ 9. JSON → Protobuf ═══
 export const jsonToProtobuf = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const messages = []
   const generated = new Set()
   let fieldNum = 1
@@ -394,7 +396,7 @@ export const jsonToProtobuf = (jsonStr, rootName = 'Root') => {
 
 // ═══ 10. JSON → Rust Struct ═══
 export const jsonToRust = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const structs = []
   const generated = new Set()
 
@@ -429,7 +431,7 @@ export const jsonToRust = (jsonStr, rootName = 'Root') => {
 
 // ═══ 11. JSON → Python dataclass ═══
 export const jsonToPython = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const classes = []
   const generated = new Set()
 
@@ -463,7 +465,7 @@ export const jsonToPython = (jsonStr, rootName = 'Root') => {
 
 // ═══ 12. JSON → Kotlin data class ═══
 export const jsonToKotlin = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const classes = []
   const generated = new Set()
 
@@ -499,7 +501,7 @@ export const jsonToKotlin = (jsonStr, rootName = 'Root') => {
 
 // ═══ 13. JSON → C# class ═══
 export const jsonToCSharp = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const classes = []
   const generated = new Set()
 
@@ -541,7 +543,7 @@ export const jsonToCSharp = (jsonStr, rootName = 'Root') => {
 
 // ═══ 14. JSON → Dart class ═══
 export const jsonToDart = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const classes = []
   const generated = new Set()
 
@@ -612,7 +614,7 @@ export const jsonToDart = (jsonStr, rootName = 'Root') => {
 
 // ═══ 15. JSON → Swift Codable ═══
 export const jsonToSwift = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const structs = []
   const generated = new Set()
 
@@ -659,7 +661,7 @@ export const jsonToSwift = (jsonStr, rootName = 'Root') => {
 
 // ═══ 16. JSON → GraphQL Schema ═══
 export const jsonToGraphql = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const types = []
   const generated = new Set()
 
@@ -693,7 +695,7 @@ export const jsonToGraphql = (jsonStr, rootName = 'Root') => {
 
 // ═══ 17. JSON → Properties ═══
 export const jsonToProperties = (jsonStr) => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const lines = []
   const flatten = (node, prefix) => {
     for (const [k, v] of Object.entries(node)) {
@@ -716,7 +718,7 @@ export const jsonToProperties = (jsonStr) => {
 
 // ═══ 18. JSON → Markdown Table ═══
 export const jsonToMarkdownTable = (jsonStr) => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const rows = isArray(obj) ? obj : [obj]
   const headers = [...new Set(rows.flatMap(r => isObject(r) ? Object.keys(r) : ['value']))]
   const esc = (v) => {
@@ -735,7 +737,7 @@ export const jsonToMarkdownTable = (jsonStr) => {
 
 // ═══ 19. JSON → INI ═══
 export const jsonToIni = (jsonStr) => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const lines = []
   // 判断顶层是否全为标量（扁平化输出）还是有嵌套对象（分 section）
   const hasNested = Object.values(obj).some(v => isObject(v) || (isArray(v) && v.length > 0 && isObject(v[0])))
@@ -776,7 +778,7 @@ export const jsonToIni = (jsonStr) => {
 
 // ═══ 20. JSON → JSON Schema ═══
 export const jsonToJsonSchema = (jsonStr) => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
 
   const inferSchema = (value) => {
     if (value === null) return { type: 'null' }
@@ -895,12 +897,12 @@ export const jsonToJsonSchema = (jsonStr) => {
   annotateValues(obj, schema)
   schema.$schema = 'http://json-schema.org/draft-07/schema#'
 
-  return JSON.stringify(cleanSchema(schema), null, 2)
+  return safeStringify(cleanSchema(schema), null, 2)
 }
 
 // ═══ 21. JSON → PHP class ═══
 export const jsonToPhp = (jsonStr, rootName = 'Root') => {
-  const obj = JSON.parse(jsonStr)
+  const obj = safeParse(jsonStr)
   const classes = []
   const generated = new Set()
 

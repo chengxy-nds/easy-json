@@ -14,6 +14,7 @@ import JsonTableView  from './JsonTableView.vue'
 import ImportDropdown from './ImportDropdown.vue'
 import { extractJsonFromText, convertJsObjectToJson, safeParseJsLike, tryParseCandidate } from '../utils/jsonExtractor.js';
 import { convertJson, formatLabels, getFormatExtension } from '../utils/jsonConverter.js';
+import { safeParse, safeStringify } from '../utils/jsonBigInt.js';
 
 const showToast = inject('showToast')
 
@@ -625,14 +626,14 @@ const checkEscapedJson = (text) => {
   
   // If it's already valid standard JSON or JS object, it's NOT escaped JSON
   try {
-    const parsed = JSON.parse(current)
+    const parsed = safeParse(current)
     if (parsed !== null && typeof parsed === 'object') {
       return null
     }
   } catch (e) {
     try {
       const jsonStr = convertJsObjectToJson(current)
-      const parsed = JSON.parse(jsonStr)
+      const parsed = safeParse(jsonStr)
       if (parsed !== null && typeof parsed === 'object') {
         return null
       }
@@ -647,7 +648,7 @@ const checkEscapedJson = (text) => {
     let unescaped = current
     if (unescaped.startsWith('"') && unescaped.endsWith('"')) {
       try {
-        unescaped = JSON.parse(unescaped)
+        unescaped = safeParse(unescaped)
       } catch (e) {
         // fallback
       }
@@ -658,10 +659,10 @@ const checkEscapedJson = (text) => {
     try {
       let obj
       try {
-        obj = JSON.parse(unescaped)
+        obj = safeParse(unescaped)
       } catch (e) {
         const jsonStr = convertJsObjectToJson(unescaped)
-        obj = JSON.parse(jsonStr)
+        obj = safeParse(jsonStr)
       }
       if (obj !== null && typeof obj === 'object') {
         return { valid: true, parsedObj: obj, depth: depth }
@@ -757,7 +758,7 @@ const formatJSON = () => {
   }
 
   try {
-    let obj = JSON.parse(tab.inputText)
+    let obj = safeParse(tab.inputText)
     tab.validationError = null
     tab.errorLine = null
     tab.extractedFormat = null
@@ -773,16 +774,16 @@ const formatJSON = () => {
       if (tab._unsortedText) {
         tab.inputText = tab._unsortedText
         tab._unsortedText = null
-        obj = JSON.parse(tab.inputText)
+        obj = safeParse(tab.inputText)
         tab.parsedObj = obj
       }
     }
 
     if (indentSize.value === 'minify') {
-      tab.outputText = JSON.stringify(obj)
+      tab.outputText = safeStringify(obj)
     } else {
       const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value)
-      tab.outputText = JSON.stringify(obj, null, space)
+      tab.outputText = safeStringify(obj, null, space)
     }
   } catch (err) {
     const heavy = isHeavy(tab.inputText)
@@ -804,16 +805,16 @@ const formatJSON = () => {
         if (tab._unsortedText) {
           tab.inputText = tab._unsortedText
           tab._unsortedText = null
-          obj = JSON.parse(tab.inputText)
+          obj = safeParse(tab.inputText)
           tab.parsedObj = obj
         }
       }
 
       if (indentSize.value === 'minify') {
-        tab.outputText = JSON.stringify(obj)
+        tab.outputText = safeStringify(obj)
       } else {
         const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value)
-        tab.outputText = JSON.stringify(obj, null, space)
+        tab.outputText = safeStringify(obj, null, space)
       }
     } else {
       let extracted = false
@@ -821,7 +822,7 @@ const formatJSON = () => {
         try {
           const result = extractJsonFromText(tab.inputText)
           if (result) {
-            let obj = JSON.parse(result.json)
+            let obj = safeParse(result.json)
             // 判断输入是否看起来像 JSON（以 {/[ 开头、}/] 结尾）
             const looksLikeJson = /^\s*[{\[]/.test(tab.inputText) && /[}\]]\s*$/.test(tab.inputText)
             // 看起来像 JSON 但解析失败 → 始终保留原始错误行
@@ -848,16 +849,16 @@ const formatJSON = () => {
               if (tab._unsortedText) {
                 tab.inputText = tab._unsortedText
                 tab._unsortedText = null
-                obj = JSON.parse(tab.inputText)
+                obj = safeParse(tab.inputText)
                 tab.parsedObj = obj
               }
             }
 
             if (indentSize.value === 'minify') {
-              tab.outputText = JSON.stringify(obj)
+              tab.outputText = safeStringify(obj)
             } else {
               const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value)
-              tab.outputText = JSON.stringify(obj, null, space)
+              tab.outputText = safeStringify(obj, null, space)
             }
             extracted = true
           }
@@ -918,7 +919,7 @@ const applyAutoExtract = (tab = activeTab.value) => {
   const text = textareaRef.value?.value || tab?.inputText
   if (!text?.trim()) return
   // 如果已经是有效 JSON 则跳过提取
-  try { JSON.parse(text); return } catch (e) {}
+  try { safeParse(text); return } catch (e) {}
   try {
     const result = extractJsonFromText(text)
     if (result && result.json !== text) {
@@ -928,9 +929,9 @@ const applyAutoExtract = (tab = activeTab.value) => {
       showToast(result.format !== 'JSON' ? `已从 ${result.format} 提取 JSON` : '已自动提取 JSON')
       if (autoFormat.value) {
         try {
-          const obj = JSON.parse(result.json)
+          const obj = safeParse(result.json)
           const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
-          tab.inputText = JSON.stringify(obj, null, space)
+          tab.inputText = safeStringify(obj, null, space)
         } catch (e2) {}
       }
     }
@@ -952,9 +953,9 @@ watch(() => activeTab.value?.inputText, (newVal) => {
     if (document.activeElement === textareaRef.value) return
     const tab = activeTab.value
     try {
-      const obj = JSON.parse(tab.inputText)
+      const obj = safeParse(tab.inputText)
       const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
-      const formatted = JSON.stringify(obj, null, space)
+      const formatted = safeStringify(obj, null, space)
       if (formatted !== tab.inputText) {
         tab.inputText = formatted
       }
@@ -1107,12 +1108,12 @@ const handleTreeScroll = () => {
 
 const getFormattedJsonString = (rawText) => {
   try {
-    let obj = JSON.parse(rawText)
+    let obj = safeParse(rawText)
     if (sortKeys.value) {
       obj = sortJSONKeys(obj, sortKeys.value === 2)
     }
     const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value === 'minify' ? '2' : (indentSize.value || '2'))
-    return JSON.stringify(obj, null, space)
+    return safeStringify(obj, null, space)
   } catch (err) {
     return rawText
   }
@@ -1853,12 +1854,12 @@ const handleFormatDirect = () => {
       tab.inputText = tab._unsortedText
       tab._unsortedText = null
     }
-    let obj = JSON.parse(tab.inputText)
+    let obj = safeParse(tab.inputText)
     if (sortKeys.value) {
       obj = sortJSONKeys(obj, sortKeys.value === 2)
     }
     const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
-    tab.inputText = JSON.stringify(obj, null, space)
+    tab.inputText = safeStringify(obj, null, space)
     tab.validationError = null
     tab.errorLine = null
     showToast('格式化成功')
@@ -1872,8 +1873,8 @@ const handleMinifyDirect = () => {
   const tab = activeTab.value
   if (!tab.inputText.trim()) return
   try {
-    let obj = JSON.parse(tab.inputText)
-    tab.inputText = JSON.stringify(obj)
+    let obj = safeParse(tab.inputText)
+    tab.inputText = safeStringify(obj)
     indentSize.value = 'minify'
     showToast('压缩成功')
     autoCopyResult(activeTab.value.inputText)
@@ -1881,8 +1882,8 @@ const handleMinifyDirect = () => {
     // Try to convert JS object format first
     try {
       const jsonStr = convertJsObjectToJson(tab.inputText)
-      const obj = JSON.parse(jsonStr)
-      tab.inputText = JSON.stringify(obj)
+      const obj = safeParse(jsonStr)
+      tab.inputText = safeStringify(obj)
       indentSize.value = 'minify'
       showToast('压缩成功')
     autoCopyResult(activeTab.value.inputText)
@@ -1898,8 +1899,8 @@ const handleEscape = () => {
   formatGuard = true
   try {
     try {
-      let obj = JSON.parse(tab.inputText)
-      const minified = JSON.stringify(obj)
+      let obj = safeParse(tab.inputText)
+      const minified = safeStringify(obj)
       tab.inputText = minified.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
       tab.outputText = tab.inputText
       tab.parsedObj = null
@@ -1911,8 +1912,8 @@ const handleEscape = () => {
     } catch (err) {
       try {
         const jsonStr = convertJsObjectToJson(tab.inputText)
-        const obj = JSON.parse(jsonStr)
-        const minified = JSON.stringify(obj)
+        const obj = safeParse(jsonStr)
+        const minified = safeStringify(obj)
         tab.inputText = minified.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
         tab.outputText = tab.inputText
         tab.parsedObj = null
@@ -1944,7 +1945,7 @@ const recursiveUnescape = (val) => {
     const trimmed = val.trim()
     if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
       try {
-        const parsed = JSON.parse(trimmed)
+        const parsed = safeParse(trimmed)
         return recursiveUnescape(parsed)
       } catch (e) {
         // Fallback: try JS object literal parsing
@@ -1988,7 +1989,7 @@ const handleUnescape = () => {
           const trimmed = parsed.trim()
           if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
             try {
-              const nested = JSON.parse(trimmed)
+              const nested = safeParse(trimmed)
               if (nested !== null && typeof nested === 'object') return nested
             } catch (e) {}
           }
@@ -1997,7 +1998,7 @@ const handleUnescape = () => {
       }
 
       try {
-        const parsed = JSON.parse(txt)
+        const parsed = safeParse(txt)
         const res = processParsed(parsed)
         if (res) return res
       } catch (e) {}
@@ -2005,7 +2006,7 @@ const handleUnescape = () => {
       try {
         const candidate = tryParseCandidate(txt)
         if (candidate) {
-          const parsed = JSON.parse(candidate)
+          const parsed = safeParse(candidate)
           const res = processParsed(parsed)
           if (res) return res
         }
@@ -2013,7 +2014,7 @@ const handleUnescape = () => {
 
       try {
         const jsonStr = convertJsObjectToJson(txt)
-        const parsed = JSON.parse(jsonStr)
+        const parsed = safeParse(jsonStr)
         const res = processParsed(parsed)
         if (res) return res
       } catch (e) {}
@@ -2025,7 +2026,7 @@ const handleUnescape = () => {
 
     if (parsedObj) {
       const unescapedObj = recursiveUnescape(parsedObj)
-      tab.inputText = JSON.stringify(unescapedObj)
+      tab.inputText = safeStringify(unescapedObj)
       tab.outputText = tab.inputText
       tab.parsedObj = null
       tab.validationError = null
@@ -2042,7 +2043,7 @@ const handleUnescape = () => {
     parsedObj = tryParseToObj(unescapedRaw)
     if (parsedObj) {
       const unescapedObj = recursiveUnescape(parsedObj)
-      tab.inputText = JSON.stringify(unescapedObj)
+      tab.inputText = safeStringify(unescapedObj)
     } else {
       tab.inputText = unescapedRaw
     }
@@ -2067,15 +2068,15 @@ const handleExtract = () => {
   if (!tab.inputText.trim()) return
   try {
     const result = extractJsonFromText(tab.inputText)
-    let obj = JSON.parse(result.json)
+    let obj = safeParse(result.json)
     if (sortKeys.value) {
       obj = sortJSONKeys(obj, sortKeys.value === 2)
     }
     if (indentSize.value === 'minify') {
-      tab.inputText = JSON.stringify(obj)
+      tab.inputText = safeStringify(obj)
     } else {
       const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
-      tab.inputText = JSON.stringify(obj, null, space)
+      tab.inputText = safeStringify(obj, null, space)
     }
     tab.validationError = null
     tab.errorLine = null

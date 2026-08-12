@@ -5,11 +5,12 @@ import JsonComparer from './components/JsonComparer.vue'
 import HomeView from './components/HomeView.vue'
 import TestView from './components/TestView.vue'
 import CommentView from './components/Comment.vue'
+import ChangelogView from './components/ChangelogView.vue'
 import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle } from 'lucide-vue-next'
 import { useUpdateCheck } from './composables/useUpdateCheck.js'
 import { useInstallCheck } from './composables/useInstallCheck.js'
 
-const currentView = ref('home') // 'home' | 'editor' | 'test' | 'comment'
+const currentView = ref('home') // 'home' | 'editor' | 'test' | 'comment' | 'changelog'
 const isPopup = ref(false)
 const isUtools = ref(false)
 const isVscode = ref(false)
@@ -59,6 +60,13 @@ const goToComment = () => {
   currentView.value = 'comment'
   if (window.location.pathname.replace(/\/$/, '') !== '/comment') {
     window.history.pushState(null, '', '/comment')
+  }
+}
+
+const goToChangelog = () => {
+  currentView.value = 'changelog'
+  if (window.location.pathname.replace(/\/$/, '') !== '/changelog') {
+    window.history.pushState(null, '', '/changelog')
   }
 }
 
@@ -201,6 +209,8 @@ const handlePopState = () => {
     currentView.value = 'test'
   } else if (path === '/comment' || path.endsWith('/comment')) {
     currentView.value = 'comment'
+  } else if (path === '/changelog' || path.endsWith('/changelog')) {
+    currentView.value = 'changelog'
   } else {
     const savedView = localStorage.getItem('ej_view')
     currentView.value = savedView === 'editor' ? 'editor' : 'home'
@@ -297,6 +307,8 @@ onMounted(() => {
       currentView.value = 'test'
     } else if (path === '/comment' || path.endsWith('/comment')) {
       currentView.value = 'comment'
+    } else if (path === '/changelog' || path.endsWith('/changelog')) {
+      currentView.value = 'changelog'
     } else {
       const urlParams = new URLSearchParams(window.location.search)
       const isTab = urlParams.get('mode') === 'tab'
@@ -449,11 +461,13 @@ onBeforeUnmount(() => {
   </Transition>
 
   <!-- Home Page View -->
-  <HomeView v-if="currentView === 'home'" @go-to-app="goToApp" @go-to-test="goToTest" @go-to-comment="goToComment" />
+  <HomeView v-if="currentView === 'home'" @go-to-app="goToApp" @go-to-test="goToTest" @go-to-comment="goToComment" @go-to-changelog="goToChangelog" />
 
   <TestView v-else-if="currentView === 'test'" @go-back="goToHome" />
 
   <CommentView v-else-if="currentView === 'comment'" @go-back="goToHome" />
+
+  <ChangelogView v-else-if="currentView === 'changelog'" @go-back="goToHome" />
 
   <!-- Editor View -->
   <div v-else class="app-layout">

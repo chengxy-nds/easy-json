@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, inject, watch } from 'vue'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { safeStringify } from '../utils/jsonBigInt.js'
 
 const props = defineProps({
   value: null,
@@ -88,7 +89,7 @@ const handleCopyKey = (e) => {
 const handleCopyValue = (e) => {
   let text = ''
   if (typeof props.value === 'object' && props.value !== null) {
-    text = JSON.stringify(props.value, null, 2)
+    text = safeStringify(props.value, null, 2)
   } else {
     text = typeof props.value === 'string' ? props.value : String(props.value)
   }

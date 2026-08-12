@@ -12,6 +12,7 @@ const isDark = inject('isDark')
 const toggleTheme = inject('toggleTheme')
 import LanyardWrapper from './Lanyard/LanyardWrapper.vue'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
+import { safeParse, safeStringify } from '../utils/jsonBigInt.js'
 import { useHeroParticles } from '../composables/useHeroParticles.js'
 
 const heroRef = ref(null)
@@ -40,7 +41,7 @@ const trackDownload = (platform) => {
   }
 }
 
-const emit = defineEmits(['go-to-app', 'go-to-test', 'go-to-comment'])
+const emit = defineEmits(['go-to-app', 'go-to-test', 'go-to-comment', 'go-to-changelog'])
 
 const openFaq = ref(null)
 
@@ -253,8 +254,8 @@ const handleParse = (text) => {
       const result = extractJsonFromText(text)
       let formatted = result.json
       try {
-        const parsed = JSON.parse(result.json)
-        formatted = JSON.stringify(parsed, null, 2)
+        const parsed = safeParse(result.json)
+        formatted = safeStringify(parsed, null, 2)
       } catch (e) {}
       playgroundOutput.value = formatted
       playgroundFormat.value = result.format
@@ -476,7 +477,7 @@ onBeforeUnmount(() => {
               <img src="/images/logo.png" class="home-nav-logo-icon" alt="easyJSON logo" />
               <span class="home-nav-logo-text">EASY JSON</span>
             </a>
-            <span class="home-nav-badge">v1.0.0</span>
+            <span class="home-nav-badge">v1.0.3</span>
             <span class="home-nav-sep" />
           </div>
 
@@ -484,6 +485,7 @@ onBeforeUnmount(() => {
           <div class="home-nav-links">
             <a href="http://xiaofucode.com" target="_blank" class="home-nav-link">面试专题</a>
             <a href="#contact" class="home-nav-link">联系交流</a>
+            <a class="home-nav-link" @click.prevent="$emit('go-to-changelog')" href="#">更新记录</a>
             <a class="home-nav-link" @click.prevent="$emit('go-to-comment')" href="#">
               <MessageCircle :size="15" class="home-nav-link-icon" />
               评论
@@ -753,7 +755,7 @@ onBeforeUnmount(() => {
                   <div class="popup-header">
                     <img src="/images/logo.png" class="popup-logo" />
                     <span>easyJSON 弹窗</span>
-                    <span class="popup-badge">v1.0.0</span>
+                    <span class="popup-badge">v1.0.3</span>
                   </div>
                   <div class="popup-content">
                     <div class="popup-result">

@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { Play, CheckCircle, XCircle, ChevronDown, ChevronRight, RotateCcw, Clipboard, ClipboardCheck } from 'lucide-vue-next'
 import { testFixtures, testCategories } from '../utils/testFixtures.js'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
+import { safeParse } from '../utils/jsonBigInt.js'
 
 const emit = defineEmits(['go-back'])
 
@@ -49,7 +50,7 @@ const stats = computed(() => {
 function runSingle(tc) {
   try {
     const { json, format } = extractJsonFromText(tc.input)
-    const parsed = JSON.parse(json)
+    const parsed = safeParse(json)
     const expectedFormats = tc.expectFormat.split('|')
     const formatOk = expectedFormats.some(ef => format.includes(ef) || ef.includes(format))
     const keysOk = !tc.expectKeys || tc.expectKeys.every(k => k in parsed)

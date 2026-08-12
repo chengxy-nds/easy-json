@@ -1,5 +1,7 @@
 // ─── Shared JSON Extraction & Parsing Utilities ───
 
+import { safeParse, safeStringify } from './jsonBigInt.js'
+
 // ═══ JSONC / JSON5 注释剥离 ═══
 // 移除 // 单行注释和 /* */ 块注释，同时正确保留字符串内容
 export const stripJsonComments = (text) => {
@@ -81,7 +83,7 @@ export const tryMongoShellToJson = (text) => {
     cleaned = cleaned.replace(/\bMaxKey\b/g, 'null')
 
     // 尝试解析
-    JSON.parse(cleaned)
+    safeParse(cleaned)
     return cleaned
   } catch (e) { return null }
 }
@@ -96,11 +98,11 @@ export const tryUnescapeJsonString = (text) => {
 
   // Path 1: Properly escaped JSON string (\" → literal ")
   try {
-    const outer = JSON.parse(trimmed)
+    const outer = safeParse(trimmed)
     if (typeof outer === 'string') {
-      const inner = JSON.parse(outer)
+      const inner = safeParse(outer)
       if (inner && typeof inner === 'object') {
-        return JSON.stringify(inner, null, 2)
+        return safeStringify(inner, null, 2)
       }
     }
   } catch (_) {
@@ -108,9 +110,9 @@ export const tryUnescapeJsonString = (text) => {
     // but inner after stripping outer quotes is valid JSON
     const inner = trimmed.slice(1, -1)
     try {
-      const parsed = JSON.parse(inner)
+      const parsed = safeParse(inner)
       if (parsed && typeof parsed === 'object') {
-        return JSON.stringify(parsed, null, 2)
+        return safeStringify(parsed, null, 2)
       }
     } catch (_2) { /* fall through */ }
   }
@@ -135,9 +137,9 @@ export const tryGoMapToJson = (text) => {
     // nil → null
     cleaned = cleaned.replace(/\bnil\b/g, 'null')
 
-    const parsed = JSON.parse(cleaned)
+    const parsed = safeParse(cleaned)
     if (parsed && typeof parsed === 'object') {
-      return JSON.stringify(parsed, null, 2)
+      return safeStringify(parsed, null, 2)
     }
     return null
   } catch (e) { return null }
@@ -193,7 +195,7 @@ export const tryMarkdownTableToJson = (text) => {
   }
 
   if (result.length === 0) return null
-  return JSON.stringify(result, null, 2)
+  return safeStringify(result, null, 2)
 }
 
 // ═══ Ruby Hash → JSON ═══
@@ -262,7 +264,7 @@ export const tryRubyHashToJson = (text) => {
     // 用 safeParseJsLike 解析
     const parsed = safeParseJsLike(full)
     if (parsed && typeof parsed === 'object') {
-      return JSON.stringify(parsed, null, 2)
+      return safeStringify(parsed, null, 2)
     }
     return null
   } catch (e) { return null }
@@ -426,7 +428,7 @@ export const tryPhpPrintRToJson = (text) => {
 
     const parsed = parseEntries()
     if (!parsed || typeof parsed !== 'object' || Object.keys(parsed).length === 0) return null
-    return JSON.stringify(parsed, null, 2)
+    return safeStringify(parsed, null, 2)
   } catch (e) { return null }
 }
 
@@ -504,7 +506,7 @@ export const safeParseJsLike = (text) => {
   // 4. JS 特有值 → JSON 兼容
   normalized = normalized.replace(/\bundefined\b/g, 'null')
 
-  return JSON.parse(normalized)
+  return safeParse(normalized)
 }
 
 export const convertJsObjectToJson = (text) => {
@@ -528,7 +530,7 @@ export const convertJsObjectToJson = (text) => {
     throw new Error('求值结果不是有效的对象或数组。')
   }
 
-  return JSON.stringify(obj, null, 2)
+  return safeStringify(obj, null, 2)
 }
 
 // ═══ Java flat key=value (Lombok @ToString / Kotlin data class) ───
@@ -626,8 +628,8 @@ export const tryJavaFlatKeyValueToJson = (text) => {
     })
 
     // 9. 解析并返回
-    const obj = JSON.parse(melted)
-    if (obj && typeof obj === 'object') return JSON.stringify(obj, null, 2)
+    const obj = safeParse(melted)
+    if (obj && typeof obj === 'object') return safeStringify(obj, null, 2)
     return null
   } catch (e) { return null }
 }
@@ -827,7 +829,7 @@ export const convertJavaToJson = (text) => {
       if (/=\s*'[^']*'/.test(inner) && !/Optional\[/.test(inner)) return null
     }
     const [obj] = parseJavaObject(trimmed, start, closeCh)
-    return JSON.stringify(obj, null, 2)
+    return safeStringify(obj, null, 2)
   }
   // 纯 HashMap: {key=val, ...}
   // 用 key=value 的 = 号数量 vs JSON key:value 的 : 号数量来判断
@@ -837,7 +839,7 @@ export const convertJavaToJson = (text) => {
     const colonCount = (trimmed.match(/[{,]\s*"?[a-zA-Z_$][\w.$]*"?\s*:/g) || []).length
     if (eqCount >= colonCount && eqCount > 0) {
       const [obj] = parseJavaObject(trimmed, 1, '}')
-      return JSON.stringify(obj, null, 2)
+      return safeStringify(obj, null, 2)
     }
   }
   // Java 数组/List toString: [{key=val, ...}, {key=val, ...}] 或 [key=val, key=val]
@@ -856,9 +858,9 @@ export const convertJavaToJson = (text) => {
             const [val] = parseJavaValue(e.substring(eqIdx + 1).trim(), 0)
             obj[key] = val
           }
-          return JSON.stringify(obj, null, 2)
+          return safeStringify(obj, null, 2)
         }
-        return JSON.stringify(result, null, 2)
+        return safeStringify(result, null, 2)
       }
     }
   }
@@ -914,7 +916,7 @@ export const convertPythonToJson = (text) => {
 
     const parsed = safeParseJsLike(js)
     if (parsed && typeof parsed === 'object') {
-      return JSON.stringify(parsed, null, 2)
+      return safeStringify(parsed, null, 2)
     }
   } catch (e) {}
   return null
@@ -940,44 +942,44 @@ export const convertTypescriptToJs = (text) => {
 // 尝试用多种方式解析候选文本，返回 JSON 字符串或 null
 export const tryParseCandidate = (candidate) => {
   // 1) 标准 JSON
-  try { JSON.parse(candidate); return candidate } catch (e) {}
+  try { safeParse(candidate); return candidate } catch (e) {}
 
   // 2) TypeScript 去类型后尝试
   const tsClean = convertTypescriptToJs(candidate)
   if (tsClean !== candidate) {
-    try { JSON.parse(tsClean); return tsClean } catch (e) {}
+    try { safeParse(tsClean); return tsClean } catch (e) {}
   }
 
   // 3) JS 对象字面量（无引号 key）
   const jsTarget = tsClean !== candidate ? tsClean : candidate
   try {
     const converted = convertJsUnquotedKeys(jsTarget)
-    JSON.parse(converted)
+    safeParse(converted)
     return converted
   } catch (e) {}
 
   // 4) Java flat key=value (Lombok @ToString / Kotlin data class)
   try {
     const converted = tryJavaFlatKeyValueToJson(candidate)
-    if (converted) { JSON.parse(converted); return converted }
+    if (converted) { safeParse(converted); return converted }
   } catch (e) {}
 
   // 5) Java toString 递归解析
   try {
     const converted = convertJavaToJson(candidate)
-    if (converted) { JSON.parse(converted); return converted }
+    if (converted) { safeParse(converted); return converted }
   } catch (e) {}
 
   // 5) Python dict / repr
   try {
     const converted = convertPythonToJson(candidate)
-    if (converted) { JSON.parse(converted); return converted }
+    if (converted) { safeParse(converted); return converted }
   } catch (e) {}
 
   // 6) Ruby Hash（:key => "value" 或 {key: "value"} 带 Ruby 特征）
   try {
     const converted = tryRubyHashToJson(candidate)
-    if (converted) { JSON.parse(converted); return converted }
+    if (converted) { safeParse(converted); return converted }
   } catch (e) {}
 
   // 7) 安全解析 JS/TS 宽松语法（单引号字符串、尾逗号、无引号 key）
@@ -985,7 +987,7 @@ export const tryParseCandidate = (candidate) => {
     const target = tsClean !== candidate ? tsClean : candidate
     const parsed = safeParseJsLike(target)
     if (parsed && typeof parsed === 'object') {
-      return JSON.stringify(parsed)
+      return safeStringify(parsed)
     }
   } catch (e) {}
 
@@ -1050,7 +1052,7 @@ export const tryXmlToJson = (text) => {
       return obj
     }
     const result = { [doc.documentElement.tagName]: nodeToObj(doc.documentElement) }
-    return JSON.stringify(result, null, 2)
+    return safeStringify(result, null, 2)
   } catch (e) { return null }
 }
 
@@ -1137,7 +1139,7 @@ export const tryYamlToJson = (text) => {
 
     const keys = Object.keys(root)
     if (keys.length === 0) return null
-    return JSON.stringify(root, null, 2)
+    return safeStringify(root, null, 2)
   } catch (e) { return null }
 }
 
@@ -1167,7 +1169,7 @@ export const tryTomlToJson = (text) => {
       if (/^-?\d+$/.test(v)) return parseInt(v, 10)
       if (/^-?\d+\.\d+$/.test(v)) return parseFloat(v)
       if (v.startsWith('[') && v.endsWith(']')) {
-        try { return JSON.parse(v.replace(/'/g, '"')) } catch (e) { return v }
+        try { return safeParse(v.replace(/'/g, '"')) } catch (e) { return v }
       }
       // 逗号分隔 → 数组（每项做类型推断）
       if (v.includes(',')) {
@@ -1204,7 +1206,7 @@ export const tryTomlToJson = (text) => {
     }
 
     if (Object.keys(result).length === 0) return null
-    return JSON.stringify(result, null, 2)
+    return safeStringify(result, null, 2)
   } catch (e) { return null }
 }
 
@@ -1239,7 +1241,7 @@ export const tryQueryStringToJson = (text) => {
       }
     }
     if (Object.keys(result).length === 0) return null
-    return JSON.stringify(result, null, 2)
+    return safeStringify(result, null, 2)
   } catch (e) { return null }
 }
 
@@ -1276,7 +1278,7 @@ export const tryCsvToJson = (text) => {
       result.push(row)
     }
     if (result.length === 0) return null
-    return JSON.stringify(result, null, 2)
+    return safeStringify(result, null, 2)
   } catch (e) { return null }
 }
 
@@ -1373,7 +1375,7 @@ export const tryPropertiesToJson = (text) => {
       }
     }
     if (Object.keys(result).length === 0) return null
-    return JSON.stringify(result, null, 2)
+    return safeStringify(result, null, 2)
   } catch (e) { return null }
 }
 
@@ -1442,16 +1444,16 @@ export const tryRepairJson = (text) => {
   while (stack.length > 0) result += stack.pop()
 
   try {
-    const parsed = JSON.parse(result)
+    const parsed = safeParse(result)
     if (parsed && typeof parsed === 'object') {
-      return JSON.stringify(parsed, null, 2)
+      return safeStringify(parsed, null, 2)
     }
   } catch (_) {}
 
   try {
     const parsed = safeParseJsLike(result)
     if (parsed && typeof parsed === 'object') {
-      return JSON.stringify(parsed, null, 2)
+      return safeStringify(parsed, null, 2)
     }
   } catch (_) {}
 
@@ -1513,10 +1515,10 @@ export const extractJsonFromText = (text) => {
   // ── 先尝试整体解析 ──
   const directResult = tryParseCandidate(trimmed)
   if (directResult) {
-    try { JSON.parse(trimmed); return { json: directResult, format: 'JSON' } } catch (e) {}
+    try { safeParse(trimmed); return { json: directResult, format: 'JSON' } } catch (e) {}
     const tsClean = convertTypescriptToJs(trimmed)
     if (tsClean !== trimmed) {
-      try { JSON.parse(tsClean); return { json: directResult, format: 'TypeScript' } } catch (e) {}
+      try { safeParse(tsClean); return { json: directResult, format: 'TypeScript' } } catch (e) {}
     }
     try { if (tryJavaFlatKeyValueToJson(trimmed)) return { json: directResult, format: 'Java flat KV' } } catch (e) {}
     try { if (convertJavaToJson(trimmed)) return { json: directResult, format: 'Java toString' } } catch (e) {}
