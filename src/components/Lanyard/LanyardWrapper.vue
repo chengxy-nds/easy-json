@@ -18,26 +18,33 @@ const props = defineProps({
 })
 
 const containerRef = ref(null)
+const ready = ref(false)
 let root = null
 
 onMounted(() => {
-  if (containerRef.value) {
-    root = createRoot(containerRef.value)
-    root.render(
-      React.createElement(Lanyard, {
-        position: props.position,
-        gravity: props.gravity,
-        fov: props.fov,
-        anchorX: props.anchorX,
-        transparent: props.transparent,
-        frontImage: props.frontImage,
-        backImage: props.backImage,
-        imageFit: props.imageFit,
-        lanyardImage: props.lanyardImage,
-        lanyardWidth: props.lanyardWidth
-      })
-    )
-  }
+  // Defer 3D initialization to avoid blocking the initial page paint.
+  // requestAnimationFrame waits until after the next frame render,
+  // so the DOM and styles are already painted before we load React+Three.js.
+  requestAnimationFrame(() => {
+    if (containerRef.value) {
+      ready.value = true
+      root = createRoot(containerRef.value)
+      root.render(
+        React.createElement(Lanyard, {
+          position: props.position,
+          gravity: props.gravity,
+          fov: props.fov,
+          anchorX: props.anchorX,
+          transparent: props.transparent,
+          frontImage: props.frontImage,
+          backImage: props.backImage,
+          imageFit: props.imageFit,
+          lanyardImage: props.lanyardImage,
+          lanyardWidth: props.lanyardWidth
+        })
+      )
+    }
+  })
 })
 
 onBeforeUnmount(() => {

@@ -10,7 +10,7 @@ Write-Host "=== easyJSON Windows Build ===" -ForegroundColor Cyan
 Write-Host "[1/4] Verifying toolchain..." -ForegroundColor Yellow
 cargo --version 2>$null
 if ($LASTEXITCODE -ne 0) { throw "Cargo not found. Install Rust with GNU toolchain." }
-rustup default stable-x86_64-pc-windows-gnu 2>$null
+cmd /c "rustup default stable-x86_64-pc-windows-gnu 2>nul"
 Write-Host "       Toolchain ready" -ForegroundColor Green
 
 # 2. Build frontend
