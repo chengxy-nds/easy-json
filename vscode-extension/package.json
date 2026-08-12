@@ -1,6 +1,6 @@
 {
-  "name": "easyJSON",
-  "displayName": "easyJSON",
+  "name": "easyjson-v103",
+  "displayName": "easyJSON v1.0.3",
   "description": "专业级 JSON 智能提取、格式化、校验与语义对比工具。支持 Lombok、Python dict、YAML、海量日志提炼与四维结构化视图。",
   "version": "1.0.3",
   "publisher": "xiaofucode",
