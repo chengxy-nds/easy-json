@@ -94,9 +94,7 @@ pub fn run() {
                             }
                         }
                         "quit" => {
-                            if let Some(w) = app_handle.get_webview_window("main") {
-                                let _ = w.close();
-                            }
+                            app_handle.exit(0);
                         }
                         _ => {}
                     }
@@ -120,7 +118,9 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { .. } = event {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                // 关闭窗口时直接隐藏到系统托盘，不退出应用
+                api.prevent_close();
                 let _ = window.hide();
             }
         })

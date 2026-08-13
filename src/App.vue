@@ -6,7 +6,7 @@ import HomeView from './components/HomeView.vue'
 import TestView from './components/TestView.vue'
 import CommentView from './components/Comment.vue'
 import ChangelogView from './components/ChangelogView.vue'
-import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle } from 'lucide-vue-next'
+import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check } from 'lucide-vue-next'
 import { useUpdateCheck } from './composables/useUpdateCheck.js'
 import { useInstallCheck } from './composables/useInstallCheck.js'
 
@@ -764,4 +764,5 @@ onBeforeUnmount(() => {
   transform: translateY(-100%);
   opacity: 0;
 }
+
 </style>
