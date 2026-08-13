@@ -3,14 +3,14 @@ use std::env;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Manager, RunEvent, WindowEvent,
 };
 
 #[tauri::command]
 fn is_installed() -> bool {
     // 仅 macOS 需要检查是否从 DMG 直接运行（未拖入 Applications）
     if !cfg!(target_os = "macos") {
-        return true
+        return true;
     }
     if let Ok(exe_path) = env::current_exe() {
         let path_str = exe_path.to_string_lossy();
@@ -51,7 +51,7 @@ async fn write_clipboard(app: tauri::AppHandle, text: String) -> Result<(), Stri
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -119,11 +119,28 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
-                // 关闭窗口时直接隐藏到系统托盘，不退出应用
+                // 关闭窗口时隐藏窗口，保留后台/托盘运行
                 api.prevent_close();
                 let _ = window.hide();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen {
+            has_visible_windows,
+            ..
+        } => {
+            // 当 macOS 点击 Dock 图标重新打开且当前没有可见窗口时，自动重新显示并聚焦主窗口
+            if !has_visible_windows {
+                if let Some(w) = app_handle.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+        }
+        _ => {}
+    });
 }
