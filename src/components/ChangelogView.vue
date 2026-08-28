@@ -11,6 +11,30 @@ const emit = defineEmits(['go-back'])
 
 const changelog = [
   {
+    version: 'v1.0.4',
+    date: '2026-08-28',
+    sections: [
+      {
+        icon: Sparkles,
+        title: '功能新增',
+        iconClass: 'cl-section-sparkle',
+        items: [
+          '支持悬停/点击查看字段完整路径，并可一键复制',
+          '拓扑图支持鼠标滚轮自由缩放画布'
+        ]
+      },
+      {
+        icon: Zap,
+        title: '性能与体验',
+        iconClass: 'cl-section-zap',
+        items: [
+          '超大 JSON 秒级解析与格式化，打字编辑更流畅',
+          '优化暗色搜索高亮、查找平滑定位与分栏拖拽体验'
+        ]
+      }
+    ]
+  },
+  {
     version: 'v1.0.3',
     date: '2026-08-10',
     sections: [

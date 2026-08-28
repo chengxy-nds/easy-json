@@ -295,7 +295,7 @@ const doPan = (e) => {
 }
 const stopPan = () => { isPanning.value = false }
 
-const wheelMode = ref('scroll') // 'zoom' or 'scroll'
+const wheelMode = ref('zoom') // 'zoom' or 'scroll' (默认滚轮缩放)
 const toggleWheelMode = () => {
   wheelMode.value = wheelMode.value === 'zoom' ? 'scroll' : 'zoom'
 }
@@ -303,9 +303,20 @@ const toggleWheelMode = () => {
 const doZoom = (e) => {
   e.preventDefault()
   if (wheelMode.value === 'zoom') {
-    // Smooth zoom speed (slower factor)
-    const factor = e.deltaY < 0 ? 1.04 : 0.96
-    scale.value = Math.min(3, Math.max(0.1, scale.value * factor))
+    const factor = e.deltaY < 0 ? 1.06 : 0.94
+    const newScale = Math.min(3, Math.max(0.1, scale.value * factor))
+    
+    if (containerRef.value) {
+      const rect = containerRef.value.getBoundingClientRect()
+      const mouseX = e.clientX - rect.left
+      const mouseY = e.clientY - rect.top
+      
+      // 以鼠标光标所在点为缩放中心
+      tx.value = mouseX - (mouseX - tx.value) * (newScale / scale.value)
+      ty.value = mouseY - (mouseY - ty.value) * (newScale / scale.value)
+    }
+    
+    scale.value = newScale
   } else {
     // Scroll vertically
     ty.value -= e.deltaY * 0.8

@@ -302,6 +302,11 @@ onMounted(() => {
       })
     }
   } else {
+    const urlParams = new URLSearchParams(window.location.search)
+    const isTab = urlParams.get('mode') === 'tab'
+    const isExtract = urlParams.get('action') === 'extract'
+    const isCompare = urlParams.get('action') === 'compare'
+
     const path = window.location.pathname.replace(/\/$/, '')
     if (path === '/test' || path.endsWith('/test')) {
       currentView.value = 'test'
@@ -310,11 +315,6 @@ onMounted(() => {
     } else if (path === '/changelog' || path.endsWith('/changelog')) {
       currentView.value = 'changelog'
     } else {
-      const urlParams = new URLSearchParams(window.location.search)
-      const isTab = urlParams.get('mode') === 'tab'
-      const isExtract = urlParams.get('action') === 'extract'
-      const isCompare = urlParams.get('action') === 'compare'
-
       // Right-click extract: force editor view + format tab
       if (isExtract) {
         currentView.value = 'editor'

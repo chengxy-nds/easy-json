@@ -14,39 +14,7 @@
     <meta property="og:description" content="简洁大气、免安装的专业级 JSON 格式化、验证与字段差异对比工具" />
     <meta property="og:url" content="https://easyjson.xiaofucode.com/" />
     <meta property="og:image" content="https://easyjson.xiaofucode.com/images/logo.png" />
-    <!-- 统计脚本：仅在 Web 环境加载，桌面端（Tauri）跳过，避免阻塞白屏 -->
-    <script>
-    (function() {
-      // Tauri / uTools 桌面环境跳过统计，避免网络请求阻塞导致白屏
-      if (window.__TAURI__ || window.__TAURI_INTERNALS__ || window.__UTOOLS__) return
-
-      // 百度统计 — 异步加载，不阻塞页面渲染
-      var _hmt = _hmt || [];
-      var hm = document.createElement("script");
-      hm.src = "https://hm.baidu.com/hm.js?72974e6b27b07a0605f7c191b891dda7";
-      hm.async = true;
-      var s = document.getElementsByTagName("script")[0];
-      if (s && s.parentNode) s.parentNode.insertBefore(hm, s);
-    })();
-    </script>
-    <script>
-    (function() {
-      // Tauri / uTools 桌面环境跳过统计
-      if (window.__TAURI__ || window.__TAURI_INTERNALS__ || window.__UTOOLS__) return
-
-      // 51.la 统计 — 异步加载
-      var laScript = document.createElement("script");
-      laScript.id = "LA_COLLECT";
-      laScript.charset = "UTF-8";
-      laScript.src = "https://sdk.51.la/js-sdk-pro.min.js";
-      laScript.async = true;
-      laScript.onload = function() {
-        try { LA.init({id:"3QNVDQ3GGTAYi7LM",ck:"3QNVDQ3GGTAYi7LM",autoTrack:true}) } catch(e) {}
-      };
-      document.head.appendChild(laScript);
-    })();
-    </script>
-</head>
+  </head>
   <body>
     <div id="app"></div>
     <script type="module" src="/src/main.js"></script>

@@ -1063,29 +1063,53 @@ html.popup-mode .editor-line {
   --json-hover-bg: rgba(198, 120, 221, 0.12);
 }
 
-/* Search Highlight Styling (translucent golden block keeping original text color) */
+/* Search Highlight Styling (Zero layout-shift: using paint-layer expansion to preserve exact textarea alignment) */
 mark.search-match {
-  background-color: rgba(234, 179, 8, 0.35) !important;
-  box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.5) !important;
-  border-radius: 6px !important;
-  color: inherit !important;
-  padding: 0 1px !important;
-}
-
-.dark-mode mark.search-match {
-  background-color: rgba(234, 179, 8, 0.25) !important;
-  box-shadow: 0 0 0 1px rgba(234, 179, 8, 0.6) !important;
-  color: inherit !important;
+  background-color: #fef08a !important;
+  color: #0f172a !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1px #fef08a !important;
+  border-radius: 2px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-weight: 500 !important;
 }
 
 mark.search-match-current {
-  background-color: rgba(234, 120, 8, 0.55) !important;
-  box-shadow: 0 0 0 2px rgba(234, 120, 8, 0.7) !important;
+  background-color: #f97316 !important;
+  color: #ffffff !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1.5px #f97316 !important;
+  border-radius: 2px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-weight: 700 !important;
+}
+
+.dark-mode mark.search-match {
+  background-color: rgba(250, 204, 21, 0.35) !important;
+  color: #fef9c3 !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.35) !important;
+  border-radius: 2px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-weight: 500 !important;
 }
 
 .dark-mode mark.search-match-current {
-  background-color: rgba(234, 120, 8, 0.45) !important;
-  box-shadow: 0 0 0 2px rgba(234, 120, 8, 0.8) !important;
+  background-color: #f59e0b !important;
+  color: #000000 !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: 0 0 0 1.5px #f59e0b !important;
+  border-radius: 2px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-weight: 800 !important;
 }
 
 /* --- Premium Tooltip System --- */

@@ -6,7 +6,7 @@ import {
   AlertTriangle, Braces, Eye, EyeOff, FileJson, ArrowRightLeft, Shuffle,
   ChevronDown, ChevronRight, ChevronUp, HelpCircle, Minimize2, Code, Search, Plus, X,
   Network, Table2, Menu, FileCode, Maximize2, Strikethrough, ListTree,
-  Pencil, ArrowLeft, ArrowRight, Wand2
+  Pencil, ArrowLeft, ArrowRight, Wand2, GripVertical
 } from 'lucide-vue-next'
 import JsonTreeNode   from './JsonTreeNode.vue'
 import JsonGraphView  from './JsonGraphView.vue'
@@ -34,6 +34,13 @@ const inputHighlightRef = ref(null)
 const outputPreRef = ref(null)
 const outputGutterRef = ref(null)
 const hoveredPath = ref(null)
+const setHoveredPath = (path) => {
+  hoveredPath.value = path
+}
+const selectedPath = ref(null)
+const setSelectedPath = (path) => {
+  selectedPath.value = path
+}
 const searchQuery = ref('')
 const searchExpanded = ref(false)
 const searchInputRef = ref(null)
@@ -58,12 +65,15 @@ const handleImportText = (text) => {
 // ─── 转换状态 ───
 const showConvertMenu = ref(false)
 const copyConvertedSuccess = ref(false)
-// convertFormat 是每个 tab 独立的转换状态（存储在 tab.convertFormat 上）
 const convertFormat = computed({
   get: () => activeTab.value?.convertFormat || null,
   set: (val) => { if (activeTab.value) activeTab.value.convertFormat = val }
 })
 provide('searchQuery', searchQuery)
+provide('setHoveredPath', setHoveredPath)
+provide('hoveredPath', hoveredPath)
+provide('selectedPath', selectedPath)
+provide('setSelectedPath', setSelectedPath)
 
 const expandSearch = () => {
   searchExpanded.value = true
@@ -110,9 +120,49 @@ const goPrevMatch = () => {
 
 const scrollToCurrentMatch = () => {
   nextTick(() => {
-    const el = outputPreRef.value?.querySelector('.search-match-current')
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // 1. 左侧输入编辑区：根据高亮层中的 .search-match-current 滚动 textarea
+    const inputContainer = inputHighlightRef.value
+    const textarea = textareaRef.value
+    if (inputContainer && textarea) {
+      const target = inputContainer.querySelector('.search-match-current')
+      if (target) {
+        const targetRect = target.getBoundingClientRect()
+        const containerRect = inputContainer.getBoundingClientRect()
+        const relativeTop = targetRect.top - containerRect.top + textarea.scrollTop
+        const relativeLeft = targetRect.left - containerRect.left + textarea.scrollLeft
+
+        textarea.scrollTo({
+          top: Math.max(0, relativeTop - textarea.clientHeight / 2 + targetRect.height / 2),
+          left: Math.max(0, relativeLeft - textarea.clientWidth / 4),
+          behavior: 'smooth'
+        })
+        syncGutterScroll()
+      }
+    }
+
+    // 2. 右侧代码视图：根据 outputPre 中的 .search-match-current 滚动
+    if (outputPreRef.value) {
+      const outputTarget = outputPreRef.value.querySelector('.search-match-current')
+      if (outputTarget) {
+        const targetRect = outputTarget.getBoundingClientRect()
+        const containerRect = outputPreRef.value.getBoundingClientRect()
+        const relativeTop = targetRect.top - containerRect.top + outputPreRef.value.scrollTop
+        const relativeLeft = targetRect.left - containerRect.left + outputPreRef.value.scrollLeft
+
+        outputPreRef.value.scrollTo({
+          top: Math.max(0, relativeTop - outputPreRef.value.clientHeight / 2 + targetRect.height / 2),
+          left: Math.max(0, relativeLeft - outputPreRef.value.clientWidth / 4),
+          behavior: 'smooth'
+        })
+      }
+    }
+
+    // 3. 右侧树形视图：滚动到对应匹配节点
+    if (treeWrapperRef.value) {
+      const treeTarget = treeWrapperRef.value.querySelector('.search-match-current') || treeWrapperRef.value.querySelector('.search-match')
+      if (treeTarget) {
+        treeTarget.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
     }
   })
 }
@@ -166,12 +216,118 @@ const handleReplaceKeydown = (e) => {
   }
 }
 
-watch(searchQuery, () => {
+watch(searchQuery, (newVal) => {
   currentMatchIndex.value = 0
+  if (newVal) {
+    scrollToCurrentMatch()
+  }
 })
 
-const setHoveredPath = (path) => {
-  hoveredPath.value = path
+watch(currentMatchIndex, () => {
+  scrollToCurrentMatch()
+})
+
+
+
+// 当前激活展示的路径：鼠标悬停优先，鼠标离开时回退展示光标/点击锁定的路径
+const activeDisplayPath = computed(() => {
+  return hoveredPath.value || selectedPath.value || null
+})
+
+// 格式化当前路径为完整的 JSON 路径字符串（支持数字下标与特殊字符）
+const hoveredPathStr = computed(() => {
+  const path = activeDisplayPath.value
+  if (!path || !Array.isArray(path) || path.length === 0) {
+    return ''
+  }
+  let res = ''
+  for (let i = 0; i < path.length; i++) {
+    const segment = path[i]
+    if (typeof segment === 'number' || /^\d+$/.test(String(segment))) {
+      res += `[${segment}]`
+    } else {
+      const segStr = String(segment)
+      if (i === 0) {
+        res += segStr
+      } else if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(segStr)) {
+        res += `.${segStr}`
+      } else {
+        res += `["${segStr.replace(/"/g, '\\"')}"]`
+      }
+    }
+  }
+  return res
+})
+
+const copyHoveredPath = () => {
+  if (!hoveredPathStr.value) return
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(hoveredPathStr.value).then(() => {
+      if (showToast) showToast(`已复制路径: ${hoveredPathStr.value}`)
+    }).catch(() => {
+      if (showToast) showToast('复制失败', 'error')
+    })
+  }
+}
+
+// 根据 textarea 光标位置自动锁定当前所在行的键路径
+const updateCursorPath = () => {
+  const textarea = textareaRef.value
+  const highlightContainer = inputHighlightRef.value
+  if (!textarea || !highlightContainer) return
+  
+  const textBefore = textarea.value.substring(0, textarea.selectionStart || 0)
+  const lineNum = textBefore.split('\n').length
+  const lines = highlightContainer.querySelectorAll('.editor-line')
+  if (lines && lines[lineNum - 1]) {
+    const lineEl = lines[lineNum - 1]
+    const keyEl = lineEl.querySelector('[data-path]') || (lineEl.hasAttribute('data-path') ? lineEl : null)
+    if (keyEl) {
+      const pathAttr = keyEl.getAttribute('data-path')
+      if (pathAttr) {
+        try {
+          const path = JSON.parse(pathAttr)
+          selectedPath.value = path
+          return
+        } catch (e) {}
+      }
+    }
+  }
+}
+
+const handleOutputPreMouseMove = (e) => {
+  let current = e.target
+  let pathAttr = null
+  while (current && current !== outputPreRef.value) {
+    pathAttr = current.getAttribute?.('data-path')
+    if (pathAttr) break
+    current = current.parentElement
+  }
+  if (pathAttr) {
+    try {
+      const path = JSON.parse(pathAttr)
+      setHoveredPath(path)
+      return
+    } catch (err) {}
+  }
+  setHoveredPath(null)
+}
+
+const handleOutputPreClick = (e) => {
+  let current = e.target
+  let pathAttr = null
+  while (current && current !== outputPreRef.value) {
+    pathAttr = current.getAttribute?.('data-path')
+    if (pathAttr) break
+    current = current.parentElement
+  }
+  if (pathAttr) {
+    try {
+      const path = JSON.parse(pathAttr)
+      setSelectedPath(path)
+      return
+    } catch (err) {}
+  }
 }
 
 watch(hoveredPath, (newPath) => {
@@ -208,6 +364,7 @@ watch(hoveredPath, (newPath) => {
 
 const handlePathClick = (path) => {
   if (!path) return
+  setSelectedPath(path)
   
   const highlightContainer = inputHighlightRef.value
   if (!highlightContainer) return
@@ -717,8 +874,142 @@ const detectDuplicateKeys = (text) => {
 // 右侧面板：窄屏隐藏，拉宽自动显示，缩窄自动隐藏
 const showOutput = ref(window.innerWidth >= 900)
 
+// ─── 左右分栏拖拽调整宽度（rem 最小宽度保护，防止工具栏被挤压变形） ───
+const LEFT_MIN_WIDTH_REM = 29  // 左侧编辑区最小宽度 29rem (~464px，完全容纳左侧操作工具栏与功能按钮)
+const RIGHT_MIN_WIDTH_REM = 29 // 右侧预览区最小宽度 29rem (~464px，完全容纳左侧操作工具栏与功能按钮)
+
+const getRemInPx = () => {
+  if (typeof window === 'undefined') return 16
+  const fontSize = parseFloat(getComputedStyle(document.documentElement).fontSize)
+  return isNaN(fontSize) || fontSize <= 0 ? 16 : fontSize
+}
+
+const clampSplitPercent = (rawPercent, containerWidth) => {
+  if (containerWidth <= 0) return 50
+  const remPx = getRemInPx()
+  const minLeftPx = LEFT_MIN_WIDTH_REM * remPx
+  const minRightPx = RIGHT_MIN_WIDTH_REM * remPx
+
+  // 如果容器总宽度不足以同时满足两侧最小宽度，则居中 50:50
+  if (minLeftPx + minRightPx >= containerWidth) {
+    return 50
+  }
+
+  const minPercent = (minLeftPx / containerWidth) * 100
+  const maxPercent = ((containerWidth - minRightPx) / containerWidth) * 100
+
+  let clamped = rawPercent
+  if (clamped < minPercent) clamped = minPercent
+  if (clamped > maxPercent) clamped = maxPercent
+
+  return Math.round(clamped * 10) / 10
+}
+
 const updateShowOutput = () => {
   showOutput.value = window.innerWidth >= 900
+  if (workspaceGridRef.value && showOutput.value) {
+    const totalWidth = workspaceGridRef.value.getBoundingClientRect().width
+    if (totalWidth > 0) {
+      splitPercent.value = clampSplitPercent(splitPercent.value, totalWidth)
+    }
+  }
+}
+
+const workspaceGridRef = ref(null)
+const splitPercent = ref(50)
+const isDraggingSplitter = ref(false)
+
+// 恢复已保存的分栏比例
+try {
+  const savedRatio = localStorage.getItem('ej_fmt_split_ratio')
+  if (savedRatio) {
+    const num = parseFloat(savedRatio)
+    if (!isNaN(num) && num >= 15 && num <= 85) {
+      splitPercent.value = num
+    }
+  }
+} catch (e) {}
+
+const gridStyle = computed(() => {
+  if (!showOutput.value) {
+    return { gridTemplateColumns: '1fr' }
+  }
+  return {
+    gridTemplateColumns: `${splitPercent.value}% 1px 1fr`
+  }
+})
+
+const resetSplitRatio = () => {
+  splitPercent.value = 50
+  try {
+    localStorage.setItem('ej_fmt_split_ratio', '50')
+  } catch (e) {}
+  if (showToast) showToast('分栏比例已重置为 50:50')
+}
+
+const startSplitterDrag = (e) => {
+  if (e.button !== 0) return
+  isDraggingSplitter.value = true
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+
+  const onMouseMove = (moveEvent) => {
+    if (!workspaceGridRef.value) return
+    const rect = workspaceGridRef.value.getBoundingClientRect()
+    const offsetX = moveEvent.clientX - rect.left
+    const totalWidth = rect.width
+    if (totalWidth <= 0) return
+
+    const rawPercent = (offsetX / totalWidth) * 100
+    splitPercent.value = clampSplitPercent(rawPercent, totalWidth)
+  }
+
+  const onMouseUp = () => {
+    isDraggingSplitter.value = false
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    window.removeEventListener('mousemove', onMouseMove)
+    window.removeEventListener('mouseup', onMouseUp)
+
+    try {
+      localStorage.setItem('ej_fmt_split_ratio', String(splitPercent.value))
+    } catch (e) {}
+  }
+
+  window.addEventListener('mousemove', onMouseMove)
+  window.addEventListener('mouseup', onMouseUp)
+}
+
+const startSplitterTouch = (e) => {
+  if (!e.touches || e.touches.length === 0) return
+  isDraggingSplitter.value = true
+
+  const onTouchMove = (moveEvent) => {
+    if (!workspaceGridRef.value || !moveEvent.touches || moveEvent.touches.length === 0) return
+    const touch = moveEvent.touches[0]
+    const rect = workspaceGridRef.value.getBoundingClientRect()
+    const offsetX = touch.clientX - rect.left
+    const totalWidth = rect.width
+    if (totalWidth <= 0) return
+
+    const rawPercent = (offsetX / totalWidth) * 100
+    splitPercent.value = clampSplitPercent(rawPercent, totalWidth)
+  }
+
+  const onTouchEnd = () => {
+    isDraggingSplitter.value = false
+    window.removeEventListener('touchmove', onTouchMove)
+    window.removeEventListener('touchend', onTouchEnd)
+    window.removeEventListener('touchcancel', onTouchEnd)
+
+    try {
+      localStorage.setItem('ej_fmt_split_ratio', String(splitPercent.value))
+    } catch (e) {}
+  }
+
+  window.addEventListener('touchmove', onTouchMove, { passive: true })
+  window.addEventListener('touchend', onTouchEnd)
+  window.addEventListener('touchcancel', onTouchEnd)
 }
 
 onMounted(() => {
@@ -888,8 +1179,8 @@ const formatJSON = () => {
     formatGuard = false
   }
 
-  // 大树 JSON 自动折叠节点（避免 DOM 爆炸）
-  if (tab.parsedObj && countKeys(tab.parsedObj) > 5000) {
+  // 大树 JSON 自动折叠节点（避免 DOM 爆炸，针对 > 80KB 或 key >= 800 的大 JSON 默认折叠深层节点）
+  if (tab.parsedObj && (tab.inputText.length > 80_000 || countKeys(tab.parsedObj, 800) >= 800)) {
     treeExpanded.value = false
   }
 }
@@ -1003,20 +1294,28 @@ const outputLinesCount = computed(() => {
 const inputGutterHtml = computed(() => {
   const count = inputLinesCount.value
   const errorLine = activeTab.value.errorLine
-  const dupLines = new Set(activeTab.value.duplicateLines || [])
-  const lines = []
-  for (let n = 1; n <= count; n++) {
-    const cls = errorLine === n ? ' has-error' : dupLines.has(n) ? ' has-duplicate' : ''
-    lines.push(`<div class="gutter-line${cls}">${n}</div>`)
+  const dupLines = activeTab.value.duplicateLines
+  const setDups = (dupLines && dupLines.length > 0) ? new Set(dupLines) : null
+  
+  const lines = new Array(count)
+  if (!errorLine && !setDups) {
+    for (let n = 1; n <= count; n++) {
+      lines[n - 1] = `<div class="gutter-line">${n}</div>`
+    }
+  } else {
+    for (let n = 1; n <= count; n++) {
+      const cls = errorLine === n ? ' has-error' : (setDups && setDups.has(n)) ? ' has-duplicate' : ''
+      lines[n - 1] = `<div class="gutter-line${cls}">${n}</div>`
+    }
   }
   return lines.join('')
 })
 
 const outputGutterHtml = computed(() => {
   const count = outputLinesCount.value
-  const lines = []
+  const lines = new Array(count)
   for (let n = 1; n <= count; n++) {
-    lines.push(`<div class="gutter-line">${n}</div>`)
+    lines[n - 1] = `<div class="gutter-line">${n}</div>`
   }
   return lines.join('')
 })
@@ -1129,15 +1428,32 @@ const loadDemo = () => {
 const treeExpanded = ref(true)
 provide('treeExpanded', treeExpanded)
 
-// 统计对象总 key 数量（用于大 JSON 自动折叠）
-const countKeys = (obj) => {
+// 统计对象总 key 数量（带最大上限提前中断，避免深层大树递归卡死）
+const countKeys = (obj, maxLimit = 800) => {
   if (!obj || typeof obj !== 'object') return 0
   let n = 0
-  if (Array.isArray(obj)) {
-    for (const item of obj) n += countKeys(item)
-  } else {
-    n += Object.keys(obj).length
-    for (const v of Object.values(obj)) n += countKeys(v)
+  const stack = [obj]
+  while (stack.length > 0) {
+    const curr = stack.pop()
+    if (!curr || typeof curr !== 'object') continue
+    if (Array.isArray(curr)) {
+      for (let i = 0; i < curr.length; i++) {
+        const item = curr[i]
+        if (item && typeof item === 'object') {
+          stack.push(item)
+        }
+      }
+    } else {
+      const keys = Object.keys(curr)
+      n += keys.length
+      if (n >= maxLimit) return n
+      for (let i = 0; i < keys.length; i++) {
+        const val = curr[keys[i]]
+        if (val && typeof val === 'object') {
+          stack.push(val)
+        }
+      }
+    }
   }
   return n
 }
@@ -1284,6 +1600,13 @@ const handleTextareaFocus = () => {
 
 const handleTextareaBlur = () => {
   isTextareaFocused.value = false
+  if (inputDebounceTimer) {
+    clearTimeout(inputDebounceTimer)
+    inputDebounceTimer = null
+    if (activeTab.value && activeTab.value.inputText !== textareaValue.value) {
+      activeTab.value.inputText = textareaValue.value
+    }
+  }
 }
 
 const handleCut = (e) => {
@@ -1306,14 +1629,25 @@ const handleCopy = (e) => {
   }
 }
 
+let inputDebounceTimer = null
 const handleTextareaInput = (e) => {
+  const val = e.target.value
+  textareaValue.value = val
   const tab = activeTab.value
-  if (tab) {
-    tab.inputText = e.target.value
-    tab._unsortedText = null // 用户手动编辑后清除备份
-    if (activeTabId.value !== tab.id) {
-      activeTabId.value = tab.id
-    }
+  if (!tab) return
+  tab._unsortedText = null // 用户手动编辑后清除备份
+  if (activeTabId.value !== tab.id) {
+    activeTabId.value = tab.id
+  }
+
+  // 大 JSON (> 60KB) 打字采用 150ms 防抖，保持打字 60fps 丝滑流畅
+  if (val.length > 60_000) {
+    clearTimeout(inputDebounceTimer)
+    inputDebounceTimer = setTimeout(() => {
+      tab.inputText = val
+    }, 150)
+  } else {
+    tab.inputText = val
   }
 }
 
@@ -1619,21 +1953,29 @@ const lightweightHighlight = (text) => {
 const wrapLinesWithHighlight = (html, errorLine, dupLines) => {
   if (!html) return ''
   const lines = html.replace(/\r/g, '').split('\n')
-  const setDups = new Set(dupLines || [])
-  const mapped = lines.map((line, index) => {
-    const lineNum = index + 1
-    const isError = errorLine === lineNum
-    const isDup = setDups.has(lineNum)
+  const setDups = (dupLines && dupLines.length > 0) ? new Set(dupLines) : null
+  const hasError = !!errorLine
+  const hasPathAttr = html.includes('data-path="')
+  
+  const len = lines.length
+  const mapped = new Array(len)
+  for (let i = 0; i < len; i++) {
+    const line = lines[i]
+    const lineNum = i + 1
+    const isError = hasError && errorLine === lineNum
+    const isDup = setDups ? setDups.has(lineNum) : false
     
     let pathAttr = ''
-    const match = line.match(/data-path="([^"]+)"/)
-    if (match) {
-      pathAttr = ` data-path="${match[1]}"`
+    if (hasPathAttr) {
+      const match = line.match(/data-path="([^"]+)"/)
+      if (match) {
+        pathAttr = ` data-path="${match[1]}"`
+      }
     }
     
     const cls = isError ? 'editor-line has-error' : isDup ? 'editor-line has-duplicate' : 'editor-line'
-    return `<div class="${cls}"${pathAttr}>${line || ' '}</div>`
-  })
+    mapped[i] = `<div class="${cls}"${pathAttr}>${line || ' '}</div>`
+  }
   return mapped.join('')
 }
 
@@ -2247,7 +2589,14 @@ onBeforeUnmount(() => {
 
 
     <!-- Main Workspace -->
-    <div class="workspace-grid" :class="{ 'single-panel': !showOutput }" @dragover.prevent @drop.prevent="onDrop">
+    <div
+      ref="workspaceGridRef"
+      class="workspace-grid"
+      :class="{ 'single-panel': !showOutput, 'is-resizing': isDraggingSplitter }"
+      :style="gridStyle"
+      @dragover.prevent
+      @drop.prevent="onDrop"
+    >
       <!-- Input Panel -->
       <div class="editor-panel">
         <div class="panel-header">
@@ -2327,7 +2676,7 @@ onBeforeUnmount(() => {
               class="action-btn outline icon-only"
               :class="{ 'active': searchExpanded }"
               @click.stop="toggleSearch"
-              data-tooltip-bottom-left="搜索 / 替换"
+              data-tooltip-bottom-right="搜索 / 替换"
               style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
             >
               <Search class="btn-icon" />
@@ -2407,9 +2756,12 @@ onBeforeUnmount(() => {
                 @paste="handlePaste"
                 @cut="handleCut"
                 @copy="handleCopy"
+                @click="updateCursorPath"
+                @keyup="updateCursorPath"
+                @select="updateCursorPath"
                 @mouseenter="activeScrollTarget = 'left'"
                 @touchstart="activeScrollTarget = 'left'"
-                @focus="handleTextareaFocus"
+                @focus="handleTextareaFocus($event); updateCursorPath()"
                 @blur="handleTextareaBlur"
                 @mousemove="handleTextareaMouseMove"
                 @mouseleave="handleTextareaMouseLeave"
@@ -2429,6 +2781,21 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <!-- Splitter Divider -->
+      <div
+        v-if="showOutput"
+        class="pane-splitter"
+        :class="{ active: isDraggingSplitter }"
+        @mousedown.prevent="startSplitterDrag"
+        @touchstart.prevent="startSplitterTouch"
+        @dblclick="resetSplitRatio"
+        title="按住左右拖拽调整宽度（双击重置 50:50）"
+      >
+        <div class="pane-splitter-handle">
+          <GripVertical class="pane-splitter-icon" />
+        </div>
+      </div>
+
       <!-- Output Panel -->
       <div class="editor-panel" v-if="showOutput">
         <div class="panel-header">
@@ -2441,7 +2808,7 @@ onBeforeUnmount(() => {
                 :class="{ active: activeTab.viewMode === 'tree' }"
                 @click="activeTab.viewMode = 'tree'"
                 :disabled="!activeTab.parsedObj || !!convertFormat"
-                data-tooltip-bottom="树形视图"
+                data-tooltip-bottom-left="树形视图"
               >
                 <ListTree class="seg-icon" />
               </button>
@@ -2545,7 +2912,7 @@ onBeforeUnmount(() => {
               @mouseenter="activeScrollTarget = 'right'"
               @touchstart="activeScrollTarget = 'right'"
             >
-              <JsonTreeNode :value="activeTab.parsedObj" :is-last="true" />
+              <JsonTreeNode :value="activeTab.parsedObj" :is-last="true" :path="[]" />
             </div>
 
             <div v-else-if="activeTab.viewMode === 'text'" class="output-wrapper" key="text">
@@ -2555,6 +2922,9 @@ onBeforeUnmount(() => {
                 :class="{ 'minify-wrap': isOutputMinified }"
                 ref="outputPreRef"
                 @scroll="handleOutputScroll"
+                @mousemove="handleOutputPreMouseMove"
+                @mouseleave="setHoveredPath(null)"
+                @click="handleOutputPreClick"
                 @mouseenter="activeScrollTarget = 'right'"
                 @touchstart="activeScrollTarget = 'right'"
                 v-html="highlightedOutput || '<span class=\'placeholder\'>等待有效的 JSON 输入...</span>'"
@@ -2590,7 +2960,7 @@ onBeforeUnmount(() => {
 
     <!-- Full-width bottom status bar -->
     <div class="bottom-status-bar">
-      <!-- Left side: validation status -->
+      <!-- Left side: validation status & hovered key path -->
       <div class="status-bar-left">
         <template v-if="activeTab.validationError">
           <AlertTriangle class="status-bar-icon error" />
@@ -2607,6 +2977,20 @@ onBeforeUnmount(() => {
         <template v-else>
           <span class="status-bar-text muted">在左侧输入 JSON</span>
         </template>
+
+        <!-- Hovered Key Path Badge in status bar -->
+        <Transition name="fade-fast">
+          <div
+            v-if="hoveredPathStr"
+            class="status-path-badge"
+            @click.stop="copyHoveredPath"
+            data-tooltip="点击复制路径"
+          >
+            <span class="status-path-label">路径:</span>
+            <span class="status-path-value">{{ hoveredPathStr }}</span>
+            <Copy class="status-path-copy-icon" />
+          </div>
+        </Transition>
       </div>
       <!-- Right side: output info -->
       <div class="status-bar-right">
@@ -2839,10 +3223,82 @@ onBeforeUnmount(() => {
   gap: 0;
   flex-grow: 1;
   min-height: 0;
+  position: relative;
 }
 
 .workspace-grid.single-panel {
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr !important;
+}
+
+.workspace-grid.is-resizing {
+  user-select: none;
+}
+
+.workspace-grid.is-resizing .editor-panel {
+  pointer-events: none;
+}
+
+/* Pane Splitter */
+.pane-splitter {
+  position: relative;
+  width: 1px;
+  background-color: var(--border-color);
+  cursor: col-resize;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  touch-action: none;
+}
+
+/* 隐形鼠标抓取热区：向左右各延伸 4px，视觉保持 1px 精细发丝线，操作手感保持 9px 易点 */
+.pane-splitter::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+  z-index: 1;
+  cursor: col-resize;
+}
+
+.pane-splitter-handle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  width: 8px;
+  height: 28px;
+  border-radius: 4px;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 默认常态即展示手柄图标 */
+  opacity: 1;
+  color: var(--text-muted, #888);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}
+
+.pane-splitter-icon {
+  width: 7px;
+  height: 12px;
+  stroke-width: 2.2;
+}
+
+/* 仅在 hover / active 时高亮图标和手柄，1px 轴线不发亮 */
+.pane-splitter:hover .pane-splitter-handle,
+.pane-splitter.active .pane-splitter-handle {
+  border-color: #3b82f6;
+  color: #3b82f6;
+  background-color: var(--bg-panel);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.35);
+  transform: translate(-50%, -50%) scale(1.06);
 }
 
 /* Editor Panel */
@@ -2850,9 +3306,23 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   background-color: var(--bg-panel);
-  border-right: 1px solid var(--border-color);
   min-height: 0;
-  min-width: 0;
+  min-width: 29rem;
+  overflow: hidden;
+}
+
+.editor-panel:first-child {
+  min-width: 29rem;
+}
+
+.workspace-grid.single-panel .editor-panel {
+  min-width: 0 !important;
+}
+
+@media (max-width: 600px) {
+  .workspace-grid .editor-panel {
+    min-width: 0 !important;
+  }
 }
 
 
@@ -3227,6 +3697,83 @@ onBeforeUnmount(() => {
 .status-bar-text.success { color: var(--success-text); }
 .status-bar-text.error { color: var(--error-text); }
 .status-bar-text.muted { color: var(--text-muted); font-weight: 400; }
+
+.status-path-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background-color: transparent;
+  border: none;
+  outline: none;
+  box-shadow: none;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background-color 0.15s ease;
+  animation: fadeInPath 0.15s ease-out;
+}
+
+@keyframes fadeInPath {
+  from { opacity: 0; transform: translateY(1px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.status-path-badge:hover {
+  background-color: var(--bg-hover, rgba(125, 125, 125, 0.08));
+}
+
+.status-path-label {
+  font-family: var(--font-sans);
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+}
+
+.status-path-value {
+  font-family: var(--font-mono);
+  color: var(--json-key, var(--primary-color));
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.status-path-copy-icon {
+  width: 11px;
+  height: 11px;
+  opacity: 0.45;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-top: 0.5px;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.status-path-badge:hover .status-path-copy-icon {
+  opacity: 1;
+  color: var(--json-key, var(--primary-color));
+}
+
+.fade-fast-enter-active,
+.fade-fast-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.fade-fast-enter-from,
+.fade-fast-leave-to {
+  opacity: 0;
+  transform: translateY(2px);
+}
 
 .success-color {
   color: var(--success-text) !important;

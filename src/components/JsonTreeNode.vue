@@ -13,6 +13,10 @@ const props = defineProps({
   isLast: {
     type: Boolean,
     default: true
+  },
+  path: {
+    type: Array,
+    default: () => []
   }
 })
 
@@ -23,6 +27,33 @@ watch(treeExpanded, (val) => { isExpanded.value = val ? true : props.depth < 1 }
 
 const showToast = inject('showToast')
 const searchQuery = inject('searchQuery', ref(''))
+const setHoveredPath = inject('setHoveredPath', null)
+const setSelectedPath = inject('setSelectedPath', null)
+
+const currentKeyPath = computed(() => {
+  if (props.name !== undefined && props.name !== null) {
+    return [...props.path, props.name]
+  }
+  return props.path
+})
+
+const onKeyMouseEnter = () => {
+  if (setHoveredPath && currentKeyPath.value && currentKeyPath.value.length > 0) {
+    setHoveredPath(currentKeyPath.value)
+  }
+}
+
+const onKeyMouseLeave = () => {
+  if (setHoveredPath) {
+    setHoveredPath(null)
+  }
+}
+
+const onKeyClick = () => {
+  if (setSelectedPath && currentKeyPath.value && currentKeyPath.value.length > 0) {
+    setSelectedPath(currentKeyPath.value)
+  }
+}
 
 const highlightText = (text, query) => {
   if (!text) return ''
@@ -79,6 +110,7 @@ const valueClass = computed(() => {
 
 const handleCopyKey = (e) => {
   if (!props.name) return
+  onKeyClick()
   navigator.clipboard.writeText(props.name).then(() => {
     if (showToast) {
       showToast(`已复制键名: ${props.name}`)
@@ -87,6 +119,7 @@ const handleCopyKey = (e) => {
 }
 
 const handleCopyValue = (e) => {
+  onKeyClick()
   let text = ''
   if (typeof props.value === 'object' && props.value !== null) {
     text = safeStringify(props.value, null, 2)
@@ -107,7 +140,12 @@ const handleCopyValue = (e) => {
   <div class="tree-node">
     <!-- If object or array -->
     <div v-if="isObject" class="node-row">
-      <div class="node-header expandable" @click="toggleExpand">
+      <div
+        class="node-header expandable"
+        @click="toggleExpand(); onKeyClick()"
+        @mouseenter="onKeyMouseEnter"
+        @mouseleave="onKeyMouseLeave"
+      >
         <span class="icon-wrapper">
           <ChevronDown v-if="isExpanded" class="toggle-icon" />
           <ChevronRight v-else class="toggle-icon" />
@@ -134,6 +172,7 @@ const handleCopyValue = (e) => {
             :value="item"
             :depth="depth + 1"
             :is-last="index === value.length - 1"
+            :path="[...path, index]"
           />
         </template>
         <!-- Object elements -->
@@ -145,6 +184,7 @@ const handleCopyValue = (e) => {
             :value="value[key]"
             :depth="depth + 1"
             :is-last="index === objectKeys.length - 1"
+            :path="[...path, key]"
           />
         </template>
       </div>
@@ -156,7 +196,13 @@ const handleCopyValue = (e) => {
     </div>
 
     <!-- If primitive -->
-    <div v-else class="node-row primitive">
+    <div
+      v-else
+      class="node-row primitive"
+      @click="onKeyClick"
+      @mouseenter="onKeyMouseEnter"
+      @mouseleave="onKeyMouseLeave"
+    >
       <span class="icon-spacer"></span>
       <span v-if="name" class="node-key" @click.stop="handleCopyKey" title="点击复制键名" v-html="highlightKey(name)"></span>
       <span v-if="name" class="node-colon">: </span>
