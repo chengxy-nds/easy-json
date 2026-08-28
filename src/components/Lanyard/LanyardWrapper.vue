@@ -21,28 +21,44 @@ const containerRef = ref(null)
 const ready = ref(false)
 let root = null
 
+function isWebGLSupported() {
+  try {
+    const canvas = document.createElement('canvas')
+    return !!(
+      window.WebGLRenderingContext &&
+      (canvas.getContext('webgl') || canvas.getContext('experimental-webgl'))
+    )
+  } catch (e) {
+    return false
+  }
+}
+
 onMounted(() => {
   // Defer 3D initialization to avoid blocking the initial page paint.
   // requestAnimationFrame waits until after the next frame render,
   // so the DOM and styles are already painted before we load React+Three.js.
   requestAnimationFrame(() => {
-    if (containerRef.value) {
-      ready.value = true
-      root = createRoot(containerRef.value)
-      root.render(
-        React.createElement(Lanyard, {
-          position: props.position,
-          gravity: props.gravity,
-          fov: props.fov,
-          anchorX: props.anchorX,
-          transparent: props.transparent,
-          frontImage: props.frontImage,
-          backImage: props.backImage,
-          imageFit: props.imageFit,
-          lanyardImage: props.lanyardImage,
-          lanyardWidth: props.lanyardWidth
-        })
-      )
+    if (containerRef.value && isWebGLSupported()) {
+      try {
+        ready.value = true
+        root = createRoot(containerRef.value)
+        root.render(
+          React.createElement(Lanyard, {
+            position: props.position,
+            gravity: props.gravity,
+            fov: props.fov,
+            anchorX: props.anchorX,
+            transparent: props.transparent,
+            frontImage: props.frontImage,
+            backImage: props.backImage,
+            imageFit: props.imageFit,
+            lanyardImage: props.lanyardImage,
+            lanyardWidth: props.lanyardWidth
+          })
+        )
+      } catch (err) {
+        console.warn('Failed to initialize Lanyard 3D component:', err)
+      }
     }
   })
 })

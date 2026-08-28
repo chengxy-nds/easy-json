@@ -1,11 +1,11 @@
 <script setup>
-import { ref, onMounted, provide, watch, onBeforeUnmount } from 'vue'
+import { ref, onMounted, provide, watch, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import JsonFormatter from './components/JsonFormatter.vue'
 import JsonComparer from './components/JsonComparer.vue'
-import HomeView from './components/HomeView.vue'
-import TestView from './components/TestView.vue'
-import CommentView from './components/Comment.vue'
-import ChangelogView from './components/ChangelogView.vue'
+const HomeView = defineAsyncComponent(() => import('./components/HomeView.vue'))
+const TestView = defineAsyncComponent(() => import('./components/TestView.vue'))
+const CommentView = defineAsyncComponent(() => import('./components/Comment.vue'))
+const ChangelogView = defineAsyncComponent(() => import('./components/ChangelogView.vue'))
 import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check } from 'lucide-vue-next'
 import { useUpdateCheck } from './composables/useUpdateCheck.js'
 import { useInstallCheck } from './composables/useInstallCheck.js'
@@ -14,6 +14,7 @@ const currentView = ref('home') // 'home' | 'editor' | 'test' | 'comment' | 'cha
 const isPopup = ref(false)
 const isUtools = ref(false)
 const isVscode = ref(false)
+const isTauri = ref(false)
 
 // ── 版本更新检查 ──
 const { hasUpdate, latestVersion, downloadUrl } = useUpdateCheck()
@@ -275,8 +276,18 @@ onMounted(() => {
     })
   }
 
-  // uTools 环境：直接进入编辑器，跳过首页
-  if (window.__UTOOLS__) {
+  // Tauri 桌面端环境：直接进入编辑器，跳过官网首页
+  const inTauri = typeof window !== 'undefined' && !!(window.__TAURI__ || window.__TAURI_INTERNALS__)
+  if (inTauri) {
+    isTauri.value = true
+    document.body.classList.add('tauri-mode')
+    currentView.value = 'editor'
+    const savedTab = localStorage.getItem('ej_tab')
+    if (savedTab === 'format' || savedTab === 'compare') {
+      currentTab.value = savedTab
+    }
+  } else if (window.__UTOOLS__) {
+    // uTools 环境：直接进入编辑器，跳过首页
     isUtools.value = true
     document.body.classList.add('utools-mode')
     currentView.value = 'editor'
@@ -477,7 +488,7 @@ onBeforeUnmount(() => {
         <div class="sidebar-logo" data-tooltip-right="easyJSON" @click="goToHome" style="cursor: pointer;">
           <img src="/images/logo.png" class="sidebar-logo-icon" alt="easyJSON" />
         </div>
-        <button v-if="!isUtools && !isVscode" class="sidebar-btn" @click="goToHome" data-tooltip-right="返回主页">
+        <button v-if="!isUtools && !isVscode && !isTauri" class="sidebar-btn" @click="goToHome" data-tooltip-right="返回主页">
           <Home class="sidebar-btn-icon" />
         </button>
         <button

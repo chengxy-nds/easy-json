@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, inject } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, inject, defineAsyncComponent } from 'vue'
 import {
   Braces, Split, Zap, Lock, ShieldCheck, Eye, ArrowRight,
   ChevronDown, ChevronRight, FileCode, Layers, Table2, Network, ListTree,
@@ -10,7 +10,7 @@ import {
 
 const isDark = inject('isDark')
 const toggleTheme = inject('toggleTheme')
-import LanyardWrapper from './Lanyard/LanyardWrapper.vue'
+const LanyardWrapper = defineAsyncComponent(() => import('./Lanyard/LanyardWrapper.vue'))
 import TargetCursor from './TargetCursor.vue'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js'

@@ -8,6 +8,8 @@ export default defineConfig({
   plugins: [vue(), react()],
   assetsInclude: ['**/*.glb'],
   build: {
+    target: ['es2018', 'safari13', 'chrome87', 'edge88', 'firefox78'],
+    cssTarget: ['safari13', 'chrome87', 'edge88', 'firefox78'],
     rollupOptions: {
       onLog(level, log, handler) {
         // 屏蔽 @vueuse/core 的 PURE annotation 无害警告

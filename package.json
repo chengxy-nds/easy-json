@@ -11,7 +11,7 @@
     "tauri:build": "tauri build",
     "tauri:build:win": "tauri build --target x86_64-pc-windows-msvc",
     "build:win": "powershell -ExecutionPolicy Bypass -File build-win.ps1",
-    "build:mac:universal": "tauri build --target universal-apple-darwin",
+    "build:mac:universal": "MACOSX_DEPLOYMENT_TARGET=11.0 tauri build --target universal-apple-darwin",
     "build:utools": "node scripts/build-utools.mjs",
     "build:vscode": "node scripts/build-vscode.mjs",
     "build:plugin": "vite build --outDir easyjson-plugin"

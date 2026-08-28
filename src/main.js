@@ -5,5 +5,11 @@ import { initAnalytics } from './utils/analytics.js'
 
 initAnalytics()
 
-createApp(App).mount('#app')
+const app = createApp(App)
+
+app.config.errorHandler = (err, instance, info) => {
+  console.error('[easyJSON Global Error]:', err, info)
+}
+
+app.mount('#app')
 
