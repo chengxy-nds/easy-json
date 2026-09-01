@@ -149,10 +149,19 @@ const parseCurlFormat = (cmd) => {
     } else if (t === '-b' || t === '--cookie' || t === '--cookies') {
       if (n && n.includes('=') && !n.includes('/')) { cookies.push(n); i++ }
       else if (n) i++
+    } else if (t === '--url') {
+      if (n) { url = n; i++ }
+    } else if (t === '-u' || t === '--user') {
+      if (n) {
+        try { headers['Authorization'] = 'Basic ' + btoa(n) } catch (e) {}
+        i++
+      }
+    } else if (t === '-A' || t === '--user-agent') {
+      if (n) { headers['User-Agent'] = n; i++ }
     } else if (t.startsWith('http://') || t.startsWith('https://')) {
       url = t
     } else if (/^curl(\.exe)?$/i.test(t) || t.startsWith('-') || t.startsWith('--')) {
-      // skip
+      // skip flags like --compressed, -s, -k, --insecure, -L, --location
     } else if (!url && /^[a-zA-Z0-9][-a-zA-Z0-9+&@#/%?=~_|!:,.;]+/.test(t)) {
       url = 'https://' + t
     }
@@ -401,13 +410,14 @@ const copyRawOutput = () => {
 
 // URL 导入
 const handleUrl = async () => {
-  if (!urlInput.value.trim()) {
+  const raw = urlInput.value.trim()
+  if (!raw) {
     showToast('请输入 URL 地址', 'error')
     return
   }
   loading.value = true
   try {
-    const url = urlInput.value.startsWith('http') ? urlInput.value : 'https://' + urlInput.value
+    const url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw
     console.log('发送请求到:', url)
 
     const controller = new AbortController()
@@ -425,7 +435,7 @@ const handleUrl = async () => {
 
     if (e.name === 'AbortError') {
       showToast('请求超时（30 秒）', 'error')
-    } else if (e.message.includes('Failed to fetch')) {
+    } else if (e.message?.includes('Failed to fetch')) {
       showToast('请求失败：CORS 跨域限制，请直接在 Network 面板复制响应数据', 'error')
     } else {
       showToast(e.message || '请求失败', 'error')
@@ -433,16 +443,33 @@ const handleUrl = async () => {
   } finally { loading.value = false }
 }
 
-// ─── UTF-8 安全 Base64 解码器 ───
+// ─── UTF-8 / URL-Safe / Data URI 兼容 Base64 解码器 ───
 // 通过 Uint8Array 与 TextDecoder 转换原始二进制字节流，100% 解决各种非西欧字符（如中文）解码时的乱码问题
 const handleBase64 = () => {
-  if (!base64Input.value.trim()) {
+  let raw = base64Input.value.trim()
+  if (!raw) {
     showToast('请输入 Base64 密文', 'error')
     return
   }
   try {
-    console.log('开始解码 Base64，输入长度:', base64Input.value.length)
-    const binString = atob(base64Input.value.trim())
+    // 1. 兼容去除 Data URI 前缀 (如 data:application/json;base64, 等)
+    if (raw.includes(';base64,')) {
+      raw = raw.split(';base64,')[1]
+    } else if (raw.startsWith('data:')) {
+      const commaIdx = raw.indexOf(',')
+      if (commaIdx !== -1) raw = raw.slice(commaIdx + 1)
+    }
+    // 2. 去除所有内部空格与换行符
+    raw = raw.replace(/\s+/g, '')
+    // 3. 兼容 URL-Safe Base64 (- 转 +, _ 转 /)
+    raw = raw.replace(/-/g, '+').replace(/_/g, '/')
+    // 4. 自动补齐缺失的 = 填充符
+    while (raw.length % 4 !== 0) {
+      raw += '='
+    }
+
+    console.log('开始解码 Base64，处理后长度:', raw.length)
+    const binString = atob(raw)
     const len = binString.length
     const bytes = new Uint8Array(len)
     for (let i = 0; i < len; i++) {

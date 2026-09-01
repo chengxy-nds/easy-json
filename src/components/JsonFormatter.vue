@@ -6,7 +6,10 @@ import {
   AlertTriangle, Braces, Eye, EyeOff, FileJson, ArrowRightLeft, Shuffle,
   ChevronDown, ChevronRight, ChevronUp, HelpCircle, Minimize2, Code, Search, Plus, X,
   Network, Table2, Menu, FileCode, Maximize2, Strikethrough, ListTree,
-  Pencil, ArrowLeft, ArrowRight, Wand2, GripVertical
+  Pencil, ArrowLeft, ArrowRight, Wand2, GripVertical,
+  ShieldCheck, Workflow,
+  Smartphone, IdCard, Mail, CreditCard, Globe,
+  Car, Building2, BookUser, Database
 } from 'lucide-vue-next'
 import JsonTreeNode   from './JsonTreeNode.vue'
 import JsonGraphView  from './JsonGraphView.vue'
@@ -15,6 +18,8 @@ import ImportDropdown from './ImportDropdown.vue'
 import { extractJsonFromText, convertJsObjectToJson, safeParseJsLike, tryParseCandidate } from '../utils/jsonExtractor.js';
 import { convertJson, formatLabels, getFormatExtension } from '../utils/jsonConverter.js';
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js';
+import { maskJsonData, extractAllKeys } from '../utils/dataMasker.js';
+import { queryJsonPath } from '../utils/jsonPath.js';
 
 const showToast = inject('showToast')
 
@@ -76,6 +81,7 @@ provide('selectedPath', selectedPath)
 provide('setSelectedPath', setSelectedPath)
 
 const expandSearch = () => {
+  showJsonPathBar.value = false
   searchExpanded.value = true
   nextTick(() => {
     searchInputRef.value?.focus()
@@ -95,6 +101,7 @@ const toggleSearch = () => {
   if (searchExpanded.value) {
     collapseSearch()
   } else {
+    showJsonPathBar.value = false
     expandSearch()
   }
 }
@@ -2430,6 +2437,255 @@ const handleExtract = () => {
   }
 }
 
+// ─── 1. 智能数据脱敏弹窗与配置 ───
+const showMaskModal = ref(false)
+const maskOptions = ref({
+  maskPhone: true,
+  maskIdCard: true,
+  maskEmail: true,
+  maskBankCard: true,
+  maskIp: true,
+  maskLicensePlate: true,
+  maskUsci: true,
+  maskPassport: true,
+  maskDsn: true,
+  customKeys: []
+})
+const customKeyInput = ref('')
+const extractedKeysList = ref([])
+const maskPreviewText = ref('')
+const maskCountResult = ref(0)
+
+const highlightedMaskPreview = computed(() => {
+  if (!maskPreviewText.value) return ''
+  if (maskPreviewText.value.startsWith('//')) {
+    return `<div class="mask-preview-line"><span class="json-comment">${plainEscape(maskPreviewText.value)}</span></div>`
+  }
+  const highlighted = applyJsonHighlightWithPath(maskPreviewText.value)
+  const lines = highlighted.replace(/\r/g, '').split('\n')
+  return lines.map(line => {
+    const isMasked = line.includes('*')
+    const content = isMasked
+      ? line.replace(/\*+(?:\.\*+)*/g, (m) => `<mark class="mask-highlight-mark">${m}</mark>`)
+      : line
+    const cls = isMasked ? 'mask-preview-line is-masked-line' : 'mask-preview-line'
+    return `<div class="${cls}">${content || ' '}</div>`
+  }).join('')
+})
+
+// 从 localStorage 恢复脱敏配置
+try {
+  const savedMaskOpt = localStorage.getItem('ej_mask_options')
+  if (savedMaskOpt) {
+    const parsed = JSON.parse(savedMaskOpt)
+    maskOptions.value = { ...maskOptions.value, ...parsed }
+  }
+} catch (e) {}
+
+const saveMaskOptions = () => {
+  try {
+    localStorage.setItem('ej_mask_options', JSON.stringify(maskOptions.value))
+  } catch (e) {}
+}
+
+const parseJsonRobust = (text) => {
+  if (!text || !text.trim()) return null
+  try {
+    return safeParse(text)
+  } catch (e) {
+    try {
+      const extracted = extractJsonFromText(text)
+      if (extracted?.json) return safeParse(extracted.json)
+    } catch (e2) {}
+    try {
+      const jsConverted = convertJsObjectToJson(text)
+      if (jsConverted) return safeParse(jsConverted)
+    } catch (e3) {}
+  }
+  return null
+}
+
+const openDataMaskModal = () => {
+  const tab = activeTab.value
+  if (!tab || !tab.inputText?.trim()) {
+    showToast('请先输入需要脱敏的 JSON 数据', 'error')
+    return
+  }
+  const parsed = tab.parsedObj || parseJsonRobust(tab.inputText)
+  if (parsed) {
+    extractedKeysList.value = extractAllKeys(parsed)
+  } else {
+    extractedKeysList.value = []
+  }
+  updateMaskPreview()
+  showMaskModal.value = true
+}
+
+const addCustomKey = () => {
+  const key = customKeyInput.value.trim()
+  if (!key) return
+  if (!maskOptions.value.customKeys.includes(key)) {
+    maskOptions.value.customKeys.push(key)
+    saveMaskOptions()
+    updateMaskPreview()
+  }
+  customKeyInput.value = ''
+}
+
+const removeCustomKey = (key) => {
+  maskOptions.value.customKeys = maskOptions.value.customKeys.filter(k => k !== key)
+  saveMaskOptions()
+  updateMaskPreview()
+}
+
+const toggleKeyFromExtracted = (key) => {
+  const idx = maskOptions.value.customKeys.indexOf(key)
+  if (idx > -1) {
+    maskOptions.value.customKeys.splice(idx, 1)
+  } else {
+    maskOptions.value.customKeys.push(key)
+  }
+  saveMaskOptions()
+  updateMaskPreview()
+}
+
+const updateMaskPreview = () => {
+  const tab = activeTab.value
+  if (!tab || !tab.inputText?.trim()) {
+    maskPreviewText.value = ''
+    maskCountResult.value = 0
+    return
+  }
+  try {
+    const parsed = tab.parsedObj || parseJsonRobust(tab.inputText)
+    if (!parsed) {
+      maskPreviewText.value = '// 输入数据非有效 JSON 格式，无法解析'
+      maskCountResult.value = 0
+      return
+    }
+    const { maskedData, count } = maskJsonData(parsed, maskOptions.value)
+    maskCountResult.value = count
+    const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
+    maskPreviewText.value = safeStringify(maskedData, null, space)
+  } catch (e) {
+    maskPreviewText.value = '// 脱敏处理失败: ' + (e?.message || '')
+    maskCountResult.value = 0
+  }
+}
+
+watch(maskOptions, () => {
+  saveMaskOptions()
+  if (showMaskModal.value) {
+    updateMaskPreview()
+  }
+}, { deep: true })
+
+const applyMaskToCurrentTab = () => {
+  if (!maskPreviewText.value || maskPreviewText.value.startsWith('//')) return
+  activeTab.value.inputText = maskPreviewText.value
+  showMaskModal.value = false
+  showToast(`已完成智能脱敏（共处理 ${maskCountResult.value} 处敏感数据）`)
+  autoCopyResult(activeTab.value.inputText)
+}
+
+const applyMaskToNewTab = () => {
+  if (!maskPreviewText.value || maskPreviewText.value.startsWith('//')) return
+  const newId = nextTabId++
+  const newTab = {
+    id: newId,
+    title: `脱敏数据`,
+    inputText: maskPreviewText.value,
+    outputText: '',
+    parsedObj: null,
+    validationError: null,
+    errorLine: null,
+    duplicateLines: [],
+    viewMode: 'tree',
+    convertFormat: null,
+    extractedFormat: null
+  }
+  tabs.value.push(newTab)
+  activeTabId.value = newId
+  showMaskModal.value = false
+  showToast(`已在新标签页生成脱敏数据（共脱敏 ${maskCountResult.value} 处）`)
+}
+
+const copyMaskedData = () => {
+  if (!maskPreviewText.value || maskPreviewText.value.startsWith('//')) return
+  navigator.clipboard.writeText(maskPreviewText.value).then(() => {
+    showToast('脱敏数据已复制到剪贴板')
+  })
+}
+
+// ─── 2. JSONPath 表达式提取 ───
+const showJsonPathBar = ref(false)
+const jsonPathQuery = ref('$.data')
+const jsonPathWrapRef = ref(null)
+const jsonPathInputRef = ref(null)
+const jsonPathPresetPills = ['$.data', '$.data.list[*]', '$..id', '$..name', '$[?(@.id > 1)]', '$..*']
+
+const jsonPathMatches = computed(() => {
+  if (!showJsonPathBar.value || !jsonPathQuery.value.trim()) return []
+  const obj = activeTab.value?.parsedObj
+  if (!obj) return []
+  try {
+    return queryJsonPath(obj, jsonPathQuery.value)
+  } catch (e) {
+    return []
+  }
+})
+
+const toggleJsonPathBar = () => {
+  showJsonPathBar.value = !showJsonPathBar.value
+  if (showJsonPathBar.value) {
+    collapseSearch()
+    if (!jsonPathQuery.value) {
+      jsonPathQuery.value = '$.data'
+    }
+    nextTick(() => {
+      jsonPathInputRef.value?.focus()
+      jsonPathInputRef.value?.select()
+    })
+  }
+}
+
+watch(activeTabId, () => {
+  showJsonPathBar.value = false
+})
+
+const onJsonPathClickOutside = (e) => {
+  if (showJsonPathBar.value && jsonPathWrapRef.value && !jsonPathWrapRef.value.contains(e.target)) {
+    showJsonPathBar.value = false
+  }
+}
+
+const applyJsonPathToInput = () => {
+  const matches = jsonPathMatches.value
+  if (!matches.length) {
+    showToast('未匹配到任何结果', 'error')
+    return
+  }
+  const resultData = matches.length === 1 ? matches[0] : matches
+  const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
+  activeTab.value.inputText = safeStringify(resultData, null, space)
+  showToast(`已提取并应用 ${matches.length} 项匹配结果`)
+  showJsonPathBar.value = false
+}
+
+const copyJsonPathResult = () => {
+  const matches = jsonPathMatches.value
+  if (!matches.length) {
+    showToast('未匹配到任何结果', 'error')
+    return
+  }
+  const resultData = matches.length === 1 ? matches[0] : matches
+  navigator.clipboard.writeText(safeStringify(resultData, null, 2)).then(() => {
+    showToast(`已复制 ${matches.length} 项提取结果`)
+  }).catch(() => {
+    showToast('复制失败', 'error')
+  })
+}
+
 onMounted(() => {
   // Restore persisted tabs from localStorage
   let restored = false
@@ -2520,9 +2776,11 @@ const checkExtractOnLoad = () => {
   } catch (e) {}
   // 点击面板外部收起
   document.addEventListener('click', onConvertMenuClickOutside)
+  document.addEventListener('click', onJsonPathClickOutside)
 }
 onBeforeUnmount(() => {
   document.removeEventListener('click', onConvertMenuClickOutside)
+  document.removeEventListener('click', onJsonPathClickOutside)
 })
 </script>
 
@@ -2631,6 +2889,75 @@ onBeforeUnmount(() => {
 
             <!-- 导入按钮 + 下拉面板 -->
             <ImportDropdown @import-text="handleImportText" />
+
+            <!-- 智能数据脱敏 -->
+            <button class="toolbar-item" @click="openDataMaskModal" data-tooltip-bottom="智能数据脱敏">
+              <ShieldCheck class="toolbar-icon" />
+              <span class="toolbar-label">脱敏</span>
+            </button>
+
+            <!-- JSONPath 表达式提取 (弹窗卡片，与搜索/替换风格一致) -->
+            <div class="jsonpath-popover-wrapper" ref="jsonPathWrapRef">
+              <button 
+                class="toolbar-item" 
+                :class="{ active: showJsonPathBar }" 
+                @click.stop="toggleJsonPathBar" 
+                data-tooltip-bottom="JSONPath 表达式提取"
+              >
+                <Workflow class="toolbar-icon" />
+                <span class="toolbar-label">JSONPath</span>
+              </button>
+
+              <Transition name="fade-slide">
+                <div v-if="showJsonPathBar" class="jsonpath-popover-box" @click.stop>
+                  <div class="jp-main-row">
+                    <input
+                      v-model="jsonPathQuery"
+                      ref="jsonPathInputRef"
+                      type="text"
+                      placeholder="JSONPath 表达式 (如: $.data, $..name)"
+                      class="jp-input"
+                      @keydown.enter="applyJsonPathToInput"
+                      @keydown.escape="showJsonPathBar = false"
+                    />
+                    <span class="jp-match-count" :class="{ 'has-matches': jsonPathMatches.length > 0 }">
+                      {{ jsonPathMatches.length > 0 ? `${jsonPathMatches.length}项` : '0项' }}
+                    </span>
+                    <button 
+                      class="jp-action-btn primary" 
+                      :disabled="!jsonPathMatches.length" 
+                      @click="applyJsonPathToInput"
+                      data-tooltip="应用到输入框"
+                    >
+                      应用
+                    </button>
+                    <button 
+                      class="jp-action-btn" 
+                      :disabled="!jsonPathMatches.length" 
+                      @click="copyJsonPathResult"
+                      data-tooltip="复制提取结果"
+                    >
+                      <Copy class="btn-icon-xs" />
+                    </button>
+                    <button class="jp-close-btn" @click="showJsonPathBar = false">
+                      <X class="btn-icon-xs" />
+                    </button>
+                  </div>
+                  <div class="jp-presets-row">
+                    <span class="jp-preset-label">预设:</span>
+                    <button
+                      v-for="pill in jsonPathPresetPills"
+                      :key="pill"
+                      class="jp-preset-pill"
+                      :class="{ active: jsonPathQuery === pill }"
+                      @click="jsonPathQuery = pill"
+                    >
+                      {{ pill }}
+                    </button>
+                  </div>
+                </div>
+              </Transition>
+            </div>
           </div>
           <div class="header-search-wrapper">
             <button
@@ -2707,7 +3034,7 @@ onBeforeUnmount(() => {
                 <button class="sr-nav-btn" @click="goNextMatch" :disabled="totalMatches === 0" data-tooltip-bottom="下一个">
                   <ChevronDown class="sr-nav-icon" />
                 </button>
-                <button class="sr-nav-btn" @click="collapseSearch" data-tooltip-bottom-right="关闭">
+                <button class="sr-nav-btn" @click="collapseSearch">
                   <X class="sr-nav-icon" />
                 </button>
               </div>
@@ -2728,6 +3055,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
+
 
         <div class="panel-body">
           <div class="editor-wrapper">
@@ -2999,6 +3327,149 @@ onBeforeUnmount(() => {
         </template>
       </div>
     </div>
+
+    <!-- 智能数据脱敏配置弹窗 -->
+    <Teleport to="body">
+      <Transition name="modal-fade">
+        <div v-if="showMaskModal" class="ej-modal-backdrop" @click="showMaskModal = false">
+          <div class="ej-modal-dialog mask-modal-dialog" @click.stop>
+            <div class="ej-modal-header">
+              <div class="ej-modal-title">
+                <ShieldCheck class="modal-title-icon" />
+                <span>智能数据脱敏配置</span>
+              </div>
+              <button class="ej-modal-close" @click="showMaskModal = false">
+                <X class="modal-close-icon" />
+              </button>
+            </div>
+
+            <div class="ej-modal-body">
+              <!-- 规则选择区 -->
+              <div class="mask-section">
+                <div class="mask-section-title">内置规则勾选</div>
+                <div class="mask-checkbox-grid">
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskPhone" />
+                    <Smartphone class="rule-icon" />
+                    <span>手机号码 (11位)</span>
+                  </label>
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskIdCard" />
+                    <IdCard class="rule-icon" />
+                    <span>身份证号 (18位)</span>
+                  </label>
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskEmail" />
+                    <Mail class="rule-icon" />
+                    <span>电子邮箱</span>
+                  </label>
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskBankCard" />
+                    <CreditCard class="rule-icon" />
+                    <span>银行卡号</span>
+                  </label>
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskIp" />
+                    <Globe class="rule-icon" />
+                    <span>IP 地址 (v4/v6)</span>
+                  </label>
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskLicensePlate" />
+                    <Car class="rule-icon" />
+                    <span>车牌号码</span>
+                  </label>
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskUsci" />
+                    <Building2 class="rule-icon" />
+                    <span>统一社会信用代码</span>
+                  </label>
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskPassport" />
+                    <BookUser class="rule-icon" />
+                    <span>中国护照号</span>
+                  </label>
+                  <label class="mask-checkbox-item">
+                    <input type="checkbox" v-model="maskOptions.maskDsn" />
+                    <Database class="rule-icon" />
+                    <span>数据库连接串 (DSN)</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 自定义 Key 脱敏区 -->
+              <div class="mask-section">
+                <div class="mask-section-title">
+                  <span>指定 Key 脱敏</span>
+                  <span class="section-sub-tip">（匹配到的字段值将自动掩码）</span>
+                </div>
+                <div class="custom-key-input-row">
+                  <input
+                    type="text"
+                    class="custom-key-input"
+                    v-model="customKeyInput"
+                    placeholder="输入需要脱敏的 Key 名称 (如 salary, address)，按回车添加"
+                    @keydown.enter="addCustomKey"
+                  />
+                  <button class="custom-key-add-btn" @click="addCustomKey" :disabled="!customKeyInput.trim()">
+                    添加
+                  </button>
+                </div>
+
+                <!-- 已指定的 Key 列表 -->
+                <div v-if="maskOptions.customKeys.length > 0" class="selected-keys-wrap">
+                  <span class="selected-key-tag" v-for="k in maskOptions.customKeys" :key="k">
+                    {{ k }}
+                    <X class="tag-close-icon" @click="removeCustomKey(k)" />
+                  </span>
+                </div>
+
+                <!-- 从当前 JSON 提取出的 Key 快捷选择 -->
+                <div v-if="extractedKeysList.length > 0" class="extracted-keys-box">
+                  <div class="extracted-keys-label">从当前 JSON 快速选取:</div>
+                  <div class="extracted-keys-pills">
+                    <button
+                      v-for="k in extractedKeysList"
+                      :key="k"
+                      class="extracted-key-pill"
+                      :class="{ selected: maskOptions.customKeys.includes(k) }"
+                      @click="toggleKeyFromExtracted(k)"
+                    >
+                      {{ k }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 实时预览区 -->
+              <div class="mask-preview-area">
+                <div class="preview-header">
+                  <span>脱敏效果实时预览 (当前共处理 {{ maskCountResult }} 处)</span>
+                  <button class="preview-copy-btn" @click="copyMaskedData">
+                    <Copy class="btn-icon-xs" />
+                    <span>复制 JSON</span>
+                  </button>
+                </div>
+                <div class="mask-preview-code-wrap">
+                  <pre class="mask-preview-pre output-pre" v-html="highlightedMaskPreview"></pre>
+                </div>
+              </div>
+            </div>
+
+            <div class="ej-modal-footer">
+              <button class="modal-btn outline" @click="showMaskModal = false">取消</button>
+              <button class="modal-btn secondary" @click="applyMaskToNewTab">
+                <Plus class="btn-icon-xs" />
+                <span>在新标签页打开</span>
+              </button>
+              <button class="modal-btn primary" @click="applyMaskToCurrentTab">
+                <Check class="btn-icon-xs" />
+                <span>应用到当前编辑器</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -4390,5 +4861,632 @@ body.utools-mode {
 .scroll-control-icon {
   width: 14px;
   height: 14px;
+}
+
+/* ─── JSONPath Popover (类似搜索/替换弹窗) ─── */
+.jsonpath-popover-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.jsonpath-popover-box {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: clamp(340px, 28vw, 440px);
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.05);
+  z-index: 200;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+}
+
+.dark-mode .jsonpath-popover-box {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.jp-main-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 26px;
+}
+
+.jp-input {
+  border: 1px solid var(--border-color);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font-size: clamp(10px, 0.75vw, 12px);
+  font-family: var(--font-mono);
+  flex-grow: 1;
+  min-width: 0;
+  padding: 2px 8px;
+  height: 26px;
+  border-radius: 4px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.jp-input:focus {
+  border-color: var(--primary-color);
+}
+
+.jp-input::placeholder {
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+}
+
+.jp-match-count {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.dark-mode .jp-match-count {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.jp-match-count.has-matches {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+  font-weight: 600;
+}
+
+.dark-mode .jp-match-count.has-matches {
+  background: rgba(34, 197, 94, 0.25);
+  color: #4ade80;
+}
+
+.jp-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.jp-action-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--primary-color);
+}
+
+.jp-action-btn.primary {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: #ffffff;
+}
+
+.jp-action-btn.primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.jp-action-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.jp-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: all 0.1s ease;
+}
+
+.jp-close-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--border-color);
+}
+
+.jp-presets-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-color);
+}
+
+.jp-preset-label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.jp-preset-pill {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-app);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.jp-preset-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--primary-color);
+}
+
+.jp-preset-pill.active {
+  background: var(--primary-light, rgba(99, 102, 241, 0.12));
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+  font-weight: 500;
+}
+
+/* ─── 通用模态弹窗样式 (Modal Backdrop & Dialog) ─── */
+.ej-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.ej-modal-dialog {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow: hidden;
+  animation: modalPopIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modalPopIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.ej-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ej-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal-title-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--primary-color, #6366f1);
+}
+
+.ej-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ej-modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-close-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.ej-modal-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+}
+
+.mask-preview-area {
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  background: var(--bg-app);
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-input, rgba(0, 0, 0, 0.03));
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.dark-mode .preview-header {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.preview-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preview-copy-btn:hover {
+  border-color: var(--primary-color, #6366f1);
+}
+
+.mask-preview-code-wrap {
+  position: relative;
+  background: var(--bg-app);
+  max-height: 220px;
+  min-height: 140px;
+  overflow: auto;
+  padding: 10px 14px;
+  box-sizing: border-box;
+}
+
+.mask-preview-pre {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: transparent;
+}
+
+.mask-preview-line {
+  min-height: 1.55em;
+  line-height: 1.55;
+  padding: 0 6px;
+  margin: 0 -6px;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.mask-preview-line.is-masked-line {
+  background: rgba(245, 158, 11, 0.12);
+  border-left: 3px solid #f59e0b;
+  padding-left: 6px;
+}
+
+.dark-mode .mask-preview-line.is-masked-line {
+  background: rgba(245, 158, 11, 0.18);
+  border-left: 3px solid #fbbf24;
+}
+
+.rule-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--primary-color, #6366f1);
+  flex-shrink: 0;
+}
+
+.mask-highlight-mark {
+  background: rgba(245, 158, 11, 0.25);
+  color: #b45309;
+  font-weight: 700;
+  padding: 0 4px;
+  margin: 0 1px;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.35);
+  display: inline;
+}
+
+.dark-mode .mask-highlight-mark {
+  background: rgba(245, 158, 11, 0.32);
+  color: #fde68a;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.45);
+}
+
+.ej-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-panel);
+}
+
+.modal-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modal-btn.outline {
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.modal-btn.outline:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-btn.secondary {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.modal-btn.secondary:hover {
+  border-color: var(--primary-color, #6366f1);
+}
+
+.modal-btn.primary {
+  background: var(--primary-color, #6366f1);
+  border: 1px solid var(--primary-color, #6366f1);
+  color: #ffffff;
+}
+
+.modal-btn.primary:hover {
+  opacity: 0.9;
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.btn-icon-xs {
+  width: 13px;
+  height: 13px;
+}
+
+/* ─── Data Masking Modal Styles ─── */
+.mask-modal-dialog {
+  width: 760px;
+}
+
+.mask-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mask-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.section-sub-tip {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.mask-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 8px 12px;
+  padding: 10px 14px;
+  background: var(--bg-input, rgba(0, 0, 0, 0.03));
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.mask-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.mask-checkbox-item input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--primary-color, #6366f1);
+}
+
+.custom-key-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-key-input {
+  flex: 1;
+  height: 32px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  font-size: 12px;
+  color: var(--text-primary);
+  outline: none;
+  font-family: var(--font-mono);
+  box-sizing: border-box;
+}
+
+.custom-key-input:focus {
+  border-color: var(--primary-color, #6366f1);
+}
+
+.custom-key-add-btn {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.custom-key-add-btn:hover:not(:disabled) {
+  border-color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #6366f1);
+}
+
+.custom-key-add-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.selected-keys-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.selected-key-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  background: var(--primary-light, rgba(99, 102, 241, 0.12));
+  color: var(--primary-color, #6366f1);
+  border: 1px solid var(--primary-color, #6366f1);
+}
+
+.tag-close-icon {
+  width: 12px;
+  height: 12px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.1s ease;
+}
+
+.tag-close-icon:hover {
+  opacity: 1;
+}
+
+.extracted-keys-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.extracted-keys-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.extracted-keys-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 80px;
+  overflow-y: auto;
+}
+
+.extracted-key-pill {
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-app);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.extracted-key-pill:hover {
+  border-color: var(--primary-color, #6366f1);
+  color: var(--text-primary);
+}
+
+.extracted-key-pill.selected {
+  background: var(--primary-color, #6366f1);
+  color: #ffffff;
+  border-color: var(--primary-color, #6366f1);
 }
 </style>

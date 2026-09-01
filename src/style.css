@@ -175,34 +175,108 @@ body {
 }
 
 /* ─── JSON syntax highlight: premium palette (global, for v-html) ─── */
-.json-key { color: #881280; }
-.json-string { color: #1a6e1a; }
-.json-number { color: #b55717; }
-.json-bool { color: #0066cc; }
-.json-null { color: #808080; }
-.json-punct { color: #4a5568; }
+.json-key {
+  color: #881280;
+}
+
+.json-string {
+  color: #1a6e1a;
+}
+
+.json-number {
+  color: #b55717;
+}
+
+.json-bool {
+  color: #0066cc;
+}
+
+.json-null {
+  color: #808080;
+}
+
+.json-punct {
+  color: #4a5568;
+}
 
 /* Convert output syntax highlight — aligned with premium palette */
-.hl-tag    { color: #881280; } /* = json-key */
-.hl-attr   { color: #b55717; } /* = json-number */
-.hl-comment{ color: #808080; font-style: italic; } /* = json-null */
-.hl-string { color: #1a6e1a; } /* = json-string */
-.hl-kw     { color: #0066cc; } /* = json-bool */
-.hl-num    { color: #b55717; } /* = json-number */
-.hl-key    { color: #881280; } /* = json-key */
-.hl-bool   { color: #0066cc; } /* = json-bool */
-.hl-section{ color: #4a5568; } /* = json-punct */
-.hl-type   { color: #0f1729; }
+.hl-tag {
+  color: #881280;
+}
 
-.key-str { color: #881280; }
-.val-str { color: #1a6e1a; }
-.key-num { color: #b55717; }
-.key-meta { color: #6b7280; }
+/* = json-key */
+.hl-attr {
+  color: #b55717;
+}
+
+/* = json-number */
+.hl-comment {
+  color: #808080;
+  font-style: italic;
+}
+
+/* = json-null */
+.hl-string {
+  color: #1a6e1a;
+}
+
+/* = json-string */
+.hl-kw {
+  color: #0066cc;
+}
+
+/* = json-bool */
+.hl-num {
+  color: #b55717;
+}
+
+/* = json-number */
+.hl-key {
+  color: #881280;
+}
+
+/* = json-key */
+.hl-bool {
+  color: #0066cc;
+}
+
+/* = json-bool */
+.hl-section {
+  color: #4a5568;
+}
+
+/* = json-punct */
+.hl-type {
+  color: #0f1729;
+}
+
+.key-str {
+  color: #881280;
+}
+
+.val-str {
+  color: #1a6e1a;
+}
+
+.key-num {
+  color: #b55717;
+}
+
+.key-meta {
+  color: #6b7280;
+}
 
 /* Utility Animations */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(2px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .fade-in {
@@ -485,7 +559,7 @@ html.popup-mode .global-toast {
 .grid-bg {
   background-size: 20px 20px !important;
   background-image: linear-gradient(to right, var(--grid-line-color) 1px, transparent 1px),
-                    linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px) !important;
+    linear-gradient(to bottom, var(--grid-line-color) 1px, transparent 1px) !important;
   background-color: var(--bg-input) !important;
 }
 
@@ -516,15 +590,11 @@ body.vscode-mode {
   --text-muted: var(--vscode-disabledForeground, color-mix(in srgb, var(--vscode-editor-foreground, #d4d4d4) 50%, transparent));
 
   /* 智能自适应边框：使用 color-mix 根据前景色动态计算（深色变亮线，浅色变暗线，自动适配所有第三方主题） */
-  --border-color: var(
-    --vscode-panel-border,
-    var(--vscode-editorGroup-border,
-    color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 16%, transparent))
-  ) !important;
-  --border-color-active: var(
-    --vscode-focusBorder,
-    color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 35%, transparent)
-  ) !important;
+  --border-color: var(--vscode-panel-border,
+      var(--vscode-editorGroup-border,
+        color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 16%, transparent))) !important;
+  --border-color-active: var(--vscode-focusBorder,
+      color-mix(in srgb, var(--vscode-editor-foreground, currentColor) 35%, transparent)) !important;
 
   /* 智能按钮与 Hover 悬浮状态 */
   --action-btn-bg: transparent;
@@ -614,7 +684,8 @@ body.vscode-mode .sr-action-btn:hover {
   z-index: 101;
 }
 
-.sidebar-top, .sidebar-bottom {
+.sidebar-top,
+.sidebar-bottom {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -703,7 +774,8 @@ body.vscode-mode .sr-action-btn:hover {
   background: transparent !important;
   color: #f97316 !important;
   animation: neon-breath-dark 3.5s infinite ease-in-out !important;
-  margin-top: 8px !important; /* 与上方功能按钮略微隔开，更清晰 */
+  margin-top: 8px !important;
+  /* 与上方功能按钮略微隔开，更清晰 */
 }
 
 .sidebar-btn-neon:hover {
@@ -735,11 +807,14 @@ body.vscode-mode .sr-action-btn:hover {
 }
 
 @keyframes neon-breath-dark {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 2px rgba(249, 115, 22, 0.05);
     border-color: transparent;
     color: rgba(249, 115, 22, 0.7);
   }
+
   50% {
     box-shadow: 0 0 12px rgba(249, 115, 22, 0.5);
     border-color: rgba(249, 115, 22, 0.45);
@@ -748,11 +823,14 @@ body.vscode-mode .sr-action-btn:hover {
 }
 
 @keyframes neon-breath-light {
-  0%, 100% {
+
+  0%,
+  100% {
     box-shadow: 0 0 2px rgba(234, 88, 12, 0.04);
     border-color: transparent;
     color: rgba(234, 88, 12, 0.65);
   }
+
   50% {
     box-shadow: 0 0 10px rgba(234, 88, 12, 0.35);
     border-color: rgba(234, 88, 12, 0.35);
@@ -800,7 +878,8 @@ body.vscode-mode .sr-action-btn:hover {
 }
 
 .editor-line {
-  position: relative; /* Force WebKit layering for background highlights */
+  position: relative;
+  /* Force WebKit layering for background highlights */
   display: block;
   width: 100%;
   min-width: max-content;
@@ -841,6 +920,7 @@ html.popup-mode .editor-line {
   font-size: 13px;
   line-height: 1.55;
 }
+
 .edit-pane-container .edit-textarea {
   padding: 8px 12px;
   font-size: 13px;
@@ -903,124 +983,340 @@ html.popup-mode .editor-line {
 /* Light mode — warm, readable */
 .editor-highlight .json-key,
 .output-pre .json-key,
-.node-key                     { color: #a31515; font-weight: 500; }   /* warm VSCode red */
+.mask-preview-pre .json-key,
+.node-key {
+  color: #a31515;
+  font-weight: 500;
+}
+
+/* warm VSCode red */
 .editor-highlight .json-string,
 .output-pre .json-string,
-.tree-string                  { color: #0451a5; }                      /* VSCode blue */
+.mask-preview-pre .json-string,
+.tree-string {
+  color: #0451a5;
+}
+
+/* VSCode blue */
 .editor-highlight .json-number,
 .output-pre .json-number,
-.tree-number                  { color: #0451a5; }                      /* VSCode blue */
+.mask-preview-pre .json-number,
+.tree-number {
+  color: #0451a5;
+}
+
+/* VSCode blue */
 .editor-highlight .json-boolean,
 .output-pre .json-boolean,
-.tree-boolean                 { color: #0451a5; }                      /* VSCode blue */
+.mask-preview-pre .json-boolean,
+.tree-boolean {
+  color: #0451a5;
+}
+
+/* VSCode blue */
 .editor-highlight .json-null,
 .output-pre .json-null,
-.tree-null                    { color: #64748b; }                      /* slate gray */
+.mask-preview-pre .json-null,
+.tree-null {
+  color: #64748b;
+}
+
+/* slate gray */
 .editor-highlight .json-bracket,
 .output-pre .json-bracket,
-.node-bracket                 { color: #16a34a; font-weight: 600; }    /* grass green */
+.mask-preview-pre .json-bracket,
+.node-bracket {
+  color: #16a34a;
+  font-weight: 600;
+}
+
+/* grass green */
 .editor-highlight .json-colon,
 .output-pre .json-colon,
-.node-colon                   { color: var(--text-muted); }
+.mask-preview-pre .json-colon,
+.node-colon {
+  color: var(--text-muted);
+}
 
 /* Dark mode — VSCode / json4u dark theme */
 .dark-mode .editor-highlight .json-key,
 .dark-mode .output-pre .json-key,
-.dark-mode .node-key                     { color: #fb923c; font-weight: 400; }  /* orange-400 */
+.dark-mode .mask-preview-pre .json-key,
+.dark-mode .node-key {
+  color: #fb923c;
+  font-weight: 400;
+}
+
+/* orange-400 */
 .dark-mode .editor-highlight .json-string,
 .dark-mode .output-pre .json-string,
-.dark-mode .tree-string                  { color: #60a5fa; }                     /* blue-400 */
+.dark-mode .mask-preview-pre .json-string,
+.dark-mode .tree-string {
+  color: #60a5fa;
+}
+
+/* blue-400 */
 .dark-mode .editor-highlight .json-number,
 .dark-mode .output-pre .json-number,
-.dark-mode .tree-number                  { color: #fb923c; }                     /* orange-400 */
+.dark-mode .mask-preview-pre .json-number,
+.dark-mode .tree-number {
+  color: #fb923c;
+}
+
+/* orange-400 */
 .dark-mode .editor-highlight .json-boolean,
 .dark-mode .output-pre .json-boolean,
-.dark-mode .tree-boolean                 { color: #60a5fa; }                     /* blue-400 */
+.dark-mode .mask-preview-pre .json-boolean,
+.dark-mode .tree-boolean {
+  color: #60a5fa;
+}
+
+/* blue-400 */
 .dark-mode .editor-highlight .json-null,
 .dark-mode .output-pre .json-null,
-.dark-mode .tree-null                    { color: #94a3b8; }                     /* slate-400 */
+.dark-mode .mask-preview-pre .json-null,
+.dark-mode .tree-null {
+  color: #94a3b8;
+}
+
+/* slate-400 */
 .dark-mode .editor-highlight .json-bracket,
 .dark-mode .output-pre .json-bracket,
-.dark-mode .node-bracket                 { color: #4ade80; }                     /* green-400 */
+.dark-mode .mask-preview-pre .json-bracket,
+.dark-mode .node-bracket {
+  color: #4ade80;
+}
+
+/* green-400 */
 .dark-mode .editor-highlight .json-colon,
 .dark-mode .output-pre .json-colon,
-.dark-mode .node-colon                   { color: var(--text-muted); }
+.dark-mode .mask-preview-pre .json-colon,
+.dark-mode .node-colon {
+  color: var(--text-muted);
+}
 
 /* Dark mode — convert highlighting */
 .dark-mode .hl-tag,
-.dark-mode .hl-key                       { color: #fb923c; }        /* orange */
+.dark-mode .hl-key {
+  color: #fb923c;
+}
+
+/* orange */
 .dark-mode .hl-attr,
-.dark-mode .hl-num                       { color: #fb923c; }        /* orange */
-.dark-mode .hl-comment                   { color: #94a3b8; }        /* slate */
-.dark-mode .hl-string                    { color: #60a5fa; }        /* blue */
+.dark-mode .hl-num {
+  color: #fb923c;
+}
+
+/* orange */
+.dark-mode .hl-comment {
+  color: #94a3b8;
+}
+
+/* slate */
+.dark-mode .hl-string {
+  color: #60a5fa;
+}
+
+/* blue */
 .dark-mode .hl-kw,
-.dark-mode .hl-bool                      { color: #60a5fa; }        /* blue */
-.dark-mode .hl-section                   { color: #94a3b8; }        /* slate */
-.dark-mode .hl-type                      { color: #4ade80; }        /* green */
+.dark-mode .hl-bool {
+  color: #60a5fa;
+}
+
+/* blue */
+.dark-mode .hl-section {
+  color: #94a3b8;
+}
+
+/* slate */
+.dark-mode .hl-type {
+  color: #4ade80;
+}
+
+/* green */
 
 /* ── One Dark Syntax Colors (Override Mode) ── */
 /* Light mode */
 .one-dark-syntax .editor-highlight .json-key,
 .one-dark-syntax .output-pre .json-key,
-.one-dark-syntax .node-key                     { color: #7c3aed !important; font-weight: 500 !important; } /* violet */
+.one-dark-syntax .mask-preview-pre .json-key,
+.one-dark-syntax .node-key {
+  color: #7c3aed !important;
+  font-weight: 500 !important;
+}
+
+/* violet */
 .one-dark-syntax .editor-highlight .json-string,
 .one-dark-syntax .output-pre .json-string,
-.one-dark-syntax .tree-string                  { color: #047857 !important; }                             /* emerald */
+.one-dark-syntax .mask-preview-pre .json-string,
+.one-dark-syntax .tree-string {
+  color: #047857 !important;
+}
+
+/* emerald */
 .one-dark-syntax .editor-highlight .json-number,
 .one-dark-syntax .output-pre .json-number,
-.one-dark-syntax .tree-number                  { color: #b45309 !important; }                             /* amber */
+.one-dark-syntax .mask-preview-pre .json-number,
+.one-dark-syntax .tree-number {
+  color: #b45309 !important;
+}
+
+/* amber */
 .one-dark-syntax .editor-highlight .json-boolean,
 .one-dark-syntax .output-pre .json-boolean,
-.one-dark-syntax .tree-boolean                 { color: #0369a1 !important; }                             /* sky */
+.one-dark-syntax .mask-preview-pre .json-boolean,
+.one-dark-syntax .tree-boolean {
+  color: #0369a1 !important;
+}
+
+/* sky */
 .one-dark-syntax .editor-highlight .json-null,
 .one-dark-syntax .output-pre .json-null,
-.one-dark-syntax .tree-null                    { color: #9ca3af !important; }                             /* gray */
+.one-dark-syntax .mask-preview-pre .json-null,
+.one-dark-syntax .tree-null {
+  color: #9ca3af !important;
+}
+
+/* gray */
 .one-dark-syntax .editor-highlight .json-bracket,
 .one-dark-syntax .output-pre .json-bracket,
-.one-dark-syntax .node-bracket                 { color: #374151 !important; font-weight: 500 !important; } /* near-black */
+.one-dark-syntax .mask-preview-pre .json-bracket,
+.one-dark-syntax .node-bracket {
+  color: #374151 !important;
+  font-weight: 500 !important;
+}
+
+/* near-black */
 
 /* Dark mode */
 .dark-mode.one-dark-syntax .editor-highlight .json-key,
 .dark-mode.one-dark-syntax .output-pre .json-key,
-.dark-mode.one-dark-syntax .node-key                     { color: #c678dd !important; font-weight: 400 !important; } /* purple */
+.dark-mode.one-dark-syntax .mask-preview-pre .json-key,
+.dark-mode.one-dark-syntax .node-key {
+  color: #c678dd !important;
+  font-weight: 400 !important;
+}
+
+/* purple */
 .dark-mode.one-dark-syntax .editor-highlight .json-string,
 .dark-mode.one-dark-syntax .output-pre .json-string,
-.dark-mode.one-dark-syntax .tree-string                  { color: #98c379 !important; }                             /* green */
+.dark-mode.one-dark-syntax .mask-preview-pre .json-string,
+.dark-mode.one-dark-syntax .tree-string {
+  color: #98c379 !important;
+}
+
+/* green */
 .dark-mode.one-dark-syntax .editor-highlight .json-number,
 .dark-mode.one-dark-syntax .output-pre .json-number,
-.dark-mode.one-dark-syntax .tree-number                  { color: #d19a66 !important; }                             /* orange */
+.dark-mode.one-dark-syntax .mask-preview-pre .json-number,
+.dark-mode.one-dark-syntax .tree-number {
+  color: #d19a66 !important;
+}
+
+/* orange */
 .dark-mode.one-dark-syntax .editor-highlight .json-boolean,
 .dark-mode.one-dark-syntax .output-pre .json-boolean,
-.dark-mode.one-dark-syntax .tree-boolean                 { color: #56b6c2 !important; }                             /* teal */
+.dark-mode.one-dark-syntax .mask-preview-pre .json-boolean,
+.dark-mode.one-dark-syntax .tree-boolean {
+  color: #56b6c2 !important;
+}
+
+/* teal */
 .dark-mode.one-dark-syntax .editor-highlight .json-null,
 .dark-mode.one-dark-syntax .output-pre .json-null,
-.dark-mode.one-dark-syntax .tree-null                    { color: #5c6370 !important; }                             /* gray */
+.dark-mode.one-dark-syntax .mask-preview-pre .json-null,
+.dark-mode.one-dark-syntax .tree-null {
+  color: #5c6370 !important;
+}
+
+/* gray */
 .dark-mode.one-dark-syntax .editor-highlight .json-bracket,
 .dark-mode.one-dark-syntax .output-pre .json-bracket,
-.dark-mode.one-dark-syntax .node-bracket                 { color: #abb2bf !important; }                             /* light gray */
+.dark-mode.one-dark-syntax .mask-preview-pre .json-bracket,
+.dark-mode.one-dark-syntax .node-bracket {
+  color: #abb2bf !important;
+}
+
+/* light gray */
 
 /* One Dark — convert highlighting (light) */
 .one-dark-syntax .hl-tag,
-.one-dark-syntax .hl-key                       { color: #7c3aed !important; } /* violet */
+.one-dark-syntax .hl-key {
+  color: #7c3aed !important;
+}
+
+/* violet */
 .one-dark-syntax .hl-attr,
-.one-dark-syntax .hl-num                       { color: #b45309 !important; } /* amber */
-.one-dark-syntax .hl-comment                   { color: #9ca3af !important; } /* gray */
-.one-dark-syntax .hl-string                    { color: #047857 !important; } /* emerald */
+.one-dark-syntax .hl-num {
+  color: #b45309 !important;
+}
+
+/* amber */
+.one-dark-syntax .hl-comment {
+  color: #9ca3af !important;
+}
+
+/* gray */
+.one-dark-syntax .hl-string {
+  color: #047857 !important;
+}
+
+/* emerald */
 .one-dark-syntax .hl-kw,
-.one-dark-syntax .hl-bool                      { color: #0369a1 !important; } /* sky */
-.one-dark-syntax .hl-section                   { color: #374151 !important; } /* near-black */
-.one-dark-syntax .hl-type                      { color: #374151 !important; } /* near-black */
+.one-dark-syntax .hl-bool {
+  color: #0369a1 !important;
+}
+
+/* sky */
+.one-dark-syntax .hl-section {
+  color: #374151 !important;
+}
+
+/* near-black */
+.one-dark-syntax .hl-type {
+  color: #374151 !important;
+}
+
+/* near-black */
 /* One Dark — convert highlighting (dark) */
 .dark-mode.one-dark-syntax .hl-tag,
-.dark-mode.one-dark-syntax .hl-key             { color: #c678dd !important; } /* purple */
+.dark-mode.one-dark-syntax .hl-key {
+  color: #c678dd !important;
+}
+
+/* purple */
 .dark-mode.one-dark-syntax .hl-attr,
-.dark-mode.one-dark-syntax .hl-num             { color: #d19a66 !important; } /* orange */
-.dark-mode.one-dark-syntax .hl-comment         { color: #5c6370 !important; } /* gray */
-.dark-mode.one-dark-syntax .hl-string          { color: #98c379 !important; } /* green */
+.dark-mode.one-dark-syntax .hl-num {
+  color: #d19a66 !important;
+}
+
+/* orange */
+.dark-mode.one-dark-syntax .hl-comment {
+  color: #5c6370 !important;
+}
+
+/* gray */
+.dark-mode.one-dark-syntax .hl-string {
+  color: #98c379 !important;
+}
+
+/* green */
 .dark-mode.one-dark-syntax .hl-kw,
-.dark-mode.one-dark-syntax .hl-bool            { color: #56b6c2 !important; } /* teal */
-.dark-mode.one-dark-syntax .hl-section         { color: #abb2bf !important; } /* light gray */
-.dark-mode.one-dark-syntax .hl-type            { color: #abb2bf !important; } /* light gray */
+.dark-mode.one-dark-syntax .hl-bool {
+  color: #56b6c2 !important;
+}
+
+/* teal */
+.dark-mode.one-dark-syntax .hl-section {
+  color: #abb2bf !important;
+}
+
+/* light gray */
+.dark-mode.one-dark-syntax .hl-type {
+  color: #abb2bf !important;
+}
+
+/* light gray */
 
 /* ── Dynamic CSS variables for JSON themes (shared by Graph View & other components) ── */
 :root {
@@ -1123,7 +1419,8 @@ mark.search-match-current {
   bottom: 125%;
   left: 50%;
   transform: translate(-50%, 4px) scale(0.95);
-  background-color: rgba(15, 23, 42, 0.95); /* Dark slate */
+  background-color: rgba(15, 23, 42, 0.95);
+  /* Dark slate */
   backdrop-filter: blur(4px);
   color: #f8fafc;
   font-family: var(--font-sans);
@@ -1412,6 +1709,7 @@ mark.search-match-current {
   scrollbar-width: none;
   cursor: grab;
 }
+
 .tabs-list::-webkit-scrollbar {
   display: none;
 }
@@ -1631,8 +1929,13 @@ mark.search-match-current {
 
 /* Click-to-highlight line blink animation */
 @keyframes lineBlink {
-  0% { background-color: rgba(249, 115, 22, 0.45); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: rgba(249, 115, 22, 0.45);
+  }
+
+  100% {
+    background-color: transparent;
+  }
 }
 
 .line-highlight-blink {
@@ -1646,4 +1949,67 @@ mark.search-match-current {
   transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
 }
 
+/* ── Mask Preview Line & Row Highlights (Global for v-html in Modal) ── */
+.mask-preview-code-wrap {
+  position: relative;
+  background: var(--bg-app);
+  max-height: 240px;
+  min-height: 140px;
+  overflow: auto;
+  padding: 8px 12px;
+  box-sizing: border-box;
+  border-radius: 6px;
+}
 
+.mask-preview-pre {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre;
+  text-align: left;
+  user-select: text;
+  background: transparent;
+}
+
+.mask-preview-line {
+  min-height: 1.6em;
+  line-height: 1.6;
+  padding: 0 10px;
+  margin: 0 -12px;
+  border-radius: 0;
+  box-sizing: border-box;
+  display: block;
+  width: calc(100% + 24px);
+  min-width: max-content;
+}
+
+.mask-preview-line.is-masked-line {
+  background: rgba(245, 158, 11, 0.14) !important;
+  border-left: 4px solid #f59e0b !important;
+  padding-left: 6px !important;
+}
+
+.dark-mode .mask-preview-line.is-masked-line {
+  background: rgba(245, 158, 11, 0.22) !important;
+  border-left: 4px solid #fbbf24 !important;
+}
+
+.mask-highlight-mark {
+  background: rgba(245, 158, 11, 0.28) !important;
+  color: #b45309 !important;
+  font-weight: 700 !important;
+  padding: 0 4px !important;
+  margin: 0 1px !important;
+  border-radius: 3px !important;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.45) !important;
+  display: inline !important;
+}
+
+.dark-mode .mask-highlight-mark {
+  background: rgba(245, 158, 11, 0.38) !important;
+  color: #fde68a !important;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.6) !important;
+}
