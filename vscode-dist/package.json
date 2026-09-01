@@ -1,8 +1,8 @@
 {
-  "name": "easyjson-v103",
-  "displayName": "easyJSON v1.0.3",
+  "name": "easyjson-v105",
+  "displayName": "easyJSON - 智能JSON格式化与对比",
   "description": "专业级 JSON 智能提取、格式化、校验与语义对比工具。支持 Lombok、Python dict、YAML、海量日志提炼与四维结构化视图。",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "publisher": "xiaofucode",
   "icon": "media/logo.png",
   "engines": {

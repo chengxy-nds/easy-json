@@ -11,6 +11,30 @@ const emit = defineEmits(['go-back'])
 
 const changelog = [
   {
+    version: 'v1.0.5',
+    date: '2026-09-01',
+    sections: [
+      {
+        icon: Sparkles,
+        title: '功能新增',
+        iconClass: 'cl-section-sparkle',
+        items: [
+          '新增智能数据脱敏：支持 9 大内置规则与指定 Key 提取脱敏',
+          '新增 JSONPath 表达式提取器：支持多层级节点筛选与一键导出'
+        ]
+      },
+      {
+        icon: Zap,
+        title: '体验优化',
+        iconClass: 'cl-section-zap',
+        items: [
+          '脱敏实时预览支持整行高亮指示，并深度适配主题配色体系',
+          '全面兼容 MySQL / PostgreSQL / Oracle / Go 等多数据库 DSN 脱敏'
+        ]
+      }
+    ]
+  },
+  {
     version: 'v1.0.4',
     date: '2026-08-28',
     sections: [

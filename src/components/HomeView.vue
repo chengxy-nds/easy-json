@@ -479,7 +479,7 @@ onBeforeUnmount(() => {
               <img src="/images/logo.png" class="home-nav-logo-icon" alt="easyJSON logo" />
               <span class="home-nav-logo-text">EASY JSON</span>
             </a>
-            <span class="home-nav-badge">v1.0.4</span>
+            <span class="home-nav-badge">v1.0.5</span>
             <span class="home-nav-sep" />
           </div>
 
@@ -753,7 +753,7 @@ onBeforeUnmount(() => {
                   <div class="popup-header">
                     <img src="/images/logo.png" class="popup-logo" />
                     <span>easyJSON 弹窗</span>
-                    <span class="popup-badge">v1.0.4</span>
+                    <span class="popup-badge">v1.0.5</span>
                   </div>
                   <div class="popup-content">
                     <div class="popup-result">
