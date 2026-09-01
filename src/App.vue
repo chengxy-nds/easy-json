@@ -2,6 +2,7 @@
 import { ref, onMounted, provide, watch, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import JsonFormatter from './components/JsonFormatter.vue'
 import JsonComparer from './components/JsonComparer.vue'
+import ClickSpark from './components/ClickSpark.vue'
 const HomeView = defineAsyncComponent(() => import('./components/HomeView.vue'))
 const TestView = defineAsyncComponent(() => import('./components/TestView.vue'))
 const CommentView = defineAsyncComponent(() => import('./components/Comment.vue'))
@@ -557,11 +558,20 @@ onBeforeUnmount(() => {
       </div>
     </aside>
 
-    <!-- Main Content Area -->
+    <!-- Main Content Area (JSON Formatter & Comparer with ClickSpark) -->
     <main class="app-main-content">
-      <KeepAlive>
-        <component :is="currentTab === 'format' ? JsonFormatter : JsonComparer" class="fade-in" />
-      </KeepAlive>
+      <ClickSpark
+        :sparkColor="isDark ? '#ffffff' : '#64748b'"
+        :sparkSize="10"
+        :sparkRadius="15"
+        :sparkCount="8"
+        :duration="400"
+        :extraScale="1.0"
+      >
+        <KeepAlive>
+          <component :is="currentTab === 'format' ? JsonFormatter : JsonComparer" class="fade-in" />
+        </KeepAlive>
+      </ClickSpark>
     </main>
 
     <!-- Global Toast Notification Stack -->

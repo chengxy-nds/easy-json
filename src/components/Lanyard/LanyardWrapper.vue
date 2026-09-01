@@ -18,8 +18,10 @@ const props = defineProps({
 })
 
 const containerRef = ref(null)
-const ready = ref(false)
+const isLoaded = ref(false)
 let root = null
+let idleId = null
+let timeoutId = null
 
 function isWebGLSupported() {
   try {
@@ -33,37 +35,43 @@ function isWebGLSupported() {
   }
 }
 
+const handleLanyardLoaded = () => {
+  isLoaded.value = true
+}
+
+const init3D = () => {
+  if (!containerRef.value || !isWebGLSupported() || root) return
+  try {
+    root = createRoot(containerRef.value)
+    root.render(
+      React.createElement(Lanyard, {
+        position: props.position,
+        gravity: props.gravity,
+        fov: props.fov,
+        anchorX: props.anchorX,
+        transparent: props.transparent,
+        frontImage: props.frontImage,
+        backImage: props.backImage,
+        imageFit: props.imageFit,
+        lanyardImage: props.lanyardImage,
+        lanyardWidth: props.lanyardWidth,
+        onLoaded: handleLanyardLoaded
+      })
+    )
+  } catch (err) {
+    console.warn('Failed to initialize Lanyard 3D component:', err)
+  }
+}
+
 onMounted(() => {
-  // Defer 3D initialization to avoid blocking the initial page paint.
-  // requestAnimationFrame waits until after the next frame render,
-  // so the DOM and styles are already painted before we load React+Three.js.
-  requestAnimationFrame(() => {
-    if (containerRef.value && isWebGLSupported()) {
-      try {
-        ready.value = true
-        root = createRoot(containerRef.value)
-        root.render(
-          React.createElement(Lanyard, {
-            position: props.position,
-            gravity: props.gravity,
-            fov: props.fov,
-            anchorX: props.anchorX,
-            transparent: props.transparent,
-            frontImage: props.frontImage,
-            backImage: props.backImage,
-            imageFit: props.imageFit,
-            lanyardImage: props.lanyardImage,
-            lanyardWidth: props.lanyardWidth
-          })
-        )
-      } catch (err) {
-        console.warn('Failed to initialize Lanyard 3D component:', err)
-      }
-    }
-  })
+  // 让首屏首帧 DOM 优先完成绘制，再启动 3D 画布渲染
+  timeoutId = setTimeout(init3D, 50)
 })
 
 onBeforeUnmount(() => {
+  if (timeoutId) {
+    clearTimeout(timeoutId)
+  }
   if (root) {
     root.unmount()
     root = null
@@ -72,7 +80,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="containerRef" class="lanyard-vue-container"></div>
+  <div 
+    ref="containerRef" 
+    class="lanyard-vue-container"
+  ></div>
 </template>
 
 <style scoped>
@@ -84,3 +95,4 @@ onBeforeUnmount(() => {
   overflow: visible;
 }
 </style>
+
