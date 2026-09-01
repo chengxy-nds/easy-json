@@ -62,7 +62,7 @@ const getTooltipText = (v) => {
 
 const getValueColorClass = (type) => {
   if (type === 'string') return 'tree-string'
-  if (type === 'number') return 'tree-number'
+  if (type === 'number' || type === 'bigint') return 'tree-number'
   if (type === 'boolean') return 'tree-boolean'
   if (type === 'null') return 'tree-null'
   return ''

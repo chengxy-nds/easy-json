@@ -1,51 +1,127 @@
 // ─── 安全 JSON 解析/序列化：保留大整数精度 ───
 // JavaScript Number 类型只能安全表示 [-(2^53-1), 2^53-1] 范围内的整数
 // (即 ±9,007,199,254,740,991，16 位数字)。
-// 超过此范围的大整数（如 2086639615434764289）经过 JSON.parse → JSON.stringify
-// 后会丢失精度，输出错误的数字。
+// 超过此范围的大整数（如 2086639615434764289）经过原生 JSON.parse 会丢失精度。
 //
-// 解决方案：解析前将大整数临时转为字符串，序列化后再还原为裸数字。
-// 对字符串字段中的大数字同理（如账号 ID 通常会转为字符串保留精度）。
+// 解决方案：
+// 1. 解析时精准识别字符串外的裸大整数（>= 16 位），转为 BigInt 原生类型（不影响字符串内的任何内容）。
+// 2. 序列化时将 BigInt 还原为无引号的裸数字，保持字符串（如 "09031098211943076652"）完整保留引号与类型。
 
-// 匹配 JSON 值位置中 >= 16 位的整数。
-// 用零宽断言 (?=...) 匹配尾部定界符，避免消耗逗号导致连续大数无法匹配。
-const LARGE_INT_REGEX = /(:\s*)(-?\d{16,})(?=\s*[,}\]])/g
-const LARGE_INT_ARRAY_REGEX = /([\[,]\s*)(-?\d{16,})(?=\s*[,\]])/g
+const BIGINT_TAG = '__EJ_BIGINT__'
 
 /**
- * 安全解析 JSON 字符串，将大整数转为字符串保留精度。
+ * 扫描 JSON 字符串，精确定位字符串字面量外的裸大整数（>= 16 位），
+ * 用占位标记包裹，以便 JSON.parse 结合 reviver 精确转换为 BigInt。
+ * 彻底跳过所有双引号字符串及转义字符，避免误伤字符串内容。
+ */
+export const protectBigInts = (jsonStr) => {
+  let result = ''
+  let i = 0
+  const len = jsonStr.length
+
+  while (i < len) {
+    const ch = jsonStr[i]
+
+    // 跳过双引号字符串
+    if (ch === '"') {
+      let j = i + 1
+      while (j < len) {
+        if (jsonStr[j] === '\\') {
+          j += 2
+        } else if (jsonStr[j] === '"') {
+          j++
+          break
+        } else {
+          j++
+        }
+      }
+      result += jsonStr.slice(i, j)
+      i = j
+      continue
+    }
+
+    // 检测字符串外的数字：以数字或负号+数字开头
+    if ((ch >= '0' && ch <= '9') || (ch === '-' && i + 1 < len && jsonStr[i + 1] >= '0' && jsonStr[i + 1] <= '9')) {
+      let j = i
+      if (jsonStr[j] === '-') j++
+      const startDigits = j
+      while (j < len && jsonStr[j] >= '0' && jsonStr[j] <= '9') {
+        j++
+      }
+      const numDigits = j - startDigits
+      // 判断是否跟随小数点或科学计数法指数（浮点数）
+      const hasFractionOrExp = j < len && (jsonStr[j] === '.' || jsonStr[j] === 'e' || jsonStr[j] === 'E')
+
+      if (numDigits >= 16 && !hasFractionOrExp) {
+        const numStr = jsonStr.slice(i, j)
+        result += `"${BIGINT_TAG}${numStr}"`
+        i = j
+        continue
+      } else {
+        // 普通数字或浮点数
+        while (j < len && /[0-9.eE+-]/.test(jsonStr[j])) {
+          j++
+        }
+        result += jsonStr.slice(i, j)
+        i = j
+        continue
+      }
+    }
+
+    result += ch
+    i++
+  }
+
+  return result
+}
+
+/**
+ * 安全解析 JSON 字符串，将大整数转为 BigInt 保留精度。
  * @param {string} jsonStr - 原始 JSON 字符串
- * @returns {any} 解析后的对象（大整数以字符串形式存在）
+ * @returns {any} 解析后的对象（大整数以 BigInt 形式存在）
  */
 export const safeParse = (jsonStr) => {
-  if (typeof jsonStr !== 'string') return JSON.parse(jsonStr)
+  if (typeof jsonStr !== 'string') return jsonStr
   // Fast path: 绝大多数 JSON 不含 16 位以上大整数，直接使用 V8 原生 JSON.parse，速度提升 10 倍以上
   if (!/\d{16,}/.test(jsonStr)) {
     return JSON.parse(jsonStr)
   }
-  // Step 1: 冒号后的大整数值 → 加引号  : 2086639615434764289 → : "2086639615434764289"
-  let preprocessed = jsonStr.replace(LARGE_INT_REGEX, '$1"$2"')
-  // Step 2: 数组中的大整数值 → 加引号  [2086639615434764289 → ["2086639615434764289"
-  preprocessed = preprocessed.replace(LARGE_INT_ARRAY_REGEX, '$1"$2"')
-  return JSON.parse(preprocessed)
+  const protectedStr = protectBigInts(jsonStr)
+  return JSON.parse(protectedStr, (k, v) => {
+    if (typeof v === 'string' && v.startsWith(BIGINT_TAG)) {
+      try {
+        return BigInt(v.slice(BIGINT_TAG.length))
+      } catch (e) {
+        return v
+      }
+    }
+    return v
+  })
 }
 
-// 匹配序列化后值为大整数的字符串（排除 key: "string" 中的 key）
-// "2086639615434764289" 后不能跟 :（否则是 key）
-const LARGE_INT_STRING_RE = /"(-?\d{16,})"(?!\s*:)/g
-
 /**
- * 安全序列化对象为 JSON 字符串，将之前保留的大整数字符串还原为裸数字。
+ * 安全序列化对象为 JSON 字符串，将 BigInt 还原为裸数字。
  * @param {any} obj - 要序列化的对象
  * @param {function|array|null} replacer - 同 JSON.stringify 的 replacer
  * @param {number|string} space - 同 JSON.stringify 的 space
- * @returns {string} JSON 字符串（大整数以裸数字形式存在）
+ * @returns {string} JSON 字符串（大整数以裸数字形式存在，字符串不变）
  */
 export const safeStringify = (obj, replacer, space) => {
-  const json = JSON.stringify(obj, replacer, space)
-  if (!/\d{16,}/.test(json)) {
+  const customReplacer = typeof replacer === 'function' ? replacer : null
+
+  const wrappedReplacer = function (key, value) {
+    if (customReplacer) {
+      value = customReplacer.call(this, key, value)
+    }
+    if (typeof value === 'bigint') {
+      return `${BIGINT_TAG}${value.toString()}`
+    }
+    return value
+  }
+
+  const json = JSON.stringify(obj, wrappedReplacer, space)
+  if (!json || !json.includes(BIGINT_TAG)) {
     return json
   }
-  // 将值为大整数字符串的 "..." 去引号还原为数字
-  return json.replace(LARGE_INT_STRING_RE, '$1')
+  return json.replace(new RegExp(`"${BIGINT_TAG}(-?\\d+)"`, 'g'), '$1')
 }

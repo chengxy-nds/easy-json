@@ -102,7 +102,7 @@ const formatValue = (val) => {
 const valueClass = computed(() => {
   const val = props.value
   if (typeof val === 'string') return 'tree-string'
-  if (typeof val === 'number') return 'tree-number'
+  if (typeof val === 'number' || typeof val === 'bigint') return 'tree-number'
   if (typeof val === 'boolean') return 'tree-boolean'
   if (val === null) return 'tree-null'
   return ''

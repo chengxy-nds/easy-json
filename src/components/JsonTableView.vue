@@ -27,7 +27,7 @@ const isPrimitive = (v) => v === null || typeof v !== 'object'
 const getValueType = (v) => {
   if (v === null) return 'null'
   if (typeof v === 'boolean') return 'boolean'
-  if (typeof v === 'number') return 'number'
+  if (typeof v === 'number' || typeof v === 'bigint') return 'number'
   if (typeof v === 'string') return 'string'
   return 'object'
 }

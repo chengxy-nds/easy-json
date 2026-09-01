@@ -97,7 +97,7 @@ export const jsonToYaml = (jsonStr) => {
 const formatScalar = (v) => {
   if (v === null) return 'null'
   if (typeof v === 'boolean') return v ? 'true' : 'false'
-  if (typeof v === 'number') return String(v)
+  if (typeof v === 'number' || typeof v === 'bigint') return String(v)
   const s = String(v)
   if (s.includes(':') || s.includes('#') || s.includes('"') || s.includes("'") || s.includes('\n')) {
     return '"' + s.replace(/"/g, '\\"') + '"'
@@ -147,7 +147,7 @@ export const jsonToToml = (jsonStr) => {
 const tomlValue = (v) => {
   if (v === null) return 'null'
   if (typeof v === 'boolean') return v ? 'true' : 'false'
-  if (typeof v === 'number') return String(v)
+  if (typeof v === 'number' || typeof v === 'bigint') return String(v)
   return '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"'
 }
 
@@ -160,6 +160,7 @@ export const jsonToJavaPojo = (jsonStr, rootName = 'Root') => {
   const javaType = (val, key) => {
     if (val === null) return 'Object'
     if (typeof val === 'boolean') return 'Boolean'
+    if (typeof val === 'bigint') return 'Long'
     if (typeof val === 'number') {
       return Number.isInteger(val) ? 'Integer' : 'Double'
     }
@@ -219,7 +220,7 @@ export const jsonToTsInterface = (jsonStr, rootName = 'Root') => {
   const tsType = (val, key) => {
     if (val === null) return 'null'
     if (typeof val === 'boolean') return 'boolean'
-    if (typeof val === 'number') return 'number'
+    if (typeof val === 'number' || typeof val === 'bigint') return 'number'
     if (typeof val === 'string') return 'string'
     if (isArray(val)) {
       if (val.length > 0) return `${tsType(val[0], key)}[]`
@@ -297,6 +298,7 @@ export const jsonToMysql = (jsonStr, tableName = 'my_table') => {
 const mysqlType = (v) => {
   if (v === null) return 'TEXT'
   if (typeof v === 'boolean') return 'BOOLEAN'
+  if (typeof v === 'bigint') return 'BIGINT'
   if (typeof v === 'number') {
     return Number.isInteger(v) ? 'BIGINT' : 'DOUBLE'
   }
@@ -318,6 +320,7 @@ export const jsonToGoStruct = (jsonStr, rootName = 'Root') => {
   const goType = (val, key) => {
     if (val === null) return 'interface{}'
     if (typeof val === 'boolean') return 'bool'
+    if (typeof val === 'bigint') return 'int64'
     if (typeof val === 'number') {
       return Number.isInteger(val) ? 'int64' : 'float64'
     }
@@ -361,6 +364,7 @@ export const jsonToProtobuf = (jsonStr, rootName = 'Root') => {
   const protoType = (val, key) => {
     if (val === null) return 'string'
     if (typeof val === 'boolean') return 'bool'
+    if (typeof val === 'bigint') return 'int64'
     if (typeof val === 'number') {
       return Number.isInteger(val) ? 'int64' : 'double'
     }
@@ -403,6 +407,7 @@ export const jsonToRust = (jsonStr, rootName = 'Root') => {
   const rustType = (val, key) => {
     if (val === null) return 'Option<String>'
     if (typeof val === 'boolean') return 'bool'
+    if (typeof val === 'bigint') return 'i64'
     if (typeof val === 'number') return Number.isInteger(val) ? 'i64' : 'f64'
     if (typeof val === 'string') return 'String'
     if (isArray(val)) {
@@ -438,6 +443,7 @@ export const jsonToPython = (jsonStr, rootName = 'Root') => {
   const pyType = (val, key) => {
     if (val === null) return 'Optional[Any]'
     if (typeof val === 'boolean') return 'bool'
+    if (typeof val === 'bigint') return 'int'
     if (typeof val === 'number') return Number.isInteger(val) ? 'int' : 'float'
     if (typeof val === 'string') return 'str'
     if (isArray(val)) {
@@ -472,6 +478,7 @@ export const jsonToKotlin = (jsonStr, rootName = 'Root') => {
   const ktType = (val, key) => {
     if (val === null) return 'Any'
     if (typeof val === 'boolean') return 'Boolean'
+    if (typeof val === 'bigint') return 'Long'
     if (typeof val === 'number') return Number.isInteger(val) ? 'Int' : 'Double'
     if (typeof val === 'string') return 'String'
     if (isArray(val)) {
@@ -508,6 +515,7 @@ export const jsonToCSharp = (jsonStr, rootName = 'Root') => {
   const csType = (val, key) => {
     if (val === null) return 'object?'
     if (typeof val === 'boolean') return 'bool'
+    if (typeof val === 'bigint') return 'long'
     if (typeof val === 'number') return Number.isInteger(val) ? 'long' : 'double'
     if (typeof val === 'string') return 'string'
     if (isArray(val)) {
@@ -550,6 +558,7 @@ export const jsonToDart = (jsonStr, rootName = 'Root') => {
   const dartType = (val, key) => {
     if (val === null) return 'dynamic'
     if (typeof val === 'boolean') return 'bool'
+    if (typeof val === 'bigint') return 'int'
     if (typeof val === 'number') return Number.isInteger(val) ? 'int' : 'double'
     if (typeof val === 'string') return 'String'
     if (isArray(val)) {
@@ -621,6 +630,7 @@ export const jsonToSwift = (jsonStr, rootName = 'Root') => {
   const swiftType = (val, key) => {
     if (val === null) return 'String'
     if (typeof val === 'boolean') return 'Bool'
+    if (typeof val === 'bigint') return 'Int64'
     if (typeof val === 'number') return Number.isInteger(val) ? 'Int' : 'Double'
     if (typeof val === 'string') return 'String'
     if (isArray(val)) {
@@ -668,6 +678,7 @@ export const jsonToGraphql = (jsonStr, rootName = 'Root') => {
   const gqlType = (val, key) => {
     if (val === null) return 'String'
     if (typeof val === 'boolean') return 'Boolean'
+    if (typeof val === 'bigint') return 'Int'
     if (typeof val === 'number') return Number.isInteger(val) ? 'Int' : 'Float'
     if (typeof val === 'string') return 'String'
     if (isArray(val)) {
@@ -783,6 +794,7 @@ export const jsonToJsonSchema = (jsonStr) => {
   const inferSchema = (value) => {
     if (value === null) return { type: 'null' }
     if (typeof value === 'boolean') return { type: 'boolean' }
+    if (typeof value === 'bigint') return { type: 'integer' }
     if (typeof value === 'number') {
       return Number.isInteger(value) ? { type: 'integer' } : { type: 'number' }
     }
@@ -909,6 +921,7 @@ export const jsonToPhp = (jsonStr, rootName = 'Root') => {
   const phpType = (val, key) => {
     if (val === null) return 'mixed'
     if (typeof val === 'boolean') return 'bool'
+    if (typeof val === 'bigint') return 'int'
     if (typeof val === 'number') return Number.isInteger(val) ? 'int' : 'float'
     if (typeof val === 'string') return 'string'
     if (isArray(val)) {
