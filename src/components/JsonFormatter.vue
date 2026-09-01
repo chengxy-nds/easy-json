@@ -2896,68 +2896,16 @@ onBeforeUnmount(() => {
               <span class="toolbar-label">脱敏</span>
             </button>
 
-            <!-- JSONPath 表达式提取 (弹窗卡片，与搜索/替换风格一致) -->
-            <div class="jsonpath-popover-wrapper" ref="jsonPathWrapRef">
-              <button 
-                class="toolbar-item" 
-                :class="{ active: showJsonPathBar }" 
-                @click.stop="toggleJsonPathBar" 
-                data-tooltip-bottom="JSONPath 表达式提取"
-              >
-                <Workflow class="toolbar-icon" />
-                <span class="toolbar-label">JSONPath</span>
-              </button>
-
-              <Transition name="fade-slide">
-                <div v-if="showJsonPathBar" class="jsonpath-popover-box" @click.stop>
-                  <div class="jp-main-row">
-                    <input
-                      v-model="jsonPathQuery"
-                      ref="jsonPathInputRef"
-                      type="text"
-                      placeholder="JSONPath 表达式 (如: $.data, $..name)"
-                      class="jp-input"
-                      @keydown.enter="applyJsonPathToInput"
-                      @keydown.escape="showJsonPathBar = false"
-                    />
-                    <span class="jp-match-count" :class="{ 'has-matches': jsonPathMatches.length > 0 }">
-                      {{ jsonPathMatches.length > 0 ? `${jsonPathMatches.length}项` : '0项' }}
-                    </span>
-                    <button 
-                      class="jp-action-btn primary" 
-                      :disabled="!jsonPathMatches.length" 
-                      @click="applyJsonPathToInput"
-                      data-tooltip="应用到输入框"
-                    >
-                      应用
-                    </button>
-                    <button 
-                      class="jp-action-btn" 
-                      :disabled="!jsonPathMatches.length" 
-                      @click="copyJsonPathResult"
-                      data-tooltip="复制提取结果"
-                    >
-                      <Copy class="btn-icon-xs" />
-                    </button>
-                    <button class="jp-close-btn" @click="showJsonPathBar = false">
-                      <X class="btn-icon-xs" />
-                    </button>
-                  </div>
-                  <div class="jp-presets-row">
-                    <span class="jp-preset-label">预设:</span>
-                    <button
-                      v-for="pill in jsonPathPresetPills"
-                      :key="pill"
-                      class="jp-preset-pill"
-                      :class="{ active: jsonPathQuery === pill }"
-                      @click="jsonPathQuery = pill"
-                    >
-                      {{ pill }}
-                    </button>
-                  </div>
-                </div>
-              </Transition>
-            </div>
+            <!-- JSONPath 表达式提取 -->
+            <button 
+              class="toolbar-item" 
+              :class="{ active: showJsonPathBar }" 
+              @click.stop="toggleJsonPathBar" 
+              data-tooltip-bottom="JSONPath 表达式提取"
+            >
+              <Workflow class="toolbar-icon" />
+              <span class="toolbar-label">JSONPath</span>
+            </button>
           </div>
           <div class="header-search-wrapper">
             <button
@@ -3056,6 +3004,61 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <!-- JSONPath 嵌入式顶部工具栏 (第1行: 输入框+计数+应用+复制+关闭; 第2行: 预设表达式) -->
+        <Transition name="jp-slide">
+          <div v-if="showJsonPathBar" class="jsonpath-inline-bar" @click.stop>
+            <!-- 第一行：输入框 + 匹配计数 + 应用 + 复制 + 关闭 -->
+            <div class="jp-main-row">
+              <span class="jp-bar-badge">JSONPath</span>
+              <input
+                v-model="jsonPathQuery"
+                ref="jsonPathInputRef"
+                type="text"
+                placeholder="输入 JSONPath 表达式 (如: $.data, $..id, $[?(@.id > 1)])"
+                class="jp-bar-input"
+                @keydown.enter="applyJsonPathToInput"
+                @keydown.escape="showJsonPathBar = false"
+              />
+              <span class="jp-bar-match-count" :class="{ 'has-matches': jsonPathMatches.length > 0 }">
+                {{ jsonPathMatches.length > 0 ? `${jsonPathMatches.length}项匹配` : '0项' }}
+              </span>
+              <button 
+                class="jp-action-btn primary" 
+                :disabled="!jsonPathMatches.length" 
+                @click="applyJsonPathToInput"
+                data-tooltip-bottom="应用提取结果到当前输入框"
+              >
+                应用
+              </button>
+              <button 
+                class="jp-action-btn" 
+                :disabled="!jsonPathMatches.length" 
+                @click="copyJsonPathResult"
+                data-tooltip-bottom="复制提取结果"
+              >
+                <Copy class="btn-icon-xs" />
+                <span>复制</span>
+              </button>
+              <button class="jp-close-btn" @click="showJsonPathBar = false" data-tooltip-bottom="关闭">
+                <X class="btn-icon-xs" />
+              </button>
+            </div>
+
+            <!-- 第二行：预设表达式快速选择 -->
+            <div class="jp-presets-row">
+              <span class="jp-preset-label">预设:</span>
+              <button
+                v-for="pill in jsonPathPresetPills"
+                :key="pill"
+                class="jp-preset-pill"
+                :class="{ active: jsonPathQuery === pill }"
+                @click="jsonPathQuery = pill"
+              >
+                {{ pill }}
+              </button>
+            </div>
+          </div>
+        </Transition>
 
         <div class="panel-body">
           <div class="editor-wrapper">
@@ -4863,68 +4866,74 @@ body.utools-mode {
   height: 14px;
 }
 
-/* ─── JSONPath Popover (类似搜索/替换弹窗) ─── */
-.jsonpath-popover-wrapper {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.jsonpath-popover-box {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  width: clamp(340px, 28vw, 440px);
-  background-color: var(--bg-panel);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.05);
-  z-index: 200;
-  padding: 6px 8px;
+/* ─── JSONPath 嵌入式顶部过滤栏 ─── */
+/* ─── JSONPath 嵌入式顶部工具栏 ─── */
+.jsonpath-inline-bar {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 6px 10px;
+  background-color: var(--bg-panel);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  z-index: 15;
+  flex-shrink: 0;
   box-sizing: border-box;
 }
 
-.dark-mode .jsonpath-popover-box {
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+.dark-mode .jsonpath-inline-bar {
+  background-color: var(--bg-panel);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
 }
 
+/* 第一行：输入框 + 匹配计数 + 应用 + 复制 + 关闭 */
 .jp-main-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 26px;
+  gap: 6px;
+  width: 100%;
 }
 
-.jp-input {
+.jp-bar-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--primary-color);
+  background: var(--primary-light, rgba(99, 102, 241, 0.12));
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.jp-bar-input {
   border: 1px solid var(--border-color);
   background: var(--bg-app);
   color: var(--text-primary);
-  font-size: clamp(10px, 0.75vw, 12px);
+  font-size: 12px;
   font-family: var(--font-mono);
-  flex-grow: 1;
-  min-width: 0;
-  padding: 2px 8px;
+  flex: 1;
+  min-width: 120px;
+  padding: 3px 8px;
   height: 26px;
   border-radius: 4px;
   outline: none;
   box-sizing: border-box;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.jp-input:focus {
+.jp-bar-input:focus {
   border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px var(--primary-light, rgba(99, 102, 241, 0.15));
 }
 
-.jp-input::placeholder {
+.jp-bar-input::placeholder {
   color: var(--text-muted);
   font-family: var(--font-sans);
   font-size: 11px;
 }
 
-.jp-match-count {
+.jp-bar-match-count {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-muted);
@@ -4935,17 +4944,17 @@ body.utools-mode {
   background: rgba(0, 0, 0, 0.04);
 }
 
-.dark-mode .jp-match-count {
+.dark-mode .jp-bar-match-count {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.jp-match-count.has-matches {
+.jp-bar-match-count.has-matches {
   background: rgba(34, 197, 94, 0.15);
   color: #16a34a;
   font-weight: 600;
 }
 
-.dark-mode .jp-match-count.has-matches {
+.dark-mode .jp-bar-match-count.has-matches {
   background: rgba(34, 197, 94, 0.25);
   color: #4ade80;
 }
@@ -4954,10 +4963,11 @@ body.utools-mode {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 24px;
-  padding: 0 8px;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid var(--border-color);
@@ -4992,8 +5002,8 @@ body.utools-mode {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   background: transparent;
@@ -5009,25 +5019,25 @@ body.utools-mode {
   background-color: var(--border-color);
 }
 
+/* 第二行：预设表达式快速选择 */
 .jp-presets-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex-wrap: wrap;
-  padding-top: 4px;
-  border-top: 1px solid var(--border-color);
+  padding-left: 2px;
 }
 
 .jp-preset-label {
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .jp-preset-pill {
-  font-size: 10.5px;
+  font-size: 11px;
   font-family: var(--font-mono);
-  padding: 1px 6px;
+  padding: 1px 7px;
   border-radius: 3px;
   border: 1px solid var(--border-color);
   background: var(--bg-app);
@@ -5047,6 +5057,18 @@ body.utools-mode {
   color: var(--primary-color);
   border-color: var(--primary-color);
   font-weight: 500;
+}
+
+/* 丝滑无卡顿的过渡动画 (GPU-accelerated, 无重排) */
+.jp-slide-enter-active,
+.jp-slide-leave-active {
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.jp-slide-enter-from,
+.jp-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 
 /* ─── 通用模态弹窗样式 (Modal Backdrop & Dialog) ─── */

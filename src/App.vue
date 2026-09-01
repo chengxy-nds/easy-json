@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, provide, watch, onBeforeUnmount, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, provide, watch, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import JsonFormatter from './components/JsonFormatter.vue'
 import JsonComparer from './components/JsonComparer.vue'
 import ClickSpark from './components/ClickSpark.vue'
@@ -17,9 +17,95 @@ const isUtools = ref(false)
 const isVscode = ref(false)
 const isTauri = ref(false)
 
-// ── 版本更新检查 ──
+// ── 版本更新检查与一键下载升级 ──
 const { hasUpdate, latestVersion, downloadUrl } = useUpdateCheck()
 const updateDismissed = ref(false)
+const isDownloadingUpdate = ref(false)
+const downloadProgress = ref(0)
+
+const updateTooltipText = computed(() => {
+  if (isDownloadingUpdate.value) {
+    return `正在下载新版本: ${downloadProgress.value}%`
+  }
+  return `发现新版本 v${latestVersion.value || ''} (点击直接升级安装)`
+})
+
+const handleDirectUpgrade = async () => {
+  if (isDownloadingUpdate.value) return
+  if (!downloadUrl.value) return
+
+  const inTauri = typeof window !== 'undefined' && !!(window.__TAURI__ || window.__TAURI_INTERNALS__)
+  if (inTauri) {
+    try {
+      isDownloadingUpdate.value = true
+      downloadProgress.value = 0
+      showToast(`正在下载 easyJSON v${latestVersion.value}...`)
+
+      const res = await fetch(downloadUrl.value)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+      const contentLength = res.headers.get('content-length')
+      const total = contentLength ? parseInt(contentLength, 10) : 0
+
+      const reader = res.body.getReader()
+      let received = 0
+      const chunks = []
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        received += value.length
+        if (total) {
+          downloadProgress.value = Math.min(99, Math.round((received / total) * 100))
+        }
+      }
+
+      downloadProgress.value = 100
+      showToast('下载完成，正在启动安装程序...')
+
+      // 合并 chunks
+      const fullBuffer = new Uint8Array(received)
+      let offset = 0
+      for (const chunk of chunks) {
+        fullBuffer.set(chunk, offset)
+        offset += chunk.length
+      }
+
+      const urlPath = new URL(downloadUrl.value).pathname
+      const filename = urlPath.split('/').pop() || 'easyJSON_update.exe'
+
+      // 调用 Tauri 命令写入并运行
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI_INTERNALS__?.invoke
+      if (invoke) {
+        await invoke('save_and_run_installer', {
+          fileBytes: Array.from(fullBuffer),
+          fileName: filename
+        })
+      }
+    } catch (e) {
+      console.error('In-app update error:', e)
+      showToast('应用内下载失败，已为您打开浏览器下载', 'error')
+      try {
+        if (window.__TAURI__?.opener?.openUrl) {
+          window.__TAURI__.opener.openUrl(downloadUrl.value)
+        } else {
+          window.open(downloadUrl.value, '_blank')
+        }
+      } catch (_) {
+        window.open(downloadUrl.value, '_blank')
+      }
+    } finally {
+      setTimeout(() => {
+        isDownloadingUpdate.value = false
+        downloadProgress.value = 0
+      }, 4000)
+    }
+  } else {
+    // 浏览器或网页环境
+    window.open(downloadUrl.value, '_blank')
+  }
+}
 
 // ── 首次安装检查（DMG 直接运行 vs 已拖入 Applications） ──
 const { needsInstall } = useInstallCheck()
@@ -510,6 +596,45 @@ onBeforeUnmount(() => {
         </button>
       </div>
       
+      <!-- Sidebar Center: Upgrade Green Solid Arrow Badge -->
+      <div class="sidebar-center">
+        <Transition name="bounce-scale">
+          <div
+            v-if="hasUpdate"
+            class="sidebar-update-badge"
+            :class="{ 'is-downloading': isDownloadingUpdate }"
+            :data-tooltip-right="updateTooltipText"
+            @click="handleDirectUpgrade"
+          >
+            <!-- Normal: Solid Green Circle with White ArrowDown -->
+            <div v-if="!isDownloadingUpdate" class="solid-green-arrow">
+              <svg class="green-arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="4" x2="12" y2="16"></line>
+                <polyline points="6 11 12 17 18 11"></polyline>
+              </svg>
+              <!-- Glowing Pulse Ring -->
+              <span class="pulse-ring"></span>
+            </div>
+
+            <!-- Downloading: Circular Progress Bar / Percent -->
+            <div v-else class="download-progress-circle">
+              <svg class="progress-svg" viewBox="0 0 36 36">
+                <path
+                  class="circle-bg"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+                <path
+                  class="circle-fg"
+                  :stroke-dasharray="`${downloadProgress}, 100`"
+                  d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                />
+              </svg>
+              <span class="progress-text">{{ downloadProgress }}%</span>
+            </div>
+          </div>
+        </Transition>
+      </div>
+
       <div class="sidebar-bottom">
         <button
           class="sidebar-btn"
@@ -784,6 +909,143 @@ onBeforeUnmount(() => {
 .slide-down-leave-to {
   transform: translateY(-100%);
   opacity: 0;
+}
+
+/* ── 侧边栏居中：绿色实体升级箭头 ── */
+.sidebar-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
+  margin: auto 0;
+  z-index: 5;
+}
+
+.sidebar-update-badge {
+  position: relative;
+  width: clamp(28px, 3vw, 36px);
+  height: clamp(28px, 3vw, 36px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 50%;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  user-select: none;
+}
+
+.sidebar-update-badge:hover {
+  transform: scale(1.15);
+}
+
+.sidebar-update-badge:active {
+  transform: scale(0.95);
+}
+
+.solid-green-arrow {
+  position: relative;
+  width: clamp(26px, 2.8vw, 32px);
+  height: clamp(26px, 2.8vw, 32px);
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45);
+  animation: arrow-bounce 2.2s ease-in-out infinite;
+}
+
+@keyframes arrow-bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.green-arrow-icon {
+  width: clamp(14px, 1.6vw, 18px);
+  height: clamp(14px, 1.6vw, 18px);
+}
+
+.pulse-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid rgba(16, 185, 129, 0.65);
+  animation: pulse-ring-anim 2.2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes pulse-ring-anim {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.9;
+  }
+  65% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.35);
+    opacity: 0;
+  }
+}
+
+.download-progress-circle {
+  position: relative;
+  width: clamp(28px, 3vw, 34px);
+  height: clamp(28px, 3vw, 34px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-panel);
+  border-radius: 50%;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+}
+
+.progress-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.circle-bg {
+  fill: none;
+  stroke: rgba(16, 185, 129, 0.15);
+  stroke-width: 3.5;
+}
+
+.circle-fg {
+  fill: none;
+  stroke: #10b981;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.2s ease;
+}
+
+.progress-text {
+  font-size: clamp(8px, 0.8vw, 9.5px);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: #10b981;
+}
+
+/* Bounce scale transition */
+.bounce-scale-enter-active,
+.bounce-scale-leave-active {
+  transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.bounce-scale-enter-from,
+.bounce-scale-leave-to {
+  opacity: 0;
+  transform: scale(0.4);
 }
 
 </style>
