@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, inject, watch } from 'vue'
-import { ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
+import { isImageUrl, isHttpUrl, openExternalUrl } from '../utils/imageDetector.js'
 
 const props = defineProps({
   value: null,
@@ -29,6 +30,34 @@ const showToast = inject('showToast')
 const searchQuery = inject('searchQuery', ref(''))
 const setHoveredPath = inject('setHoveredPath', null)
 const setSelectedPath = inject('setSelectedPath', null)
+const imagePreview = inject('imagePreview', null)
+
+const isImageValue = computed(() => {
+  return typeof props.value === 'string' && isImageUrl(props.value)
+})
+
+const isOtherUrlValue = computed(() => {
+  return typeof props.value === 'string' && !isImageValue.value && isHttpUrl(props.value)
+})
+
+const handleOpenUrl = (url) => {
+  openExternalUrl(url)
+  if (showToast) {
+    showToast('已在浏览器打开链接')
+  }
+}
+
+const onValueMouseEnter = (e) => {
+  if (isImageValue.value && imagePreview) {
+    imagePreview.show(props.value, e.currentTarget)
+  }
+}
+
+const onValueMouseLeave = () => {
+  if (isImageValue.value && imagePreview) {
+    imagePreview.hide()
+  }
+}
 
 const currentKeyPath = computed(() => {
   if (props.name !== undefined && props.name !== null) {
@@ -206,7 +235,27 @@ const handleCopyValue = (e) => {
       <span class="icon-spacer"></span>
       <span v-if="name" class="node-key" @click.stop="handleCopyKey" title="点击复制键名" v-html="highlightKey(name)"></span>
       <span v-if="name" class="node-colon">: </span>
-      <span :class="[valueClass, 'copyable-value']" @click.stop="handleCopyValue" title="点击复制键值" v-html="highlightValue(value)"></span>
+      
+      <!-- 前置图标：图片悬停徽标 / 链接一键跳转 -->
+      <span v-if="isImageValue" class="tree-img-badge" @mouseenter="onValueMouseEnter" @mouseleave="onValueMouseLeave" title="图片链接 (悬停预览)">🖼️</span>
+      <button
+        v-else-if="isOtherUrlValue"
+        class="url-jump-btn"
+        @click.stop="handleOpenUrl(value)"
+        title="在浏览器中直接打开链接"
+      >
+        <ExternalLink class="url-jump-icon" />
+      </button>
+
+      <!-- 键值文本 -->
+      <span
+        :class="[valueClass, 'copyable-value', { 'is-image-url': isImageValue, 'is-web-url': isOtherUrlValue }]"
+        @click.stop="handleCopyValue"
+        @mouseenter="onValueMouseEnter"
+        @mouseleave="onValueMouseLeave"
+        :title="isImageValue ? '悬停预览图片，点击复制键值' : (isOtherUrlValue ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
+        v-html="highlightValue(value)"
+      ></span>
       <span v-if="!isLast" class="node-comma">,</span>
     </div>
   </div>
@@ -352,5 +401,63 @@ const handleCopyValue = (e) => {
 .copyable-value:hover {
   text-decoration: underline;
   opacity: 0.8;
+}
+
+.is-image-url {
+  text-decoration: underline dotted var(--accent-color, #6366f1) !important;
+  text-underline-offset: 3px;
+}
+
+.tree-img-badge {
+  font-size: 13px;
+  margin-right: 4px;
+  margin-left: 1px;
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0.9;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  user-select: none;
+  display: inline-block;
+}
+
+.tree-img-badge:hover {
+  transform: scale(1.2);
+  opacity: 1;
+}
+
+.is-web-url {
+  text-decoration: underline dotted var(--text-secondary, #9ca3af) !important;
+  text-underline-offset: 3px;
+}
+
+.url-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-right: 4px;
+  margin-left: 1px;
+  padding: 0;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  color: var(--accent-color, #6366f1);
+  cursor: pointer;
+  opacity: 0.9;
+  vertical-align: middle;
+  transition: all 0.15s ease;
+}
+
+.url-jump-btn:hover {
+  background: var(--accent-color, #6366f1);
+  color: #ffffff;
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.url-jump-icon {
+  width: 11px;
+  height: 11px;
 }
 </style>

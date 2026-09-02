@@ -15,11 +15,13 @@ import JsonTreeNode   from './JsonTreeNode.vue'
 import JsonGraphView  from './JsonGraphView.vue'
 import JsonTableView  from './JsonTableView.vue'
 import ImportDropdown from './ImportDropdown.vue'
+import ImagePreviewPopover from './ImagePreviewPopover.vue'
 import { extractJsonFromText, convertJsObjectToJson, safeParseJsLike, tryParseCandidate } from '../utils/jsonExtractor.js';
 import { convertJson, formatLabels, getFormatExtension } from '../utils/jsonConverter.js';
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js';
 import { maskJsonData, extractAllKeys } from '../utils/dataMasker.js';
 import { queryJsonPath } from '../utils/jsonPath.js';
+import { isImageUrl } from '../utils/imageDetector.js';
 
 const showToast = inject('showToast')
 
@@ -48,6 +50,72 @@ const setSelectedPath = (path) => {
 }
 const searchQuery = ref('')
 const searchExpanded = ref(false)
+
+// ── 图片悬停预览状态与提供者 ──
+const imagePreviewState = ref({
+  visible: false,
+  url: '',
+  targetRect: null
+})
+
+let imagePreviewShowTimer = null
+let imagePreviewHideTimer = null
+
+const showImagePreview = (url, targetElOrRect) => {
+  if (imagePreviewHideTimer) {
+    clearTimeout(imagePreviewHideTimer)
+    imagePreviewHideTimer = null
+  }
+  if (!url) return
+
+  if (imagePreviewShowTimer) clearTimeout(imagePreviewShowTimer)
+
+  imagePreviewShowTimer = setTimeout(() => {
+    let rect = null
+    if (targetElOrRect instanceof HTMLElement) {
+      rect = targetElOrRect.getBoundingClientRect()
+    } else if (targetElOrRect && typeof targetElOrRect === 'object') {
+      rect = targetElOrRect
+    }
+    imagePreviewState.value = {
+      visible: true,
+      url,
+      targetRect: rect
+    }
+  }, 120)
+}
+
+const hideImagePreview = (immediate = false) => {
+  if (imagePreviewShowTimer) {
+    clearTimeout(imagePreviewShowTimer)
+    imagePreviewShowTimer = null
+  }
+  if (immediate) {
+    if (imagePreviewHideTimer) clearTimeout(imagePreviewHideTimer)
+    imagePreviewState.value.visible = false
+    return
+  }
+  if (imagePreviewHideTimer) clearTimeout(imagePreviewHideTimer)
+  imagePreviewHideTimer = setTimeout(() => {
+    imagePreviewState.value.visible = false
+  }, 120)
+}
+
+const onPopoverEnter = () => {
+  if (imagePreviewHideTimer) {
+    clearTimeout(imagePreviewHideTimer)
+    imagePreviewHideTimer = null
+  }
+}
+
+const onPopoverLeave = () => {
+  hideImagePreview(false)
+}
+
+provide('imagePreview', {
+  show: showImagePreview,
+  hide: hideImagePreview
+})
 const searchInputRef = ref(null)
 const replaceText = ref('')
 const replaceExpanded = ref(false)
@@ -305,11 +373,29 @@ const updateCursorPath = () => {
 const handleOutputPreMouseMove = (e) => {
   let current = e.target
   let pathAttr = null
+  let stringEl = null
+
   while (current && current !== outputPreRef.value) {
-    pathAttr = current.getAttribute?.('data-path')
-    if (pathAttr) break
+    if (!pathAttr) pathAttr = current.getAttribute?.('data-path')
+    if (!stringEl && current.classList?.contains('json-string')) {
+      stringEl = current
+    }
     current = current.parentElement
   }
+
+  // 1. 检查是否悬停在图片字符串上
+  if (stringEl) {
+    const rawVal = stringEl.textContent?.trim().replace(/^"|"$/g, '').replace(/^\\"|\\"$/g, '')
+    if (rawVal && isImageUrl(rawVal)) {
+      showImagePreview(rawVal, stringEl)
+    } else {
+      hideImagePreview()
+    }
+  } else {
+    hideImagePreview()
+  }
+
+  // 2. 检查 data-path
   if (pathAttr) {
     try {
       const path = JSON.parse(pathAttr)
@@ -318,6 +404,11 @@ const handleOutputPreMouseMove = (e) => {
     } catch (err) {}
   }
   setHoveredPath(null)
+}
+
+const handleOutputPreMouseLeave = () => {
+  setHoveredPath(null)
+  hideImagePreview()
 }
 
 const handleOutputPreClick = (e) => {
@@ -3254,7 +3345,7 @@ onBeforeUnmount(() => {
                 ref="outputPreRef"
                 @scroll="handleOutputScroll"
                 @mousemove="handleOutputPreMouseMove"
-                @mouseleave="setHoveredPath(null)"
+                @mouseleave="handleOutputPreMouseLeave"
                 @click="handleOutputPreClick"
                 @mouseenter="activeScrollTarget = 'right'"
                 @touchstart="activeScrollTarget = 'right'"
@@ -3473,6 +3564,15 @@ onBeforeUnmount(() => {
         </div>
       </Transition>
     </Teleport>
+    <!-- 悬停图片预览全局浮窗 -->
+    <ImagePreviewPopover
+      :visible="imagePreviewState.visible"
+      :url="imagePreviewState.url"
+      :targetRect="imagePreviewState.targetRect"
+      @close="hideImagePreview(true)"
+      @enter="onPopoverEnter"
+      @leave="onPopoverLeave"
+    />
   </div>
 </template>
 

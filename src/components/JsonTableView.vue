@@ -1,7 +1,69 @@
 <script setup>
 import { ref, computed, watch, inject } from 'vue'
+import { ExternalLink, Copy } from 'lucide-vue-next'
+import { safeStringify } from '../utils/jsonBigInt.js'
+import { isImageUrl, isHttpUrl, openExternalUrl } from '../utils/imageDetector.js'
 
 const searchQuery = inject('searchQuery', ref(''))
+const imagePreview = inject('imagePreview', null)
+const showToast = inject('showToast', null)
+
+const handleCopyKey = (key) => {
+  if (key === null || key === undefined) return
+  navigator.clipboard.writeText(String(key)).then(() => {
+    if (showToast) {
+      showToast(`已复制键名: ${key}`)
+    }
+  })
+}
+
+const handleCopyValue = (val) => {
+  let text = ''
+  if (typeof val === 'object' && val !== null) {
+    text = safeStringify(val, null, 2)
+  } else {
+    text = typeof val === 'string' ? val : String(val)
+  }
+
+  navigator.clipboard.writeText(text).then(() => {
+    if (showToast) {
+      const truncated = text.length > 20 ? text.substring(0, 20) + '...' : text
+      showToast(`已复制键值: ${truncated}`)
+    }
+  })
+}
+
+const handleCopySubtree = (val) => {
+  if (val === null || val === undefined) return
+  const jsonStr = safeStringify(val, null, 2)
+  navigator.clipboard.writeText(jsonStr).then(() => {
+    if (showToast) {
+      showToast('已复制子树 JSON')
+    }
+  })
+}
+
+const isImg = (v) => typeof v === 'string' && isImageUrl(v)
+const isHttpLink = (v) => typeof v === 'string' && !isImg(v) && isHttpUrl(v)
+
+const handleOpenUrl = (url) => {
+  openExternalUrl(url)
+  if (showToast) {
+    showToast('已在浏览器打开链接')
+  }
+}
+
+const onValMouseEnter = (v, e) => {
+  if (isImg(v) && imagePreview) {
+    imagePreview.show(v, e.currentTarget)
+  }
+}
+
+const onValMouseLeave = (v) => {
+  if (isImg(v) && imagePreview) {
+    imagePreview.hide()
+  }
+}
 
 const highlightText = (text, query) => {
   if (!text) return ''
@@ -184,6 +246,8 @@ const handleChildHover = (path) => {
             }"
             @mouseenter="emitHover([row.rootIsIndex ? Number(row.rootKey) : row.rootKey])"
             @mouseleave="emitHover(null)"
+            @click.stop="handleCopyKey(row.rootKey)"
+            :title="`点击复制键名: ${row.rootKey}`"
             v-html="highlightText(row.rootKey, searchQuery)"
           >
           </td>
@@ -198,6 +262,8 @@ const handleChildHover = (path) => {
               }"
               @mouseenter="emitHover(getCellPath(row))"
               @mouseleave="emitHover(null)"
+              @click.stop="handleCopyKey(row.subKey)"
+              :title="`点击复制键名: ${row.subKey}`"
               v-html="highlightText(row.subKey, searchQuery)"
             >
             </td>
@@ -213,19 +279,45 @@ const handleChildHover = (path) => {
               @mouseleave="emitHover(null)"
             >
               <!-- Primitive sub-value -->
-              <span v-if="isPrimitive(row.rawVal)" :class="getValueColorClass(row.valueType)" v-html="highlightText(row.value, searchQuery)">
-              </span>
-              
-              <!-- Complex sub-value (with expand/collapse) -->
-              <div v-else class="complex-cell-container">
-                <button 
-                  class="toggle-btn" 
-                  @click.stop="toggleExpandPath(getCellPath(row))"
-                  :title="isPathExpanded(getCellPath(row)) ? '收起子层级' : '展开子层级'"
+              <template v-if="isPrimitive(row.rawVal)">
+                <span v-if="isImg(row.rawVal)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(row.rawVal, e)" @mouseleave="() => onValMouseLeave(row.rawVal)" title="图片链接 (悬停预览)">🖼️</span>
+                <button
+                  v-else-if="isHttpLink(row.rawVal)"
+                  class="url-jump-btn"
+                  @click.stop="handleOpenUrl(row.rawVal)"
+                  title="在浏览器中直接打开链接"
                 >
-                  <span class="toggle-icon">{{ isPathExpanded(getCellPath(row)) ? '▼' : '▶' }}</span>
-                  <span class="preview-text" v-html="highlightText(row.value, searchQuery)"></span>
+                  <ExternalLink class="url-jump-icon" />
                 </button>
+                <span
+                  :class="[getValueColorClass(row.valueType), 'copyable-val', { 'is-image-url': isImg(row.rawVal), 'is-web-url': isHttpLink(row.rawVal) }]"
+                  @mouseenter="(e) => onValMouseEnter(row.rawVal, e)"
+                  @mouseleave="() => onValMouseLeave(row.rawVal)"
+                  @click.stop="handleCopyValue(row.rawVal)"
+                  :title="isImg(row.rawVal) ? '悬停预览图片，点击复制键值' : (isHttpLink(row.rawVal) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
+                  v-html="highlightText(row.value, searchQuery)"
+                ></span>
+              </template>
+              
+              <!-- Complex sub-value (with expand/collapse and copy subtree) -->
+              <div v-else class="complex-cell-container">
+                <div class="complex-header-row">
+                  <button 
+                    class="toggle-btn" 
+                    @click.stop="toggleExpandPath(getCellPath(row))"
+                    :title="isPathExpanded(getCellPath(row)) ? '收起子层级' : '展开子层级'"
+                  >
+                    <span class="toggle-icon">{{ isPathExpanded(getCellPath(row)) ? '▼' : '▶' }}</span>
+                    <span class="preview-text" v-html="highlightText(row.value, searchQuery)"></span>
+                  </button>
+                  <button
+                    class="copy-subtree-btn"
+                    @click.stop="handleCopySubtree(row.rawVal)"
+                    title="复制此子层级 JSON"
+                  >
+                    <Copy class="copy-subtree-icon" />
+                  </button>
+                </div>
                 <div v-if="isPathExpanded(getCellPath(row))" class="nested-table-container">
                   <JsonTableView
                     :data="row.rawVal"
@@ -253,19 +345,45 @@ const handleChildHover = (path) => {
               @mouseleave="emitHover(null)"
             >
               <!-- Primitive root value -->
-              <span v-if="isPrimitive(row.rawVal)" :class="getValueColorClass(row.valueType)" v-html="highlightText(row.value, searchQuery)">
-              </span>
+              <template v-if="isPrimitive(row.rawVal)">
+                <span v-if="isImg(row.rawVal)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(row.rawVal, e)" @mouseleave="() => onValMouseLeave(row.rawVal)" title="图片链接 (悬停预览)">🖼️</span>
+                <button
+                  v-else-if="isHttpLink(row.rawVal)"
+                  class="url-jump-btn"
+                  @click.stop="handleOpenUrl(row.rawVal)"
+                  title="在浏览器中直接打开链接"
+                >
+                  <ExternalLink class="url-jump-icon" />
+                </button>
+                <span
+                  :class="[getValueColorClass(row.valueType), 'copyable-val', { 'is-image-url': isImg(row.rawVal), 'is-web-url': isHttpLink(row.rawVal) }]"
+                  @mouseenter="(e) => onValMouseEnter(row.rawVal, e)"
+                  @mouseleave="() => onValMouseLeave(row.rawVal)"
+                  @click.stop="handleCopyValue(row.rawVal)"
+                  :title="isImg(row.rawVal) ? '悬停预览图片，点击复制键值' : (isHttpLink(row.rawVal) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
+                  v-html="highlightText(row.value, searchQuery)"
+                ></span>
+              </template>
 
               <!-- Complex root value (e.g. empty object/array) -->
               <div v-else class="complex-cell-container">
-                <button 
-                  class="toggle-btn" 
-                  @click.stop="toggleExpandPath(getCellPath(row))"
-                  :title="isPathExpanded(getCellPath(row)) ? '收起子层级' : '展开子层级'"
-                >
-                  <span class="toggle-icon">{{ isPathExpanded(getCellPath(row)) ? '▼' : '▶' }}</span>
-                  <span class="preview-text" v-html="highlightText(row.value, searchQuery)"></span>
-                </button>
+                <div class="complex-header-row">
+                  <button 
+                    class="toggle-btn" 
+                    @click.stop="toggleExpandPath(getCellPath(row))"
+                    :title="isPathExpanded(getCellPath(row)) ? '收起子层级' : '展开子层级'"
+                  >
+                    <span class="toggle-icon">{{ isPathExpanded(getCellPath(row)) ? '▼' : '▶' }}</span>
+                    <span class="preview-text" v-html="highlightText(row.value, searchQuery)"></span>
+                  </button>
+                  <button
+                    class="copy-subtree-btn"
+                    @click.stop="handleCopySubtree(row.rawVal)"
+                    title="复制此子层级 JSON"
+                  >
+                    <Copy class="copy-subtree-icon" />
+                  </button>
+                </div>
                 <div v-if="isPathExpanded(getCellPath(row))" class="nested-table-container">
                   <JsonTableView
                     :data="row.rawVal"
@@ -295,6 +413,8 @@ const handleChildHover = (path) => {
             }"
             @mouseenter="emitHover(getNestedCellPath(entry.key, entry.isIndex))"
             @mouseleave="emitHover(null)"
+            @click.stop="handleCopyKey(entry.key)"
+            :title="`点击复制键名: ${entry.key}`"
             v-html="highlightText(entry.key, searchQuery)"
           >
           </td>
@@ -311,19 +431,45 @@ const handleChildHover = (path) => {
             @mouseleave="emitHover(null)"
           >
             <!-- Primitive nested value -->
-            <span v-if="isPrimitive(entry.value)" :class="getValueColorClass(getValueType(entry.value))" v-html="highlightText(getPreview(entry.value), searchQuery)">
-            </span>
+            <template v-if="isPrimitive(entry.value)">
+              <span v-if="isImg(entry.value)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(entry.value, e)" @mouseleave="() => onValMouseLeave(entry.value)" title="图片链接 (悬停预览)">🖼️</span>
+              <button
+                v-else-if="isHttpLink(entry.value)"
+                class="url-jump-btn"
+                @click.stop="handleOpenUrl(entry.value)"
+                title="在浏览器中直接打开链接"
+              >
+                <ExternalLink class="url-jump-icon" />
+              </button>
+              <span
+                :class="[getValueColorClass(getValueType(entry.value)), 'copyable-val', { 'is-image-url': isImg(entry.value), 'is-web-url': isHttpLink(entry.value) }]"
+                @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+                @mouseleave="() => onValMouseLeave(entry.value)"
+                @click.stop="handleCopyValue(entry.value)"
+                :title="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
+                v-html="highlightText(getPreview(entry.value), searchQuery)"
+              ></span>
+            </template>
 
             <!-- Complex nested value -->
             <div v-else class="complex-cell-container">
-              <button 
-                class="toggle-btn" 
-                @click.stop="toggleExpandPath(getNestedCellPath(entry.key, entry.isIndex))"
-                :title="isPathExpanded(getNestedCellPath(entry.key, entry.isIndex)) ? '收起子层级' : '展开子层级'"
-              >
-                <span class="toggle-icon">{{ isPathExpanded(getNestedCellPath(entry.key, entry.isIndex)) ? '▼' : '▶' }}</span>
-                <span class="preview-text" v-html="highlightText(getPreview(entry.value), searchQuery)"></span>
-              </button>
+              <div class="complex-header-row">
+                <button 
+                  class="toggle-btn" 
+                  @click.stop="toggleExpandPath(getNestedCellPath(entry.key, entry.isIndex))"
+                  :title="isPathExpanded(getNestedCellPath(entry.key, entry.isIndex)) ? '收起子层级' : '展开子层级'"
+                >
+                  <span class="toggle-icon">{{ isPathExpanded(getNestedCellPath(entry.key, entry.isIndex)) ? '▼' : '▶' }}</span>
+                  <span class="preview-text" v-html="highlightText(getPreview(entry.value), searchQuery)"></span>
+                </button>
+                <button
+                  class="copy-subtree-btn"
+                  @click.stop="handleCopySubtree(entry.value)"
+                  title="复制此子层级 JSON"
+                >
+                  <Copy class="copy-subtree-icon" />
+                </button>
+              </div>
               <div v-if="isPathExpanded(getNestedCellPath(entry.key, entry.isIndex))" class="nested-table-container">
                 <JsonTableView
                   :data="entry.value"
@@ -477,8 +623,43 @@ const handleChildHover = (path) => {
 .complex-cell-container {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  width: 100%;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.complex-header-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.copy-subtree-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.15s ease;
+}
+
+.copy-subtree-btn:hover {
+  background: var(--border-color, rgba(255, 255, 255, 0.1));
+  color: var(--accent-color, #6366f1);
+  border-color: rgba(99, 102, 241, 0.2);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.copy-subtree-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .toggle-btn {
@@ -536,5 +717,84 @@ const handleChildHover = (path) => {
 .value-cell.is-hovered {
   background-color: var(--json-hover-bg) !important;
   box-shadow: inset 0 0 0 1px var(--json-key);
+}
+
+.is-image-url {
+  text-decoration: underline dotted var(--accent-color, #6366f1) !important;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.copyable-val {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.copyable-val:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.root-key-cell, .sub-key-cell, .nested-key-cell {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.root-key-cell:hover, .sub-key-cell:hover, .nested-key-cell:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.table-img-badge {
+  font-size: 13px;
+  margin-right: 4px;
+  margin-left: 1px;
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0.9;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  user-select: none;
+  display: inline-block;
+}
+
+.table-img-badge:hover {
+  transform: scale(1.2);
+  opacity: 1;
+}
+
+.is-web-url {
+  text-decoration: underline dotted var(--text-secondary, #9ca3af) !important;
+  text-underline-offset: 3px;
+}
+
+.url-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  margin-right: 4px;
+  margin-left: 1px;
+  padding: 0;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 4px;
+  color: var(--accent-color, #6366f1);
+  cursor: pointer;
+  opacity: 0.9;
+  vertical-align: middle;
+  transition: all 0.15s ease;
+}
+
+.url-jump-btn:hover {
+  background: var(--accent-color, #6366f1);
+  color: #ffffff;
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.url-jump-icon {
+  width: 11px;
+  height: 11px;
 }
 </style>

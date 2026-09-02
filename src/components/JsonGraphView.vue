@@ -1,8 +1,59 @@
 <script setup>
 import { ref, computed, onMounted, watch, inject } from 'vue'
+import { ExternalLink } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
+import { isImageUrl, isHttpUrl, openExternalUrl } from '../utils/imageDetector.js'
 
 const searchQuery = inject('searchQuery', ref(''))
+const imagePreview = inject('imagePreview', null)
+const showToast = inject('showToast', null)
+
+const handleCopyKey = (key) => {
+  if (key === null || key === undefined) return
+  navigator.clipboard.writeText(String(key)).then(() => {
+    if (showToast) {
+      showToast(`已复制键名: ${key}`)
+    }
+  })
+}
+
+const handleCopyValue = (val) => {
+  let text = ''
+  if (typeof val === 'object' && val !== null) {
+    text = safeStringify(val, null, 2)
+  } else {
+    text = typeof val === 'string' ? val : String(val)
+  }
+
+  navigator.clipboard.writeText(text).then(() => {
+    if (showToast) {
+      const truncated = text.length > 20 ? text.substring(0, 20) + '...' : text
+      showToast(`已复制键值: ${truncated}`)
+    }
+  })
+}
+
+const isImg = (v) => typeof v === 'string' && isImageUrl(v)
+const isHttpLink = (v) => typeof v === 'string' && !isImg(v) && isHttpUrl(v)
+
+const handleOpenUrl = (url) => {
+  openExternalUrl(url)
+  if (showToast) {
+    showToast('已在浏览器打开链接')
+  }
+}
+
+const onValMouseEnter = (v, e) => {
+  if (isImg(v) && imagePreview) {
+    imagePreview.show(v, e.currentTarget)
+  }
+}
+
+const onValMouseLeave = (v) => {
+  if (isImg(v) && imagePreview) {
+    imagePreview.hide()
+  }
+}
 
 const highlightText = (text, query) => {
   if (!text) return ''
@@ -47,7 +98,7 @@ const getPreview = (v) => {
   if (v === null) return 'null'
   if (Array.isArray(v)) return `[${v.length}]`
   if (typeof v === 'object') return `{${Object.keys(v).length}}`
-  if (typeof v === 'string') return v.length > 90 ? `"${v.slice(0, 90)}…"` : `"${v}"`
+  if (typeof v === 'string') return `"${v}"`
   if (typeof v === 'boolean') return v ? 'true' : 'false'
   return String(v)
 }
@@ -473,10 +524,47 @@ const graphViewStyle = computed(() => {
           @mouseleave="emitHover(null)"
           @click.stop="emitClick(getEntryPath(node, entry))"
         >
-          <span class="card-key node-key" :title="entry.key" :class="{ 'card-key--index': node.isArray, 'root-key--complex': entry.isComplex }" :style="node.isArray ? {} : { width: node.keyW + 'px', minWidth: node.keyW + 'px', maxWidth: node.keyW + 'px' }" v-html="highlightText(entry.key, searchQuery)">
+          <span
+            class="card-key node-key"
+            :title="`点击复制键名: ${entry.key}`"
+            :class="{ 'card-key--index': node.isArray, 'root-key--complex': entry.isComplex }"
+            :style="node.isArray ? {} : { width: node.keyW + 'px', minWidth: node.keyW + 'px', maxWidth: node.keyW + 'px' }"
+            @click.stop="handleCopyKey(entry.key); emitClick(getEntryPath(node, entry))"
+            v-html="highlightText(entry.key, searchQuery)"
+          >
           </span>
-          <span class="card-val" :title="getTooltipText(entry.value)">
-            <span class="val-text" :class="[getValueColorClass(entry.valueType), `cval-${entry.valueType}`, entry.valueType === 'boolean' ? (entry.value ? 'cval-boolean-true' : 'cval-boolean-false') : '']" v-html="highlightText(entry.preview, searchQuery)"></span>
+          <span
+            class="card-val"
+            :title="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : (getTooltipText(entry.value) + ' (点击复制键值)'))"
+            @click.stop="handleCopyValue(entry.value); emitClick(getEntryPath(node, entry))"
+          >
+            <span
+              v-if="isImg(entry.value)"
+              class="graph-img-badge"
+              @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+              @mouseleave="() => onValMouseLeave(entry.value)"
+              title="图片链接 (悬停预览)"
+            >🖼️</span>
+            <button
+              v-else-if="isHttpLink(entry.value)"
+              class="graph-url-jump-btn"
+              @click.stop="handleOpenUrl(entry.value)"
+              title="在浏览器中直接打开链接"
+            >
+              <ExternalLink class="url-jump-icon" />
+            </button>
+            <span
+              class="val-text"
+              :class="[
+                getValueColorClass(entry.valueType),
+                `cval-${entry.valueType}`,
+                entry.valueType === 'boolean' ? (entry.value ? 'cval-boolean-true' : 'cval-boolean-false') : '',
+                { 'is-image-url': isImg(entry.value), 'is-web-url': isHttpLink(entry.value) }
+              ]"
+              @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+              @mouseleave="() => onValMouseLeave(entry.value)"
+              v-html="highlightText(entry.preview, searchQuery)"
+            ></span>
           </span>
         </div>
       </div>
@@ -595,15 +683,15 @@ const graphViewStyle = computed(() => {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-secondary);
-  text-align: right;
   flex: 1;
-  white-space: nowrap;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 .val-text {
-  display: inline-block;
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -717,5 +805,82 @@ const graphViewStyle = computed(() => {
   opacity: 0.5;
   pointer-events: none;
   font-family: var(--font-sans);
+}
+
+.is-image-url {
+  text-decoration: underline dotted var(--accent-color, #6366f1) !important;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.card-key {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.card-key:hover {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.card-val {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.card-val:hover .val-text {
+  text-decoration: underline;
+  opacity: 0.85;
+}
+
+.graph-img-badge {
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0.9;
+  transition: transform 0.15s ease;
+  user-select: none;
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.graph-img-badge:hover {
+  transform: scale(1.2);
+  opacity: 1;
+}
+
+.is-web-url {
+  text-decoration: underline dotted var(--text-secondary, #9ca3af) !important;
+  text-underline-offset: 2px;
+}
+
+.graph-url-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 3px;
+  color: var(--accent-color, #6366f1);
+  cursor: pointer;
+  opacity: 0.9;
+  vertical-align: middle;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.graph-url-jump-btn:hover {
+  background: var(--accent-color, #6366f1);
+  color: #ffffff;
+  opacity: 1;
+  transform: scale(1.15);
+}
+
+.url-jump-icon {
+  width: 10px;
+  height: 10px;
 }
 </style>
