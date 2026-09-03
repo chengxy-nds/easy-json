@@ -128,6 +128,7 @@ const getValueColorClass = (type) => {
 // ─── Path tracking & Expand/Collapse ──────────────────────────────────────────
 const treeExpanded = inject('treeExpanded', ref(true))
 const injectedSelectedPath = inject('selectedPath', ref(null))
+const injectedSelectedType = inject('selectedType', ref('all'))
 const currentSelectedPath = computed(() => props.selectedPath || injectedSelectedPath.value)
 const userToggledPaths = ref(new Map())
 
@@ -147,23 +148,34 @@ watch(currentSelectedPath, (newPath) => {
     }
   }
 
-  // 视口垂直平滑居中锚点
+  // 视口垂直与水平双向平滑居中锚点
   setTimeout(() => {
-    const wrapper = document.querySelector('.table-view-wrapper')
-    if (!wrapper) return
+    const rootWrapper = document.querySelector('.table-view-wrapper:not(.nested-wrapper)') || document.querySelector('.table-view-wrapper')
+    if (!rootWrapper) return
     const targetStr = JSON.stringify(newPath)
-    let targetEl = wrapper.querySelector(`[data-path='${targetStr}']`)
+    let targetEl = rootWrapper.querySelector(`[data-path='${targetStr}']`)
     if (!targetEl) {
       for (let i = newPath.length - 1; i >= 1; i--) {
         const prefixStr = JSON.stringify(newPath.slice(0, i))
-        targetEl = wrapper.querySelector(`[data-path='${prefixStr}']`)
+        targetEl = rootWrapper.querySelector(`[data-path='${prefixStr}']`)
         if (targetEl) break
       }
     }
     if (targetEl) {
-      targetEl.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+      const pRect = rootWrapper.getBoundingClientRect()
+      const tRect = targetEl.getBoundingClientRect()
+      const diffY = (tRect.top + tRect.height / 2) - (pRect.top + pRect.height / 2)
+      let diffX = 0
+      if (targetEl.tagName === 'TD' || targetEl.tagName === 'TH' || targetEl.classList.contains('val-primitive-wrap')) {
+        diffX = (tRect.left + tRect.width / 2) - (pRect.left + pRect.width / 2)
+      }
+      rootWrapper.scrollBy({
+        top: diffY,
+        left: diffX,
+        behavior: 'smooth'
+      })
     }
-  }, 40)
+  }, 50)
 }, { immediate: true, deep: true })
 
 const toggleExpandPath = (path) => {
@@ -185,10 +197,19 @@ const getFullPath = (subPath) => {
   return [...props.pathPrefix, ...subPath]
 }
 
-const isPathSelected = (path) => {
+const isKeySelected = (path) => {
+  if (injectedSelectedType.value === 'value') return false
   const target = getFullPath(path)
   const cur = currentSelectedPath.value
-  if (!cur || target.length === 0 || target.length > cur.length) return false
+  if (!cur || target.length !== cur.length) return false
+  return target.every((v, i) => String(v) === String(cur[i]))
+}
+
+const isValSelected = (path) => {
+  if (injectedSelectedType.value === 'key') return false
+  const target = getFullPath(path)
+  const cur = currentSelectedPath.value
+  if (!cur || target.length !== cur.length) return false
   return target.every((v, i) => String(v) === String(cur[i]))
 }
 
@@ -207,12 +228,12 @@ const handleChildHover = (path) => {
   emit('hover-path', path)
 }
 
-const emitClick = (path) => {
-  emit('click-path', path ? getFullPath(path) : null)
+const emitClick = (path, type = 'all') => {
+  emit('click-path', path ? getFullPath(path) : null, type)
 }
 
-const handleChildClick = (path) => {
-  emit('click-path', path)
+const handleChildClick = (path, type = 'all') => {
+  emit('click-path', path, type)
 }
 
 const getValTooltip = (val) => {
@@ -311,15 +332,15 @@ const rootEntries = computed(() => {
           <!-- Row Index -->
           <td
             class="grid-index-cell"
-            :class="{ 'is-selected': isPathSelected([idx]) }"
-            @click.stop="emitClick([idx])"
+            :class="{ 'is-selected': isKeySelected([idx]) }"
+            @click.stop="handleCopyKey(idx); emitClick([idx], 'key')"
             @mouseenter.stop="emitHover([idx])"
             @mouseleave.stop="emitHover(null)"
           >
             <span
               class="table-key-text"
               data-tooltip="点击复制键名"
-              @click.stop="handleCopyKey(idx); emitClick([idx])"
+              @click.stop="handleCopyKey(idx); emitClick([idx], 'key')"
             >{{ idx }}</span>
           </td>
 
@@ -331,13 +352,13 @@ const rootEntries = computed(() => {
             :data-path="JSON.stringify(getFullPath([idx, col]))"
             :class="{
               [`val-${getValueType(item?.[col])}`]: true,
-              'is-selected': isPathSelected([idx, col]),
+              'is-selected': isValSelected([idx, col]),
               'is-hovered': isPathHovered([idx, col]),
               'value-cell--complex': !isPrimitive(item?.[col])
             }"
             @mouseenter.stop="emitHover([idx, col])"
             @mouseleave.stop="emitHover(null)"
-            @click.stop="emitClick([idx, col])"
+            @click.stop="isPrimitive(item?.[col]) ? emitClick([idx, col], 'value') : null"
           >
             <template v-if="item && item[col] !== undefined">
               <!-- Primitive value in 2D grid -->
@@ -419,17 +440,17 @@ const rootEntries = computed(() => {
             class="root-key-cell"
             :class="{ 
               'root-index-cell': entry.isIndex,
-              'is-selected': isPathSelected([entry.isIndex ? Number(entry.key) : entry.key]),
+              'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key]),
               'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key])
             }"
-            @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key])"
+            @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key], 'key')"
             @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key])"
             @mouseleave.stop="emitHover(null)"
           >
             <span
               class="table-key-text"
               data-tooltip="点击复制键名"
-              @click.stop="handleCopyKey(entry.key); emitClick([entry.isIndex ? Number(entry.key) : entry.key])"
+              @click.stop="handleCopyKey(entry.key); emitClick([entry.isIndex ? Number(entry.key) : entry.key], 'key')"
               v-html="highlightText(entry.key, searchQuery)"
             ></span>
           </td>
@@ -439,10 +460,11 @@ const rootEntries = computed(() => {
             class="value-cell"
             :class="{
               [`val-${getValueType(entry.value)}`]: true,
-              'is-selected': isPathSelected([entry.isIndex ? Number(entry.key) : entry.key]),
+              'is-selected': isValSelected([entry.isIndex ? Number(entry.key) : entry.key]),
               'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key]),
               'value-cell--complex': !isPrimitive(entry.value)
             }"
+            @click.stop="isPrimitive(entry.value) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key], 'value') : null"
             @mouseenter.stop="isPrimitive(entry.value) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key]) : null"
             @mouseleave.stop="emitHover(null)"
           >
@@ -539,12 +561,12 @@ const rootEntries = computed(() => {
                         :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]))"
                         :class="{
                           [`val-${getValueType(subObj?.[col])}`]: true,
-                          'is-selected': isPathSelected([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]),
+                          'is-selected': isValSelected([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]),
                           'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])
                         }"
                         @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
                         @mouseleave.stop="emitHover(null)"
-                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                        @click.stop="isPrimitive(subObj?.[col]) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], 'value') : null"
                       >
                         <template v-if="subObj && subObj[col] !== undefined">
                           <div v-if="isPrimitive(subObj[col])" class="val-primitive-wrap">
@@ -628,17 +650,17 @@ const rootEntries = computed(() => {
                         class="inner-key-cell"
                         :class="{ 
                           'inner-index-cell': Array.isArray(entry.value),
-                          'is-selected': isPathSelected([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
+                          'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
                           'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])
                         }"
-                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'key')"
                         @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
                         @mouseleave.stop="emitHover(null)"
                       >
                         <span
                           class="table-key-text"
                           data-tooltip="点击复制键名"
-                          @click.stop="handleCopyKey(Array.isArray(entry.value) ? subK : subVal[0]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                          @click.stop="handleCopyKey(Array.isArray(entry.value) ? subK : subVal[0]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'key')"
                           v-html="highlightText(Array.isArray(entry.value) ? subK : subVal[0], searchQuery)"
                         ></span>
                       </td>
@@ -648,10 +670,11 @@ const rootEntries = computed(() => {
                         class="inner-val-cell"
                         :class="{
                           [`val-${getValueType(Array.isArray(entry.value) ? subVal : subVal[1])}`]: true,
-                          'is-selected': isPathSelected([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
+                          'is-selected': isValSelected([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
                           'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
                           'value-cell--complex': !isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1])
                         }"
+                        @click.stop="isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'value') : null"
                         @mouseenter.stop="isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]) : null"
                         @mouseleave.stop="emitHover(null)"
                       >
@@ -726,7 +749,8 @@ const rootEntries = computed(() => {
 }
 
 .json-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   font-family: var(--font-sans);
   font-size: 13px;
   width: max-content;
@@ -735,11 +759,19 @@ const rootEntries = computed(() => {
   background: var(--bg-panel);
 }
 
-.json-table-row {
+.json-table th,
+.json-table td {
+  border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 
-.json-table-row:last-child {
+.json-table tr > th:last-child,
+.json-table tr > td:last-child {
+  border-right: none;
+}
+
+.json-table tbody tr:last-child > td {
   border-bottom: none;
 }
 
@@ -829,13 +861,24 @@ const rootEntries = computed(() => {
 }
 
 .grid-index-header {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 10 !important;
   width: 48px;
   min-width: 48px;
   text-align: center;
+  background: var(--table-header-bg, #f1f5f9) !important;
+  box-shadow: 1px 0 0 var(--border-color);
+}
+
+:global(.dark-mode) .grid-index-header {
+  background: #26262b !important;
 }
 
 .grid-index-cell {
-  background: var(--table-root-bg, rgba(0, 0, 0, 0.05));
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 5 !important;
   color: var(--json-number, #2563eb);
   font-family: var(--font-mono);
   font-weight: 600;
@@ -847,19 +890,26 @@ const rootEntries = computed(() => {
   min-width: 48px;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
+  box-shadow: 1px 0 0 var(--border-color);
 }
 
-:global(.dark-mode) .grid-index-cell {
-  background: rgba(255, 255, 255, 0.03);
+.grid-index-cell:not(.is-selected):not(.is-hovered) {
+  background-color: var(--bg-panel, #ffffff) !important;
+}
+
+:global(.dark-mode) .grid-index-cell:not(.is-selected):not(.is-hovered) {
+  background-color: #1e1e22 !important;
 }
 
 /* Root key cell styling */
 .root-key-cell {
-  background: var(--table-root-bg, rgba(0, 0, 0, 0.05));
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 5 !important;
   color: var(--table-root-fg, #991b1b);
-  font-weight: 600;
   padding: 7px 12px;
   border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
   text-align: left;
   vertical-align: top;
   white-space: nowrap;
@@ -870,6 +920,19 @@ const rootEntries = computed(() => {
   max-width: 280px;
   letter-spacing: 0.01em;
   transition: background-color 0.15s ease, color 0.15s ease;
+  box-shadow: 1px 0 0 var(--border-color);
+}
+
+.root-key-cell:not(.is-selected):not(.is-hovered) {
+  background-color: var(--bg-panel, #ffffff) !important;
+}
+
+:global(.dark-mode) .root-key-cell {
+  color: var(--table-root-fg, #61afef);
+}
+
+:global(.dark-mode) .root-key-cell:not(.is-selected):not(.is-hovered) {
+  background-color: #1e1e22 !important;
 }
 
 .root-key-cell.root-index-cell {
@@ -878,11 +941,6 @@ const rootEntries = computed(() => {
   text-align: center;
   font-family: var(--font-mono);
   color: var(--json-number, #2563eb);
-}
-
-:global(.dark-mode) .root-key-cell {
-  background: var(--table-root-bg, rgba(255, 255, 255, 0.04));
-  color: var(--table-root-fg, #f43f5e);
 }
 
 .table-key-text {
@@ -906,6 +964,10 @@ const rootEntries = computed(() => {
   vertical-align: middle;
   min-width: 140px;
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.value-cell:not(.value-cell--complex) {
+  cursor: pointer;
 }
 
 .value-cell.value-cell--complex {
@@ -1067,6 +1129,10 @@ const rootEntries = computed(() => {
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.inner-val-cell:not(.value-cell--complex) {
+  cursor: pointer;
+}
+
 .inner-val-cell.value-cell--complex {
   padding: 0 !important;
 }
@@ -1093,19 +1159,36 @@ const rootEntries = computed(() => {
   box-shadow: inset 0 0 0 1px var(--json-key, #6366f1);
 }
 
-/* ── Selected Cell Highlight ── */
+/* ── Selected Cell Highlight (Single Focus Cell Only) ── */
 .root-key-cell.is-selected,
-.inner-key-cell.is-selected {
-  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.22)) !important;
+.inner-key-cell.is-selected,
+.grid-index-cell.is-selected {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
   color: var(--json-key, #4f46e5) !important;
   font-weight: 700 !important;
+  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+}
+
+:global(.dark-mode) .root-key-cell.is-selected,
+:global(.dark-mode) .inner-key-cell.is-selected,
+:global(.dark-mode) .grid-index-cell.is-selected {
+  background-color: rgba(97, 175, 239, 0.32) !important;
+  color: #61afef !important;
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
 }
 
 .value-cell:not(.value-cell--complex).is-selected,
 .inner-grid-td:not(.value-cell--complex).is-selected,
 .inner-val-cell:not(.value-cell--complex).is-selected {
-  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.20)) !important;
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
   box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+}
+
+:global(.dark-mode) .value-cell:not(.value-cell--complex).is-selected,
+:global(.dark-mode) .inner-grid-td:not(.value-cell--complex).is-selected,
+:global(.dark-mode) .inner-val-cell:not(.value-cell--complex).is-selected {
+  background-color: rgba(97, 175, 239, 0.32) !important;
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
 }
 
 /* Complex cell containers are completely transparent and excluded from hover/selection backgrounds */
@@ -1129,8 +1212,8 @@ const rootEntries = computed(() => {
 
 /* Value Types */
 .val-string, .tree-string   { color: var(--json-string); }
-.val-number, .tree-number   { color: var(--json-number); font-weight: 600; }
-.val-boolean, .tree-boolean { color: var(--json-boolean); font-weight: 600; }
+.val-number, .tree-number   { color: var(--json-number); }
+.val-boolean, .tree-boolean { color: var(--json-boolean);  }
 .val-null, .tree-null       { color: var(--json-null); }
 .val-object                 { color: var(--text-secondary); font-family: var(--font-sans); }
 

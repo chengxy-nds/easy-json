@@ -693,10 +693,21 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
   transform: scale(1);
   transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
+
+:global(.dark-mode) .trigger-btn {
+  color: #cbd5e1;
+}
+
 .trigger-btn:hover {
   background-color: var(--segmented-indicator-bg);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+:global(.dark-mode) .trigger-btn:hover,
+:global(.dark-mode) .trigger-btn.active {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.10);
 }
 .trigger-btn:active {
   transform: scale(0.95);

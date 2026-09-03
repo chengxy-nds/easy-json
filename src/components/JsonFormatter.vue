@@ -45,8 +45,10 @@ const setHoveredPath = (path) => {
   hoveredPath.value = path
 }
 const selectedPath = ref(null)
-const setSelectedPath = (path) => {
+const selectedType = ref('all') // 'key' | 'value' | 'all'
+const setSelectedPath = (path, type = 'all') => {
   selectedPath.value = path
+  selectedType.value = type
 }
 const searchQuery = ref('')
 const searchExpanded = ref(false)
@@ -122,7 +124,6 @@ const replaceExpanded = ref(false)
 const replaceInputRef = ref(null)
 const currentMatchIndex = ref(0)
 const totalMatches = ref(0)
-const textareaValue = ref('')
 const isTextareaFocused = ref(false)
 
 // 导入文本回调（由 ImportDropdown 触发）
@@ -146,6 +147,7 @@ provide('searchQuery', searchQuery)
 provide('setHoveredPath', setHoveredPath)
 provide('hoveredPath', hoveredPath)
 provide('selectedPath', selectedPath)
+provide('selectedType', selectedType)
 provide('setSelectedPath', setSelectedPath)
 
 const expandSearch = () => {
@@ -345,7 +347,7 @@ const copyHoveredPath = () => {
   }
 }
 
-// 根据 textarea 光标位置自动锁定当前所在行的键路径
+// 根据 textarea 光标位置自动锁定当前所在行的键/值路径
 const updateCursorPath = () => {
   const textarea = textareaRef.value
   const highlightContainer = inputHighlightRef.value
@@ -356,15 +358,42 @@ const updateCursorPath = () => {
   const lines = highlightContainer.querySelectorAll('.editor-line')
   if (lines && lines[lineNum - 1]) {
     const lineEl = lines[lineNum - 1]
-    const keyEl = lineEl.querySelector('[data-path]') || (lineEl.hasAttribute('data-path') ? lineEl : null)
-    if (keyEl) {
+    const keyEl = lineEl.querySelector('.json-key[data-path]')
+    const valEl = lineEl.querySelector('.json-string[data-path], .json-number[data-path], .json-boolean[data-path], .json-null[data-path]')
+    
+    const curPosInLine = (textarea.selectionStart || 0) - (textBefore.lastIndexOf('\n') + 1)
+    const lineText = lineEl.textContent || ''
+    const colonIdx = lineText.indexOf(':')
+    
+    if (colonIdx !== -1 && curPosInLine > colonIdx && valEl) {
+      const pathAttr = valEl.getAttribute('data-path')
+      if (pathAttr) {
+        try {
+          selectedPath.value = JSON.parse(pathAttr)
+          selectedType.value = 'value'
+          return
+        } catch (e) {}
+      }
+    } else if (keyEl) {
       const pathAttr = keyEl.getAttribute('data-path')
       if (pathAttr) {
         try {
-          const path = JSON.parse(pathAttr)
-          selectedPath.value = path
+          selectedPath.value = JSON.parse(pathAttr)
+          selectedType.value = 'key'
           return
         } catch (e) {}
+      }
+    } else {
+      const anyEl = lineEl.querySelector('[data-path]')
+      if (anyEl) {
+        const pathAttr = anyEl.getAttribute('data-path')
+        if (pathAttr) {
+          try {
+            selectedPath.value = JSON.parse(pathAttr)
+            selectedType.value = 'all'
+            return
+          } catch (e) {}
+        }
       }
     }
   }
@@ -522,41 +551,147 @@ watch(hoveredPath, (newPath) => {
   }
 })
 
-const handlePathClick = (path) => {
+const handlePathClick = (path, type = 'all') => {
   if (!path) return
-  setSelectedPath(path)
+  setSelectedPath(path, type)
   
   const highlightContainer = inputHighlightRef.value
   if (!highlightContainer) return
   
+  const pathStr = JSON.stringify(path)
   const elements = highlightContainer.querySelectorAll('[data-path]')
   let targetEl = null
-  const pathStr = JSON.stringify(path)
   
   for (const el of elements) {
-    const attr = el.getAttribute('data-path')
-    if (attr === pathStr) {
-      targetEl = el
-      break
+    if (el.getAttribute('data-path') === pathStr) {
+      if (type === 'key' && el.classList.contains('json-key')) {
+        targetEl = el
+        break
+      } else if (type === 'value' && !el.classList.contains('json-key') && !el.classList.contains('editor-line')) {
+        targetEl = el
+        break
+      } else if (!targetEl && !el.classList.contains('editor-line')) {
+        targetEl = el
+      }
+    }
+  }
+
+  if (!targetEl) {
+    for (let i = path.length - 1; i >= 1; i--) {
+      const prefixStr = JSON.stringify(path.slice(0, i))
+      for (const el of elements) {
+        if (el.getAttribute('data-path') === prefixStr && !el.classList.contains('editor-line')) {
+          targetEl = el
+          break
+        }
+      }
+      if (targetEl) break
     }
   }
   
-  if (targetEl) {
-    const offsetTop = targetEl.offsetTop
-    if (textareaRef.value) {
-      textareaRef.value.scrollTo({
-        top: offsetTop - 100,
-        behavior: 'smooth'
-      })
-    }
+  if (targetEl && textareaRef.value) {
+    const containerTop = highlightContainer.getBoundingClientRect().top
+    const targetTop = targetEl.getBoundingClientRect().top
+    const currentScrollTop = textareaRef.value.scrollTop
+    const targetRelativeTop = (targetTop - containerTop) + currentScrollTop
+    const containerHeight = textareaRef.value.clientHeight
+    const targetHeight = targetEl.getBoundingClientRect().height || 20
+    const desiredScrollTop = targetRelativeTop - (containerHeight / 2) + (targetHeight / 2)
     
-    // Add clicked highlight blink animation
-    targetEl.classList.add('line-highlight-blink')
+    textareaRef.value.scrollTo({
+      top: Math.max(0, desiredScrollTop),
+      behavior: 'smooth'
+    })
+    
+    // Add clicked highlight blink animation to the specific token
+    targetEl.classList.add('token-highlight-blink')
     setTimeout(() => {
-      targetEl.classList.remove('line-highlight-blink')
+      targetEl.classList.remove('token-highlight-blink')
     }, 1500)
   }
 }
+
+watch([selectedPath, selectedType], ([newPath, newType]) => {
+  const container = inputHighlightRef.value
+  if (!container) return
+  
+  // 1. Clear previous line and token selections
+  const prevSelected = container.querySelectorAll('.token-highlight-selected, .is-selected-line')
+  prevSelected.forEach(el => el.classList.remove('token-highlight-selected', 'is-selected-line'))
+  
+  // 只有在 表格模式和拓扑图模式才要加 左侧编辑区的选中样式
+  const currentMode = activeTab.value?.viewMode
+  if (currentMode !== 'graph' && currentMode !== 'table') {
+    return
+  }
+
+  if (!newPath || newPath.length === 0) return
+  const pathStr = JSON.stringify(newPath)
+  const elements = container.querySelectorAll('[data-path]')
+  
+  let targetToken = null
+  for (const el of elements) {
+    if (el.getAttribute('data-path') === pathStr) {
+      if (newType === 'key' && el.classList.contains('json-key')) {
+        targetToken = el
+        break
+      } else if (newType === 'value' && !el.classList.contains('json-key') && !el.classList.contains('editor-line')) {
+        targetToken = el
+        break
+      } else if (!targetToken && !el.classList.contains('editor-line')) {
+        targetToken = el
+      }
+    }
+  }
+
+  if (!targetToken) {
+    for (let i = newPath.length - 1; i >= 1; i--) {
+      const prefixStr = JSON.stringify(newPath.slice(0, i))
+      for (const el of elements) {
+        if (el.getAttribute('data-path') === prefixStr && !el.classList.contains('editor-line')) {
+          targetToken = el
+          break
+        }
+      }
+      if (targetToken) break
+    }
+  }
+
+  if (targetToken) {
+    // 2. Pop the specific selected key or value token
+    targetToken.classList.add('token-highlight-selected')
+    // 3. Highlight the entire parent editor-line
+    const parentLine = targetToken.closest('.editor-line')
+    if (parentLine) {
+      parentLine.classList.add('is-selected-line')
+    }
+  } else {
+    for (const el of elements) {
+      if (el.getAttribute('data-path') === pathStr) {
+        const line = el.classList.contains('editor-line') ? el : el.closest('.editor-line')
+        if (line) line.classList.add('is-selected-line')
+        break
+      }
+    }
+  }
+}, { immediate: true })
+
+watch(() => activeTab.value?.viewMode, (mode) => {
+  const container = inputHighlightRef.value
+  if (!container) return
+  const prevSelected = container.querySelectorAll('.token-highlight-selected, .is-selected-line, .line-highlight-hover')
+  prevSelected.forEach(el => el.classList.remove('token-highlight-selected', 'is-selected-line', 'line-highlight-hover'))
+  
+  if ((mode === 'graph' || mode === 'table') && selectedPath.value) {
+    const p = selectedPath.value
+    const t = selectedType.value
+    selectedPath.value = null
+    nextTick(() => {
+      selectedPath.value = p
+      selectedType.value = t
+    })
+  }
+})
 
 const DEMO_JSON = `{
   "name": "easyJSON",
@@ -1076,7 +1211,7 @@ const updateShowOutput = () => {
 }
 
 const workspaceGridRef = ref(null)
-const splitPercent = ref(40)
+const splitPercent = ref(45)
 const isDraggingSplitter = ref(false)
 
 // 恢复已保存的分栏比例
@@ -1100,11 +1235,11 @@ const gridStyle = computed(() => {
 })
 
 const resetSplitRatio = () => {
-  splitPercent.value = 40
+  splitPercent.value = 45
   try {
-    localStorage.setItem('ej_fmt_split_ratio', '40')
+    localStorage.setItem('ej_fmt_split_ratio', '45')
   } catch (e) {}
-  if (showToast) showToast('分栏比例已重置为 40:60')
+  if (showToast) showToast('分栏比例已重置为 45:55')
 }
 
 const startSplitterDrag = (e) => {
@@ -1352,10 +1487,6 @@ watch(
   () => {
     formatJSON()
     saveFormatterState()
-    // Sync textareaValue when inputText changes from external sources (not from user editing)
-    if (!isTextareaFocused.value && activeTab.value) {
-      textareaValue.value = activeTab.value.inputText
-    }
   }
 )
 
@@ -1848,8 +1979,6 @@ const handleConvert = (format) => {
     convertFormat.value = null
   } else {
     convertFormat.value = format
-    // 强制切到代码视图以显示转换结果
-    if (activeTab.value) activeTab.value.viewMode = 'text'
   }
   showConvertMenu.value = false
 }
@@ -2420,7 +2549,6 @@ const handleEscape = () => {
       tab.parsedObj = null
       tab.validationError = null
       tab.errorLine = null
-      textareaValue.value = tab.inputText
       showToast('转义成功')
       autoCopyResult(tab.inputText)
     } catch (err) {
@@ -2433,7 +2561,6 @@ const handleEscape = () => {
         tab.parsedObj = null
         tab.validationError = null
         tab.errorLine = null
-        textareaValue.value = tab.inputText
         showToast('转义成功')
         autoCopyResult(tab.inputText)
       } catch (e2) {
@@ -2442,7 +2569,6 @@ const handleEscape = () => {
         tab.parsedObj = null
         tab.validationError = null
         tab.errorLine = null
-        textareaValue.value = tab.inputText
         showToast('转义成功')
         autoCopyResult(tab.inputText)
       }
@@ -2545,7 +2671,6 @@ const handleUnescape = () => {
       tab.parsedObj = null
       tab.validationError = null
       tab.errorLine = null
-      textareaValue.value = tab.inputText
       showToast('去转义成功')
       autoCopyResult(tab.inputText)
       saveFormatterState()
@@ -2566,7 +2691,6 @@ const handleUnescape = () => {
     tab.parsedObj = null
     tab.validationError = null
     tab.errorLine = null
-    textareaValue.value = tab.inputText
     showToast('去转义成功')
     autoCopyResult(tab.inputText)
   } catch (err) {
@@ -3240,14 +3364,13 @@ onBeforeUnmount(() => {
               <!-- Transparent textarea on top -->
               <textarea
                 ref="textareaRef"
-                v-model="textareaValue"
+                v-model="activeTab.inputText"
                 class="editor-textarea"
                 placeholder=""
                 spellcheck="false"
                 autocomplete="off"
                 autocorrect="off"
                 autocapitalize="off"
-                @input="handleTextareaInput"
                 @scroll="syncGutterScroll"
                 @paste="handlePaste"
                 @cut="handleCut"
@@ -3257,8 +3380,8 @@ onBeforeUnmount(() => {
                 @select="updateCursorPath"
                 @mouseenter="activeScrollTarget = 'left'"
                 @touchstart="activeScrollTarget = 'left'"
-                @focus="handleTextareaFocus($event); updateCursorPath()"
-                @blur="handleTextareaBlur"
+                @focus="isTextareaFocused = true; updateCursorPath()"
+                @blur="isTextareaFocused = false"
                 @mousemove="handleTextareaMouseMove"
                 @mouseleave="handleTextareaMouseLeave"
               ></textarea>
@@ -3285,7 +3408,7 @@ onBeforeUnmount(() => {
         @mousedown.prevent="startSplitterDrag"
         @touchstart.prevent="startSplitterTouch"
         @dblclick="resetSplitRatio"
-        title="按住左右拖拽调整宽度（双击重置 40:60）"
+        title="按住左右拖拽调整宽度（双击重置 45:55）"
       >
         <div class="pane-splitter-handle">
           <GripVertical class="pane-splitter-icon" />
@@ -3296,43 +3419,35 @@ onBeforeUnmount(() => {
       <div class="editor-panel" v-if="showOutput">
         <div class="panel-header">
           <div class="header-left-group">
-            <!-- View switch -->
-            <div class="segmented-control">
+            <!-- View switch (3 core structural views: Tree, Table, Graph) -->
+            <div class="segmented-control" v-if="!convertFormat">
               <div class="segmented-indicator" :class="'pos-' + activeTab.viewMode"></div>
               <button
                 class="segment-btn"
                 :class="{ active: activeTab.viewMode === 'tree' }"
                 @click="activeTab.viewMode = 'tree'"
-                :disabled="!activeTab.parsedObj || !!convertFormat"
+                :disabled="!activeTab.parsedObj"
                 data-tooltip-bottom-left="树形视图"
               >
                 <ListTree class="seg-icon" />
               </button>
               <button
                 class="segment-btn"
-                :class="{ active: activeTab.viewMode === 'text' }"
-                @click="activeTab.viewMode = 'text'"
-                data-tooltip-bottom="代码视图"
+                :class="{ active: activeTab.viewMode === 'table' }"
+                @click="activeTab.viewMode = 'table'"
+                :disabled="!activeTab.parsedObj"
+                data-tooltip-bottom="表格视图"
               >
-                <Code class="seg-icon" />
+                <Table2 class="seg-icon" />
               </button>
               <button
                 class="segment-btn"
                 :class="{ active: activeTab.viewMode === 'graph' }"
                 @click="activeTab.viewMode = 'graph'"
-                :disabled="!activeTab.parsedObj || !!convertFormat"
+                :disabled="!activeTab.parsedObj"
                 data-tooltip-bottom="拓扑图"
               >
                 <Network class="seg-icon" />
-              </button>
-              <button
-                class="segment-btn"
-                :class="{ active: activeTab.viewMode === 'table' }"
-                @click="activeTab.viewMode = 'table'"
-                :disabled="!activeTab.parsedObj || !!convertFormat"
-                data-tooltip-bottom="表格视图"
-              >
-                <Table2 class="seg-icon" />
               </button>
             </div>
           </div>
@@ -3397,21 +3512,8 @@ onBeforeUnmount(() => {
 
         <div class="panel-body">
           <Transition name="fade-slide" mode="out-in">
-            <!-- Text output -->
-            <!-- Tree view -->
-            <div
-              v-if="activeTab.viewMode === 'tree' && activeTab.parsedObj"
-              class="tree-wrapper"
-              ref="treeWrapperRef"
-              key="tree"
-              @scroll="handleTreeScroll"
-              @mouseenter="activeScrollTarget = 'right'"
-              @touchstart="activeScrollTarget = 'right'"
-            >
-              <JsonTreeNode :value="activeTab.parsedObj" :is-last="true" :path="[]" />
-            </div>
-
-            <div v-else-if="activeTab.viewMode === 'text'" class="output-wrapper" key="text">
+            <!-- 格式转换输出视图 (当开启转换时自动呈现代码视图) -->
+            <div v-if="convertFormat" class="output-wrapper" key="convert">
               <div class="gutter" ref="outputGutterRef" v-html="outputGutterHtml" aria-hidden="true"></div>
               <pre
                 class="output-pre"
@@ -3423,21 +3525,22 @@ onBeforeUnmount(() => {
                 @click="handleOutputPreClick"
                 @mouseenter="activeScrollTarget = 'right'"
                 @touchstart="activeScrollTarget = 'right'"
-                v-html="highlightedOutput || '<span class=\'placeholder\'>等待有效的 JSON 输入...</span>'"
+                v-html="highlightedOutput || '<span class=\'placeholder\'>等待转换输出...</span>'"
               ></pre>
             </div>
 
-            <!-- Graph (topology) view -->
-            <JsonGraphView
-              v-else-if="activeTab.viewMode === 'graph' && activeTab.parsedObj"
-              :parsedObj="activeTab.parsedObj"
-              :hoveredPath="hoveredPath"
-              @hover-path="setHoveredPath"
-              @click-path="handlePathClick"
+            <!-- Tree view -->
+            <div
+              v-else-if="activeTab.viewMode === 'tree' && activeTab.parsedObj"
+              class="tree-wrapper"
+              ref="treeWrapperRef"
+              key="tree"
+              @scroll="handleTreeScroll"
               @mouseenter="activeScrollTarget = 'right'"
               @touchstart="activeScrollTarget = 'right'"
-              key="graph"
-            />
+            >
+              <JsonTreeNode :value="activeTab.parsedObj" :is-last="true" :path="[]" />
+            </div>
 
             <!-- Table view -->
             <JsonTableView
@@ -3450,6 +3553,18 @@ onBeforeUnmount(() => {
               @mouseenter="activeScrollTarget = 'right'"
               @touchstart="activeScrollTarget = 'right'"
               key="table"
+            />
+
+            <!-- Graph (topology) view -->
+            <JsonGraphView
+              v-else-if="activeTab.viewMode === 'graph' && activeTab.parsedObj"
+              :parsedObj="activeTab.parsedObj"
+              :hoveredPath="hoveredPath"
+              @hover-path="setHoveredPath"
+              @click-path="handlePathClick"
+              @mouseenter="activeScrollTarget = 'right'"
+              @touchstart="activeScrollTarget = 'right'"
+              key="graph"
             />
           </Transition>
         </div>
@@ -4231,14 +4346,11 @@ onBeforeUnmount(() => {
 .segmented-indicator.pos-tree {
   left: var(--seg-padding);
 }
-.segmented-indicator.pos-text {
+.segmented-indicator.pos-table {
   left: calc(var(--seg-padding) + var(--seg-size) + 2px);
 }
 .segmented-indicator.pos-graph {
   left: calc(var(--seg-padding) + var(--seg-size) * 2 + 4px);
-}
-.segmented-indicator.pos-table {
-  left: calc(var(--seg-padding) + var(--seg-size) * 3 + 6px);
 }
 
 .segment-btn {
@@ -4310,10 +4422,20 @@ onBeforeUnmount(() => {
   transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 
+:global(.dark-mode) .toolbar-item {
+  color: #cbd5e1;
+}
+
 .toolbar-item:hover:not(:disabled) {
   background-color: var(--segmented-indicator-bg);
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+:global(.dark-mode) .toolbar-item:hover:not(:disabled),
+:global(.dark-mode) .toolbar-item.active {
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.10);
 }
 
 .toolbar-item:active:not(:disabled) {
@@ -5063,22 +5185,37 @@ body.utools-mode {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-panel);
+  border: 1.5px solid var(--border-color, #cbd5e1);
+  background-color: var(--bg-panel, #ffffff);
   color: var(--text-secondary);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  opacity: 0.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  opacity: 0.85;
   transition: all 0.2s ease;
+}
+
+:global(.dark-mode) .scroll-control-btn {
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  background-color: #242429;
+  color: #abb2bf;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  opacity: 0.9;
 }
 
 .scroll-control-btn:hover {
   opacity: 1;
   color: var(--primary-color);
-  border-color: var(--primary-color);
+  border-color: var(--primary-color) !important;
   background-color: var(--bg-panel);
-  box-shadow: 0 4px 12px var(--primary-light);
+  box-shadow: 0 0 0 2px var(--primary-light), 0 4px 12px rgba(0, 0, 0, 0.15);
   transform: translateY(-1px);
+}
+
+:global(.dark-mode) .scroll-control-btn:hover {
+  color: #38bdf8;
+  border-color: #38bdf8 !important;
+  background-color: #2a2a30;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25), 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .scroll-control-btn:active {

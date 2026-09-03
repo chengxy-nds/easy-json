@@ -1375,8 +1375,8 @@ const rightLinesCount = computed(() => {
 const alignedDiff = computed(() => {
   const tab = activeTab.value
   if (!tab) return []
-  const original = getFormattedText(tab.leftText)
-  const modified = getFormattedText(tab.rightText)
+  const original = tab.leftText || ''
+  const modified = tab.rightText || ''
   
   const options = {
     ignoreCase: caseInsensitive.value,
@@ -2423,21 +2423,28 @@ onMounted(() => {
 }
 
 .edit-textarea {
-  flex-grow: 1;
-  border: none;
-  background-color: transparent;
-  color: var(--text-primary);
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 8px 12px;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
-  padding: 8px 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: hidden;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background-color: transparent !important;
+  color: transparent !important;
+  caret-color: var(--text-primary);
+  border: none;
   outline: none;
   resize: none;
-  white-space: pre;
-  overflow: auto;
-  box-sizing: border-box;
-  height: 100%;
-  min-width: 0;
+  text-align: left;
 }
 
 .input-error-banner {
@@ -2579,21 +2586,23 @@ onMounted(() => {
   background-color: transparent;
 }
 
-/* Character level word highlighting */
+/* Character level word highlighting (Zero Layout Shift) */
 :deep(.word-added), .word-added {
   background-color: var(--diff-added-word-bg);
-  border-radius: 3px;
-  padding: 1px 2px;
-  font-weight: 500;
+  border-radius: 2px;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-weight: inherit !important;
   box-shadow: 0 0 0 1px var(--diff-added-border);
 }
 
 :deep(.word-removed), .word-removed {
   background-color: var(--diff-removed-word-bg);
-  border-radius: 3px;
-  padding: 1px 2px;
-  font-weight: 500;
-  text-decoration: line-through;
+  border-radius: 2px;
+  padding: 0 !important;
+  margin: 0 !important;
+  font-weight: inherit !important;
+  text-decoration: none !important;
   box-shadow: 0 0 0 1px var(--diff-removed-border);
 }
 
@@ -2688,22 +2697,37 @@ onMounted(() => {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 1px solid var(--border-color);
-  background-color: var(--bg-panel);
+  border: 1.5px solid var(--border-color, #cbd5e1);
+  background-color: var(--bg-panel, #ffffff);
   color: var(--text-secondary);
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  opacity: 0.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  opacity: 0.85;
   transition: all 0.2s ease;
+}
+
+:global(.dark-mode) .scroll-control-btn {
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  background-color: #242429;
+  color: #abb2bf;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  opacity: 0.9;
 }
 
 .scroll-control-btn:hover {
   opacity: 1;
   color: var(--primary-color);
-  border-color: var(--primary-color);
+  border-color: var(--primary-color) !important;
   background-color: var(--bg-panel);
-  box-shadow: 0 4px 12px var(--primary-light);
+  box-shadow: 0 0 0 2px var(--primary-light), 0 4px 12px rgba(0, 0, 0, 0.15);
   transform: translateY(-1px);
+}
+
+:global(.dark-mode) .scroll-control-btn:hover {
+  color: #38bdf8;
+  border-color: #38bdf8 !important;
+  background-color: #2a2a30;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25), 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
 .scroll-control-btn:active {

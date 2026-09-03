@@ -70,9 +70,9 @@
   --bg-header: #313136;
   --border-color: #404046;
   --border-color-active: #63636b;
-  --text-primary: #e4e4e7;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #8b949e;
 
   --primary-color: #4fc1ff;
   --primary-light: rgba(79, 193, 255, 0.1);
@@ -995,7 +995,6 @@ html.popup-mode .editor-line {
 .mask-preview-pre .json-key,
 .node-key {
   color: #a31515;
-  font-weight: 500;
 }
 
 /* warm VSCode red */
@@ -1047,40 +1046,39 @@ html.popup-mode .editor-line {
   color: var(--text-muted);
 }
 
-/* Dark mode — VSCode / json4u dark theme */
+/* Dark mode — Premium palette (Brightened + One Dark / Modern IDE style) */
 .dark-mode .editor-highlight .json-key,
 .dark-mode .output-pre .json-key,
 .dark-mode .mask-preview-pre .json-key,
 .dark-mode .node-key {
-  color: #fb923c;
-  font-weight: 400;
+  color: #79c0ff;
 }
 
-/* orange-400 */
+/* bright sky cyan */
 .dark-mode .editor-highlight .json-string,
 .dark-mode .output-pre .json-string,
 .dark-mode .mask-preview-pre .json-string,
 .dark-mode .tree-string {
-  color: #60a5fa;
+  color: #cbd5e1;
 }
 
-/* blue-400 */
+/* bright slate silver */
 .dark-mode .editor-highlight .json-number,
 .dark-mode .output-pre .json-number,
 .dark-mode .mask-preview-pre .json-number,
 .dark-mode .tree-number {
-  color: #fb923c;
+  color: #e5c07b;
 }
 
-/* orange-400 */
+/* bright warm gold-amber */
 .dark-mode .editor-highlight .json-boolean,
 .dark-mode .output-pre .json-boolean,
 .dark-mode .mask-preview-pre .json-boolean,
 .dark-mode .tree-boolean {
-  color: #60a5fa;
+  color: #d2a8ff;
 }
 
-/* blue-400 */
+/* bright luminous lilac */
 .dark-mode .editor-highlight .json-null,
 .dark-mode .output-pre .json-null,
 .dark-mode .mask-preview-pre .json-null,
@@ -1088,15 +1086,15 @@ html.popup-mode .editor-line {
   color: #94a3b8;
 }
 
-/* slate-400 */
+/* slate gray */
 .dark-mode .editor-highlight .json-bracket,
 .dark-mode .output-pre .json-bracket,
 .dark-mode .mask-preview-pre .json-bracket,
 .dark-mode .node-bracket {
-  color: #4ade80;
+  color: #cbd5e1;
 }
 
-/* green-400 */
+/* silver bracket */
 .dark-mode .editor-highlight .json-colon,
 .dark-mode .output-pre .json-colon,
 .dark-mode .mask-preview-pre .json-colon,
@@ -1151,7 +1149,6 @@ html.popup-mode .editor-line {
 .one-dark-syntax .mask-preview-pre .json-key,
 .one-dark-syntax .node-key {
   color: #7c3aed !important;
-  font-weight: 500 !important;
 }
 
 /* violet */
@@ -1197,53 +1194,53 @@ html.popup-mode .editor-line {
 
 /* near-black */
 
-/* Dark mode */
+/* Dark mode — One Dark syntax (Brightened 1-shade) */
 .dark-mode.one-dark-syntax .editor-highlight .json-key,
 .dark-mode.one-dark-syntax .output-pre .json-key,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-key,
 .dark-mode.one-dark-syntax .node-key {
-  color: #c678dd !important;
+  color: #d2a8ff !important;
   font-weight: 400 !important;
 }
 
-/* purple */
+/* bright purple */
 .dark-mode.one-dark-syntax .editor-highlight .json-string,
 .dark-mode.one-dark-syntax .output-pre .json-string,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-string,
 .dark-mode.one-dark-syntax .tree-string {
-  color: #98c379 !important;
+  color: #a8d989 !important;
 }
 
-/* green */
+/* bright mint green */
 .dark-mode.one-dark-syntax .editor-highlight .json-number,
 .dark-mode.one-dark-syntax .output-pre .json-number,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-number,
 .dark-mode.one-dark-syntax .tree-number {
-  color: #d19a66 !important;
+  color: #e5c07b !important;
 }
 
-/* orange */
+/* bright warm gold-orange */
 .dark-mode.one-dark-syntax .editor-highlight .json-boolean,
 .dark-mode.one-dark-syntax .output-pre .json-boolean,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-boolean,
 .dark-mode.one-dark-syntax .tree-boolean {
-  color: #56b6c2 !important;
+  color: #70d5e2 !important;
 }
 
-/* teal */
+/* bright cyan-teal */
 .dark-mode.one-dark-syntax .editor-highlight .json-null,
 .dark-mode.one-dark-syntax .output-pre .json-null,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-null,
 .dark-mode.one-dark-syntax .tree-null {
-  color: #5c6370 !important;
+  color: #7a889b !important;
 }
 
-/* gray */
+/* slate gray */
 .dark-mode.one-dark-syntax .editor-highlight .json-bracket,
 .dark-mode.one-dark-syntax .output-pre .json-bracket,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-bracket,
 .dark-mode.one-dark-syntax .node-bracket {
-  color: #abb2bf !important;
+  color: #cbd5e1 !important;
 }
 
 /* light gray */
@@ -1290,39 +1287,39 @@ html.popup-mode .editor-line {
 /* One Dark — convert highlighting (dark) */
 .dark-mode.one-dark-syntax .hl-tag,
 .dark-mode.one-dark-syntax .hl-key {
-  color: #c678dd !important;
+  color: #d2a8ff !important;
 }
 
-/* purple */
+/* bright purple */
 .dark-mode.one-dark-syntax .hl-attr,
 .dark-mode.one-dark-syntax .hl-num {
-  color: #d19a66 !important;
+  color: #e5c07b !important;
 }
 
-/* orange */
+/* bright orange */
 .dark-mode.one-dark-syntax .hl-comment {
-  color: #5c6370 !important;
+  color: #7a889b !important;
 }
 
 /* gray */
 .dark-mode.one-dark-syntax .hl-string {
-  color: #98c379 !important;
+  color: #a8d989 !important;
 }
 
-/* green */
+/* bright green */
 .dark-mode.one-dark-syntax .hl-kw,
 .dark-mode.one-dark-syntax .hl-bool {
-  color: #56b6c2 !important;
+  color: #70d5e2 !important;
 }
 
-/* teal */
+/* bright teal */
 .dark-mode.one-dark-syntax .hl-section {
-  color: #abb2bf !important;
+  color: #cbd5e1 !important;
 }
 
 /* light gray */
 .dark-mode.one-dark-syntax .hl-type {
-  color: #abb2bf !important;
+  color: #cbd5e1 !important;
 }
 
 /* light gray */
@@ -1339,13 +1336,13 @@ html.popup-mode .editor-line {
 }
 
 .dark-mode {
-  --json-key: #fb923c;
-  --json-string: #60a5fa;
-  --json-number: #fb923c;
-  --json-boolean: #60a5fa;
+  --json-key: #79c0ff;
+  --json-string: #cbd5e1;
+  --json-number: #e5c07b;
+  --json-boolean: #d2a8ff;
   --json-null: #94a3b8;
-  --json-bracket: #4ade80;
-  --json-hover-bg: rgba(251, 146, 60, 0.22);
+  --json-bracket: #cbd5e1;
+  --json-hover-bg: rgba(121, 192, 255, 0.16);
 }
 
 .one-dark-syntax {
@@ -1359,13 +1356,13 @@ html.popup-mode .editor-line {
 }
 
 .dark-mode.one-dark-syntax {
-  --json-key: #c678dd;
-  --json-string: #98c379;
-  --json-number: #d19a66;
-  --json-boolean: #56b6c2;
-  --json-null: #5c6370;
-  --json-bracket: #abb2bf;
-  --json-hover-bg: rgba(198, 120, 221, 0.25);
+  --json-key: #d2a8ff;
+  --json-string: #a8d989;
+  --json-number: #e5c07b;
+  --json-boolean: #70d5e2;
+  --json-null: #7a889b;
+  --json-bracket: #cbd5e1;
+  --json-hover-bg: rgba(210, 168, 255, 0.22);
 }
 
 /* Search Highlight Styling (Zero layout-shift: using paint-layer expansion to preserve exact textarea alignment) */
@@ -1690,11 +1687,64 @@ mark.search-match-current {
   animation: lineBlink 1.5s ease-out !important;
 }
 
+@keyframes tokenBlink {
+  0% {
+    background-color: rgba(249, 115, 22, 0.45);
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+.token-highlight-blink {
+  animation: tokenBlink 1.5s ease-out !important;
+}
+
+/* ── Left Editor Line & Token Selection (Premium Glow) ── */
+
+/* 1. Full line background & indicator bar */
+.editor-line.is-selected-line {
+  background-color: rgba(249, 115, 22, 0.16) !important;
+  box-shadow: inset 3px 0 0 #f97316 !important;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.dark-mode .editor-line.is-selected-line {
+  background-color: rgba(97, 175, 239, 0.20) !important;
+  box-shadow: inset 3.5px 0 0 #61afef, 0 0 12px rgba(97, 175, 239, 0.15) !important;
+}
+
+/* 2. Selected Key or Value Token (Zero layout-shift: padding 0 with paint-layer glow to preserve exact textarea alignment) */
+.editor-highlight .token-highlight-selected,
+.output-pre .token-highlight-selected {
+  background-color: rgba(249, 115, 22, 0.28) !important;
+  border-radius: 2px !important;
+  font-weight: inherit !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.28) !important;
+  border: none !important;
+  transition: background-color 0.15s ease !important;
+}
+
+.dark-mode .editor-highlight .token-highlight-selected,
+.dark-mode .output-pre .token-highlight-selected {
+  background-color: rgba(97, 175, 239, 0.35) !important;
+  box-shadow: 0 0 0 1px rgba(97, 175, 239, 0.35) !important;
+  border: none !important;
+}
+
 /* Hover-to-highlight line style */
 .editor-line.line-highlight-hover {
-  background-color: rgba(249, 115, 22, 0.15) !important;
+  background-color: rgba(249, 115, 22, 0.10) !important;
   box-shadow: inset 2.5px 0 0 #f97316 !important;
   transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.dark-mode .editor-line.line-highlight-hover {
+  background-color: rgba(97, 175, 239, 0.10) !important;
+  box-shadow: inset 2.5px 0 0 #61afef !important;
 }
 
 /* ── Mask Preview Line & Row Highlights (Global for v-html in Modal) ── */

@@ -143,7 +143,7 @@ const layout = computed(() => {
     const nodeId = JSON.stringify(path)
 
     const cardEntries = entries.map(([k, v], idx) => {
-      const isComplex = v !== null && typeof v === 'object'
+      const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
       const childPath = [...path, isArray ? Number(k) : k]
       const childNodeId = isComplex ? JSON.stringify(childPath) : null
 
@@ -553,7 +553,11 @@ const graphViewStyle = computed(() => {
         }"
         @click="emitClick(node.path)"
       >
+        <div v-if="node.entries.length === 0" class="card-row card-row--empty" :style="{ height: CARD_ROW_H + 'px', padding: '0 8px', display: 'flex', alignItems: 'center' }">
+          <span class="card-key node-key root-key--complex">{{ node.isArray ? '[] (空数组)' : '{} (空对象)' }}</span>
+        </div>
         <div
+          v-else
           v-for="entry in node.entries"
           :key="entry.key"
           class="card-row"
@@ -747,7 +751,7 @@ const graphViewStyle = computed(() => {
 
 .card-key {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 14px;
   color: var(--json-key);
   min-width: 60px;
   max-width: 300px;
@@ -768,18 +772,16 @@ const graphViewStyle = computed(() => {
 }
 .card-key--index {
   color: var(--json-number, #2563eb);
-  font-weight: 600;
   min-width: auto !important;
 }
 :global(.dark-mode) .card-key--index {
   color: var(--json-number, #60a5fa);
 }
 .root-key--complex {
-  font-weight: 500;
 }
 .card-val {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--text-secondary);
   flex: 1;
   min-width: 0;
@@ -797,7 +799,7 @@ const graphViewStyle = computed(() => {
   line-height: 1.2;
 }
 .cval-string  { color: var(--json-string); }
-.cval-number  { color: var(--json-number); font-weight: 600; }
+.cval-number  { color: var(--json-number); }
 .cval-boolean {
   font-weight: 600;
 }
@@ -820,11 +822,11 @@ const graphViewStyle = computed(() => {
 }
 .cval-array {
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: 500;
 }
 .cval-object {
   color: var(--text-secondary);
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* ── Controls ── */
