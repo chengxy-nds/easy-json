@@ -4,9 +4,9 @@ import { useTabsDrag } from '../composables/useTabsDrag'
 import {
   Copy, Download, UploadCloud, Check, Trash2,
   AlertTriangle, Braces, Eye, EyeOff, FileJson, ArrowRightLeft, Shuffle,
-  ChevronDown, ChevronRight, ChevronUp, HelpCircle, Minimize2, Code, Search, Plus, X,
+  ChevronDown, ChevronRight, ChevronUp, ChevronLeft, HelpCircle, Minimize2, Code, Search, Plus, X,
   Network, Table2, Menu, FileCode, Maximize2, Strikethrough, ListTree,
-  Pencil, ArrowLeft, ArrowRight, Wand2, GripVertical,
+  Pencil, ArrowLeft, ArrowRight, Wand2, GripVertical, ArrowLeftToLine, ArrowRightToLine, MoreHorizontal,
   ShieldCheck, Workflow,
   Smartphone, IdCard, Mail, CreditCard, Globe,
   Car, Building2, BookUser, Database
@@ -676,23 +676,6 @@ watch([selectedPath, selectedType], ([newPath, newType]) => {
   }
 }, { immediate: true })
 
-watch(() => activeTab.value?.viewMode, (mode) => {
-  const container = inputHighlightRef.value
-  if (!container) return
-  const prevSelected = container.querySelectorAll('.token-highlight-selected, .is-selected-line, .line-highlight-hover')
-  prevSelected.forEach(el => el.classList.remove('token-highlight-selected', 'is-selected-line', 'line-highlight-hover'))
-  
-  if ((mode === 'graph' || mode === 'table') && selectedPath.value) {
-    const p = selectedPath.value
-    const t = selectedType.value
-    selectedPath.value = null
-    nextTick(() => {
-      selectedPath.value = p
-      selectedType.value = t
-    })
-  }
-})
-
 const DEMO_JSON = `{
   "name": "easyJSON",
   "version": "1.0.0",
@@ -741,6 +724,23 @@ const { tabsListRef, tabsOverflow, onMouseDown: onTabsMouseDown, onWheel: onTabs
 
 const activeTab = computed(() => {
   return tabs.value.find(t => t.id === activeTabId.value) || tabs.value[0]
+})
+
+watch(() => activeTab.value?.viewMode, (mode) => {
+  const container = inputHighlightRef.value
+  if (!container) return
+  const prevSelected = container.querySelectorAll('.token-highlight-selected, .is-selected-line, .line-highlight-hover')
+  prevSelected.forEach(el => el.classList.remove('token-highlight-selected', 'is-selected-line', 'line-highlight-hover'))
+  
+  if ((mode === 'graph' || mode === 'table') && selectedPath.value) {
+    const p = selectedPath.value
+    const t = selectedType.value
+    selectedPath.value = null
+    nextTick(() => {
+      selectedPath.value = p
+      selectedType.value = t
+    })
+  }
 })
 
 
@@ -1212,15 +1212,40 @@ const updateShowOutput = () => {
 
 const workspaceGridRef = ref(null)
 const splitPercent = ref(45)
+const lastNormalSplitPercent = ref(45)
 const isDraggingSplitter = ref(false)
+const dragSnapSide = ref(null) // 'left' | 'right' | null
+
+const isLeftCollapsed = computed(() => showOutput.value && splitPercent.value <= 0.5)
+const isRightCollapsed = computed(() => showOutput.value && splitPercent.value >= 99.5)
+
+watch(showOutput, (newVal) => {
+  if (!newVal && splitPercent.value <= 0.5) {
+    splitPercent.value = lastNormalSplitPercent.value || 45
+  }
+})
+
+const hideOutput = () => {
+  showOutput.value = false
+  if (splitPercent.value <= 0.5) {
+    splitPercent.value = lastNormalSplitPercent.value || 45
+  }
+}
 
 // 恢复已保存的分栏比例
 try {
   const savedRatio = localStorage.getItem('ej_fmt_split_ratio')
   if (savedRatio) {
     const num = parseFloat(savedRatio)
-    if (!isNaN(num) && num >= 15 && num <= 85) {
-      splitPercent.value = num
+    if (!isNaN(num)) {
+      if (num <= 0.5) {
+        splitPercent.value = 0
+      } else if (num >= 99.5) {
+        splitPercent.value = 100
+      } else if (num >= 15 && num <= 85) {
+        splitPercent.value = num
+        lastNormalSplitPercent.value = num
+      }
     }
   }
 } catch (e) {}
@@ -1229,6 +1254,12 @@ const gridStyle = computed(() => {
   if (!showOutput.value) {
     return { gridTemplateColumns: '1fr' }
   }
+  if (isLeftCollapsed.value) {
+    return { gridTemplateColumns: '0px 6px 1fr' }
+  }
+  if (isRightCollapsed.value) {
+    return { gridTemplateColumns: '1fr 6px 0px' }
+  }
   return {
     gridTemplateColumns: `${splitPercent.value}% 1px 1fr`
   }
@@ -1236,10 +1267,45 @@ const gridStyle = computed(() => {
 
 const resetSplitRatio = () => {
   splitPercent.value = 45
+  lastNormalSplitPercent.value = 45
   try {
     localStorage.setItem('ej_fmt_split_ratio', '45')
   } catch (e) {}
   if (showToast) showToast('分栏比例已重置为 45:55')
+}
+
+const handleSplitterClick = () => {
+  if (isDraggingSplitter.value) return
+  if (isLeftCollapsed.value || isRightCollapsed.value) {
+    splitPercent.value = lastNormalSplitPercent.value || 45
+    try {
+      localStorage.setItem('ej_fmt_split_ratio', String(splitPercent.value))
+    } catch (e) {}
+  }
+}
+
+// 拖拽开始与计算
+const calculateDrag = (offsetX, totalWidth) => {
+  if (totalWidth <= 0) return
+  const rawPercent = (offsetX / totalWidth) * 100
+  
+  // Snap 判定阈值：靠近左侧 65px (或 < 8%) 触发左折叠预备态，靠近右侧 65px (或 > 92%) 触发右折叠预备态
+  const snapThresholdPx = 65
+  const isSnapLeft = offsetX < snapThresholdPx || rawPercent < 8
+  const isSnapRight = (totalWidth - offsetX) < snapThresholdPx || rawPercent > 92
+
+  if (isSnapLeft) {
+    dragSnapSide.value = 'left'
+    splitPercent.value = 0
+  } else if (isSnapRight) {
+    dragSnapSide.value = 'right'
+    splitPercent.value = 100
+  } else {
+    dragSnapSide.value = null
+    const clamped = Math.max(12, Math.min(88, rawPercent))
+    splitPercent.value = Math.round(clamped * 10) / 10
+    lastNormalSplitPercent.value = splitPercent.value
+  }
 }
 
 const startSplitterDrag = (e) => {
@@ -1252,11 +1318,7 @@ const startSplitterDrag = (e) => {
     if (!workspaceGridRef.value) return
     const rect = workspaceGridRef.value.getBoundingClientRect()
     const offsetX = moveEvent.clientX - rect.left
-    const totalWidth = rect.width
-    if (totalWidth <= 0) return
-
-    const rawPercent = (offsetX / totalWidth) * 100
-    splitPercent.value = clampSplitPercent(rawPercent, totalWidth)
+    calculateDrag(offsetX, rect.width)
   }
 
   const onMouseUp = () => {
@@ -1265,6 +1327,16 @@ const startSplitterDrag = (e) => {
     document.body.style.userSelect = ''
     window.removeEventListener('mousemove', onMouseMove)
     window.removeEventListener('mouseup', onMouseUp)
+
+    if (dragSnapSide.value === 'left') {
+      splitPercent.value = 0
+    } else if (dragSnapSide.value === 'right') {
+      splitPercent.value = 100
+    } else {
+      splitPercent.value = Math.max(15, Math.min(85, splitPercent.value))
+      lastNormalSplitPercent.value = splitPercent.value
+    }
+    dragSnapSide.value = null
 
     try {
       localStorage.setItem('ej_fmt_split_ratio', String(splitPercent.value))
@@ -1284,11 +1356,7 @@ const startSplitterTouch = (e) => {
     const touch = moveEvent.touches[0]
     const rect = workspaceGridRef.value.getBoundingClientRect()
     const offsetX = touch.clientX - rect.left
-    const totalWidth = rect.width
-    if (totalWidth <= 0) return
-
-    const rawPercent = (offsetX / totalWidth) * 100
-    splitPercent.value = clampSplitPercent(rawPercent, totalWidth)
+    calculateDrag(offsetX, rect.width)
   }
 
   const onTouchEnd = () => {
@@ -1296,6 +1364,16 @@ const startSplitterTouch = (e) => {
     window.removeEventListener('touchmove', onTouchMove)
     window.removeEventListener('touchend', onTouchEnd)
     window.removeEventListener('touchcancel', onTouchEnd)
+
+    if (dragSnapSide.value === 'left') {
+      splitPercent.value = 0
+    } else if (dragSnapSide.value === 'right') {
+      splitPercent.value = 100
+    } else {
+      splitPercent.value = Math.max(15, Math.min(85, splitPercent.value))
+      lastNormalSplitPercent.value = splitPercent.value
+    }
+    dragSnapSide.value = null
 
     try {
       localStorage.setItem('ej_fmt_split_ratio', String(splitPercent.value))
@@ -1307,15 +1385,119 @@ const startSplitterTouch = (e) => {
   window.addEventListener('touchcancel', onTouchEnd)
 }
 
+const showMoreToolsMenu = ref(false)
+const moreToolsMenuRef = ref(null)
+const leftPanelRef = ref(null)
+const leftPanelWidth = ref(800)
+let leftResizeObserver = null
+
+const importDropdownRef = ref(null)
+
+const handleOpenImportFromMore = () => {
+  const anchor = moreToolsMenuRef.value
+  showMoreToolsMenu.value = false
+  nextTick(() => {
+    importDropdownRef.value?.openPanel(anchor)
+  })
+}
+
+// ─── 渐进式响应式工具栏定义（按空间优先级逐个收纳到“更多”下拉菜单） ───
+const toolbarToolDefs = [
+  { id: 'format', label: '格式化', icon: Braces, tooltip: '格式化', minWidth: 0 },
+  { id: 'minify', label: '压缩', icon: Minimize2, tooltip: '压缩 JSON', minWidth: 235 },
+  { id: 'escape', label: '转义', icon: Code, tooltip: '转义 JSON', minWidth: 280 },
+  { id: 'unescape', label: '去转义', icon: FileCode, tooltip: '去转义 JSON', minWidth: 330 },
+  { id: 'import', label: '导入', icon: UploadCloud, tooltip: '导入数据 (文件/cURL/URL)', minWidth: 380, isImport: true },
+  { id: 'extract', label: '提取', icon: Wand2, tooltip: '智能提取 JSON', minWidth: 430 },
+  { id: 'removeComments', label: '去注释', icon: Strikethrough, tooltip: '去除 JSON 注释', minWidth: 480 },
+  { id: 'jsonpath', label: 'JSONPath', icon: Workflow, tooltip: 'JSONPath 表达式提取', minWidth: 540, active: () => showJsonPathBar.value },
+  { id: 'mask', label: '脱敏', icon: ShieldCheck, tooltip: '智能数据脱敏', minWidth: 600 }
+]
+
+const handleToolAction = (toolId) => {
+  switch (toolId) {
+    case 'format': handleFormatDirect(); break;
+    case 'minify': handleMinifyDirect(); break;
+    case 'escape': handleEscape(); break;
+    case 'unescape': handleUnescape(); break;
+    case 'import': handleOpenImportFromMore(); break;
+    case 'extract': handleExtract(); break;
+    case 'removeComments': handleRemoveComments(); break;
+    case 'jsonpath': toggleJsonPathBar(); break;
+    case 'mask': openDataMaskModal(); break;
+  }
+}
+
+const toolThresholds = {
+  format: 0,
+  minify: 235,
+  escape: 280,
+  unescape: 330,
+  import: 380,
+  extract: 430,
+  removeComments: 480,
+  jsonpath: 540,
+  mask: 600
+}
+
+const isToolVisible = (toolIdOrObj) => {
+  const w = leftPanelWidth.value || 800
+  if (typeof toolIdOrObj === 'string') {
+    return w >= (toolThresholds[toolIdOrObj] ?? 0)
+  }
+  return w >= (toolIdOrObj?.minWidth ?? 0)
+}
+
+const overflowTools = computed(() => {
+  return toolbarToolDefs.filter(t => !isToolVisible(t))
+})
+
+const showRightActions = computed(() => {
+  const w = leftPanelWidth.value || 800
+  return w >= 390
+})
+
+const showMoreMenuButton = computed(() => {
+  return overflowTools.value.length > 0 || !showRightActions.value
+})
+
+const isUltraNarrow = computed(() => {
+  // < 350px 极窄模式：工具切换为纯图标紧凑模式
+  return leftPanelWidth.value > 0 && leftPanelWidth.value < 350
+})
+
+const handleClickOutsideMoreTools = (e) => {
+  if (moreToolsMenuRef.value && !moreToolsMenuRef.value.contains(e.target)) {
+    showMoreToolsMenu.value = false
+  }
+}
+
 onMounted(() => {
   if (window.__UTOOLS__) {
     showOutput.value = false
   }
   window.addEventListener('resize', updateShowOutput)
+  document.addEventListener('click', handleClickOutsideMoreTools)
+
+  if (leftPanelRef.value) {
+    leftResizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect) {
+          leftPanelWidth.value = entry.contentRect.width
+        }
+      }
+    })
+    leftResizeObserver.observe(leftPanelRef.value)
+  }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', updateShowOutput)
+  document.removeEventListener('click', handleClickOutsideMoreTools)
+  if (leftResizeObserver) {
+    leftResizeObserver.disconnect()
+    leftResizeObserver = null
+  }
 })
 
 let formatGuard = false // prevents re-entry when formatJSON updates inputText
@@ -3140,17 +3322,17 @@ onBeforeUnmount(() => {
     <!-- Tab Context Menu -->
     <Teleport to="body">
       <div
-        v-if="tabContextMenu.visible"
+        v-if="tabContextMenu?.visible"
         class="tab-context-menu"
-        :style="{ left: tabContextMenu.x + 'px', top: tabContextMenu.y + 'px' }"
+        :style="{ left: (tabContextMenu?.x || 0) + 'px', top: (tabContextMenu?.y || 0) + 'px' }"
       >
-        <button @click="closeTab(tabContextMenu.tabId)" :disabled="tabs.length <= 1"><X class="ctx-icon" />关闭</button>
+        <button @click="closeTab(tabContextMenu?.tabId)" :disabled="tabs.length <= 1"><X class="ctx-icon" />关闭</button>
         <button @click="closeOtherTabs" :disabled="tabs.length <= 1"><X class="ctx-icon" />关闭其他</button>
-        <button @click="closeLeftTabs" :disabled="tabs.findIndex(t => t.id === tabContextMenu.tabId) === 0"><ArrowLeft class="ctx-icon" />关闭左侧</button>
-        <button @click="closeRightTabs" :disabled="tabs.findIndex(t => t.id === tabContextMenu.tabId) === tabs.length - 1"><ArrowRight class="ctx-icon" />关闭右侧</button>
+        <button @click="closeLeftTabs" :disabled="tabs.findIndex(t => t.id === tabContextMenu?.tabId) === 0"><ArrowLeft class="ctx-icon" />关闭左侧</button>
+        <button @click="closeRightTabs" :disabled="tabs.findIndex(t => t.id === tabContextMenu?.tabId) === tabs.length - 1"><ArrowRight class="ctx-icon" />关闭右侧</button>
         <button @click="closeAllTabs" :disabled="tabs.length <= 1"><Trash2 class="ctx-icon" />关闭全部</button>
         <div class="context-menu-divider"></div>
-        <button @click="startEditTab(tabContextMenu.tabId); tabContextMenu.visible = false"><Pencil class="ctx-icon" />重命名</button>
+        <button @click="startEditTab(tabContextMenu?.tabId); if (tabContextMenu) tabContextMenu.visible = false"><Pencil class="ctx-icon" />重命名</button>
       </div>
     </Teleport>
 
@@ -3165,48 +3347,51 @@ onBeforeUnmount(() => {
       @drop.prevent="onDrop"
     >
       <!-- Input Panel -->
-      <div class="editor-panel">
+      <div ref="leftPanelRef" class="editor-panel" :class="{ 'is-collapsed': isLeftCollapsed, 'is-ultra-narrow': isUltraNarrow }">
         <div class="panel-header">
           <div class="toolbar-actions">
+            <!-- 1. 格式化（常驻） -->
             <button class="toolbar-item" @click="handleFormatDirect" data-tooltip-bottom-left="格式化">
               <Braces class="toolbar-icon" />
               <span class="toolbar-label">格式化</span>
             </button>
-            <button class="toolbar-item" @click="handleMinifyDirect" data-tooltip-bottom="压缩 JSON">
+
+            <!-- 2. 压缩 -->
+            <button v-if="isToolVisible('minify')" class="toolbar-item" @click="handleMinifyDirect" data-tooltip-bottom="压缩 JSON">
               <Minimize2 class="toolbar-icon" />
               <span class="toolbar-label">压缩</span>
             </button>
-            <button class="toolbar-item" @click="handleEscape" data-tooltip-bottom="转义 JSON">
+
+            <!-- 3. 转义 -->
+            <button v-if="isToolVisible('escape')" class="toolbar-item" @click="handleEscape" data-tooltip-bottom="转义 JSON">
               <Code class="toolbar-icon" />
               <span class="toolbar-label">转义</span>
             </button>
-            <button class="toolbar-item" @click="handleUnescape" data-tooltip-bottom="去转义 JSON">
+
+            <!-- 4. 去转义 -->
+            <button v-if="isToolVisible('unescape')" class="toolbar-item" @click="handleUnescape" data-tooltip-bottom="去转义 JSON">
               <FileCode class="toolbar-icon" />
               <span class="toolbar-label">去转义</span>
             </button>
-            <button class="toolbar-item" @click="handleExtract" data-tooltip-bottom="智能提取 JSON">
+
+            <!-- 5. 导入 (平铺时显示，收纳时仅保留弹窗实例) -->
+            <ImportDropdown ref="importDropdownRef" :hide-trigger="!isToolVisible('import')" @import-text="handleImportText" />
+
+            <!-- 6. 提取 -->
+            <button v-if="isToolVisible('extract')" class="toolbar-item" @click="handleExtract" data-tooltip-bottom="智能提取 JSON">
               <Wand2 class="toolbar-icon" />
               <span class="toolbar-label">提取</span>
             </button>
 
-            <div class="toolbar-divider"></div>
-
-            <button class="toolbar-item" @click="handleRemoveComments" data-tooltip-bottom="去除 JSON 注释">
+            <!-- 7. 去注释 -->
+            <button v-if="isToolVisible('removeComments')" class="toolbar-item" @click="handleRemoveComments" data-tooltip-bottom="去除 JSON 注释">
               <Strikethrough class="toolbar-icon" />
               <span class="toolbar-label">去注释</span>
             </button>
 
-            <!-- 导入按钮 + 下拉面板 -->
-            <ImportDropdown @import-text="handleImportText" />
-
-            <!-- 智能数据脱敏 -->
-            <button class="toolbar-item" @click="openDataMaskModal" data-tooltip-bottom="智能数据脱敏">
-              <ShieldCheck class="toolbar-icon" />
-              <span class="toolbar-label">脱敏</span>
-            </button>
-
-            <!-- JSONPath 表达式提取 -->
+            <!-- 8. JSONPath -->
             <button 
+              v-if="isToolVisible('jsonpath')"
               class="toolbar-item" 
               :class="{ active: showJsonPathBar }" 
               @click.stop="toggleJsonPathBar" 
@@ -3215,6 +3400,59 @@ onBeforeUnmount(() => {
               <Workflow class="toolbar-icon" />
               <span class="toolbar-label">JSONPath</span>
             </button>
+
+            <!-- 9. 脱敏 -->
+            <button v-if="isToolVisible('mask')" class="toolbar-item" @click="openDataMaskModal" data-tooltip-bottom="智能数据脱敏">
+              <ShieldCheck class="toolbar-icon" />
+              <span class="toolbar-label">脱敏</span>
+            </button>
+
+            <!-- 渐进式更多工具下拉（只要有工具被收起就动态出现） -->
+            <div v-if="showMoreMenuButton" class="more-tools-dropdown" ref="moreToolsMenuRef">
+              <button 
+                class="toolbar-item more-tools-trigger" 
+                :class="{ active: showMoreToolsMenu || (showJsonPathBar && !isToolVisible('jsonpath')) }"
+                @click.stop="showMoreToolsMenu = !showMoreToolsMenu"
+                data-tooltip-bottom="更多工具"
+              >
+                <MoreHorizontal class="toolbar-icon" />
+                <span class="toolbar-label">更多</span>
+                <ChevronDown class="more-arrow-icon" :class="{ 'is-open': showMoreToolsMenu }" />
+              </button>
+
+              <Transition name="fade-dropdown">
+                <div v-if="showMoreToolsMenu" class="more-tools-menu">
+                  <!-- 动态渲染当前被收纳进来的工具项 -->
+                  <template v-for="tool in overflowTools" :key="tool.id">
+                    <button 
+                      class="more-menu-item" 
+                      :class="{ active: tool.id === 'jsonpath' && showJsonPathBar }"
+                      @click="handleToolAction(tool.id); showMoreToolsMenu = false"
+                    >
+                      <component :is="tool.icon" class="more-item-icon" />
+                      <span>{{ tool.id === 'import' ? '导入数据 (文件/cURL/URL)' : (tool.id === 'jsonpath' ? 'JSONPath 表达式提取' : (tool.id === 'extract' ? '智能提取 JSON' : (tool.id === 'removeComments' ? '去除 JSON 注释' : (tool.id === 'mask' ? '智能数据脱敏' : tool.label)))) }}</span>
+                    </button>
+                  </template>
+
+                  <!-- 极窄模式下右侧 3 按钮收纳至此 -->
+                  <template v-if="!showRightActions">
+                    <div v-if="overflowTools.length > 0" class="more-menu-divider"></div>
+                    <button class="more-menu-item" :class="{ active: searchExpanded }" @click="toggleSearch(); showMoreToolsMenu = false">
+                      <Search class="more-item-icon" />
+                      <span>{{ searchExpanded ? '关闭搜索 / 替换' : '搜索 / 替换' }}</span>
+                    </button>
+                    <button class="more-menu-item" @click="copyToClipboard(); showMoreToolsMenu = false" :disabled="!activeTab.outputText">
+                      <Copy class="more-item-icon" />
+                      <span>复制格式化结果</span>
+                    </button>
+                    <button class="more-menu-item danger-item" @click="clearInput(); showMoreToolsMenu = false" :disabled="!activeTab.inputText">
+                      <Trash2 class="more-item-icon" />
+                      <span>清空输入数据</span>
+                    </button>
+                  </template>
+                </div>
+              </Transition>
+            </div>
           </div>
           <div class="header-search-wrapper">
             <button
@@ -3226,49 +3464,66 @@ onBeforeUnmount(() => {
             >
               <Eye class="btn-icon" />
             </button>
-            <button
-              class="action-btn outline icon-only copy-btn"
-              :class="{ 'copy-success-ring': copySuccess }"
-              @click.stop="copyToClipboard"
-              :disabled="!activeTab.outputText"
-              :data-tooltip-bottom="copySuccess ? '已复制' : '复制结果'"
-              style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
-            >
-              <Check v-if="copySuccess" class="btn-icon success-color" />
-              <Copy v-else class="btn-icon" />
-              <!-- Snake border ring -->
-              <svg v-if="copySuccess" class="snake-ring" viewBox="0 0 28 28">
-                <rect x="1" y="1" width="26" height="26" rx="5"
-                  fill="none" stroke="#16a34a" stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-dasharray="20 90"
-                  class="snake-rect" />
-              </svg>
-            </button>
 
-            <button
-              class="action-btn danger icon-only"
-              @click.stop="clearInput"
-              :disabled="!activeTab.inputText"
-              data-tooltip-bottom="清空输入"
-              style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
-            >
-              <Trash2 class="btn-icon" />
-            </button>
+            <!-- 宽屏常驻显示右侧 3 个操作按钮；极窄时完全收敛至“更多”菜单 -->
+            <template v-if="showRightActions">
+              <button
+                class="action-btn outline icon-only copy-btn"
+                :class="{ 'copy-success-ring': copySuccess }"
+                @click.stop="copyToClipboard"
+                :disabled="!activeTab.outputText"
+                :data-tooltip-bottom="copySuccess ? '已复制' : '复制结果'"
+                style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
+              >
+                <Check v-if="copySuccess" class="btn-icon success-color" />
+                <Copy v-else class="btn-icon" />
+                <!-- Snake border ring -->
+                <svg v-if="copySuccess" class="snake-ring" viewBox="0 0 28 28">
+                  <rect x="1" y="1" width="26" height="26" rx="5"
+                    fill="none" stroke="#16a34a" stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-dasharray="20 90"
+                    class="snake-rect" />
+                </svg>
+              </button>
 
-            <button
-              class="action-btn outline icon-only"
-              :class="{ 'active': searchExpanded }"
-              @click.stop="toggleSearch"
-              data-tooltip-bottom-right="搜索 / 替换"
-              style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
-            >
-              <Search class="btn-icon" />
-            </button>
+              <button
+                class="action-btn danger icon-only"
+                @click.stop="clearInput"
+                :disabled="!activeTab.inputText"
+                data-tooltip-bottom="清空输入"
+                style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
+              >
+                <Trash2 class="btn-icon" />
+              </button>
+
+              <button
+                class="action-btn outline icon-only"
+                :class="{ 'active': searchExpanded }"
+                @click.stop="toggleSearch"
+                data-tooltip-bottom-right="搜索 / 替换"
+                style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
+              >
+                <Search class="btn-icon" />
+              </button>
+            </template>
+
+            <!-- 窄屏下若搜索框已展开，保留激活态关闭搜索按钮 -->
+            <template v-else-if="searchExpanded">
+              <button
+                class="action-btn outline icon-only active"
+                @click.stop="toggleSearch"
+                data-tooltip-bottom-right="关闭搜索"
+                style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
+              >
+                <Search class="btn-icon" />
+              </button>
+            </template>
 
             <div
               v-if="searchExpanded"
               class="search-replace-box"
+              :style="{ width: Math.min(310, Math.max(160, (leftPanelWidth || 800) - 16)) + 'px', maxWidth: 'calc(100vw - 20px)' }"
             >
               <!-- Search row -->
               <div class="search-row">
@@ -3318,7 +3573,6 @@ onBeforeUnmount(() => {
           <div v-if="showJsonPathBar" class="jsonpath-inline-bar" @click.stop>
             <!-- 第一行：输入框 + 匹配计数 + 应用 + 复制 + 关闭 -->
             <div class="jp-main-row">
-              <span class="jp-bar-badge">JSONPath</span>
               <input
                 v-model="jsonPathQuery"
                 ref="jsonPathInputRef"
@@ -3424,19 +3678,45 @@ onBeforeUnmount(() => {
       <div
         v-if="showOutput"
         class="pane-splitter"
-        :class="{ active: isDraggingSplitter }"
+        :class="{ 
+          active: isDraggingSplitter,
+          'is-collapsed-left': isLeftCollapsed,
+          'is-collapsed-right': isRightCollapsed,
+          'snap-active-left': dragSnapSide === 'left',
+          'snap-active-right': dragSnapSide === 'right'
+        }"
         @mousedown.prevent="startSplitterDrag"
         @touchstart.prevent="startSplitterTouch"
+        @click="handleSplitterClick"
         @dblclick="resetSplitRatio"
-        title="按住左右拖拽调整宽度（双击重置 45:55）"
+        :title="isLeftCollapsed ? '点击展开左侧编辑区' : isRightCollapsed ? '点击展开右侧视图' : '按住左右拖拽调整宽度（拖到两端折叠，双击重置 45:55）'"
       >
-        <div class="pane-splitter-handle">
-          <GripVertical class="pane-splitter-icon" />
+        <!-- Snap & Percentage Floating Tooltip Badge -->
+        <Transition name="fade-scale">
+          <div v-if="isDraggingSplitter" class="splitter-snap-badge" :class="'badge-' + (dragSnapSide || 'center')">
+            <template v-if="dragSnapSide === 'left'">
+              <ArrowLeftToLine class="snap-badge-icon pulse-left" />
+              <span>松开折叠左侧</span>
+            </template>
+            <template v-else-if="dragSnapSide === 'right'">
+              <span>松开折叠右侧</span>
+              <ArrowRightToLine class="snap-badge-icon pulse-right" />
+            </template>
+            <template v-else>
+              <span>{{ Math.round(splitPercent) }}% : {{ Math.round(100 - splitPercent) }}%</span>
+            </template>
+          </div>
+        </Transition>
+
+        <div class="pane-splitter-handle" :class="{ 'collapsed-handle': isLeftCollapsed || isRightCollapsed }">
+          <ChevronRight v-if="isLeftCollapsed" class="pane-splitter-icon expand-icon" />
+          <ChevronLeft v-else-if="isRightCollapsed" class="pane-splitter-icon expand-icon" />
+          <GripVertical v-else class="pane-splitter-icon" />
         </div>
       </div>
 
       <!-- Output Panel -->
-      <div class="editor-panel" v-if="showOutput">
+      <div class="editor-panel" v-if="showOutput" :class="{ 'is-collapsed': isRightCollapsed }">
         <div class="panel-header">
           <div class="header-left-group">
             <!-- View switch (3 core structural views: Tree, Table, Graph) -->
@@ -3473,7 +3753,7 @@ onBeforeUnmount(() => {
           </div>
           
           <div class="header-actions-group">
-            <button class="action-btn outline icon-only" @click="showOutput = false" data-tooltip-bottom="隐藏输出">
+            <button class="action-btn outline icon-only" @click="hideOutput" data-tooltip-bottom="隐藏输出">
               <EyeOff class="btn-icon" />
             </button>
             <button v-if="activeTab.viewMode === 'tree' || activeTab.viewMode === 'table'" class="action-btn outline icon-only" @click="handleToggleExpand" :data-tooltip-bottom="treeExpanded ? '折叠全部节点' : '展开全部树节点'">
@@ -4008,7 +4288,10 @@ onBeforeUnmount(() => {
   gap: 0;
   flex-grow: 1;
   min-height: 0;
+  height: 100%;
+  width: 100%;
   position: relative;
+  transition: grid-template-columns 0.28s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .workspace-grid.single-panel {
@@ -4017,6 +4300,7 @@ onBeforeUnmount(() => {
 
 .workspace-grid.is-resizing {
   user-select: none;
+  transition: none !important;
 }
 
 .workspace-grid.is-resizing .editor-panel {
@@ -4029,24 +4313,55 @@ onBeforeUnmount(() => {
   width: 1px;
   background-color: var(--border-color);
   cursor: col-resize;
-  z-index: 20;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: center;
   user-select: none;
   touch-action: none;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* 隐形鼠标抓取热区：向左右各延伸 4px，视觉保持 1px 精细发丝线，操作手感保持 9px 易点 */
+.pane-splitter.is-collapsed-left {
+  cursor: pointer;
+  width: 6px;
+  background-color: var(--border-color);
+}
+
+.pane-splitter.is-collapsed-right {
+  cursor: pointer;
+  width: 6px;
+  background-color: var(--border-color);
+}
+
+.pane-splitter.snap-active-left,
+.pane-splitter.snap-active-right {
+  background-color: var(--primary-color, #3b82f6) !important;
+  box-shadow: 0 0 10px var(--primary-light, rgba(79, 193, 255, 0.4)) !important;
+}
+
+/* 隐形鼠标抓取热区：向左右各延伸 6px，视觉保持精细线条，操作手感极佳 */
 .pane-splitter::before {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -4px;
-  right: -4px;
+  left: -6px;
+  right: -6px;
   z-index: 1;
   cursor: col-resize;
+}
+
+.pane-splitter.is-collapsed-left::before {
+  cursor: pointer;
+  left: 0;
+  right: -8px;
+}
+
+.pane-splitter.is-collapsed-right::before {
+  cursor: pointer;
+  left: -8px;
+  right: 0;
 }
 
 .pane-splitter-handle {
@@ -4055,19 +4370,76 @@ onBeforeUnmount(() => {
   top: 50%;
   transform: translate(-50%, -50%);
   z-index: 2;
-  width: 8px;
-  height: 28px;
-  border-radius: 4px;
+  width: 9px;
+  height: 30px;
+  border-radius: 5px;
   background-color: var(--bg-panel);
   border: 1px solid var(--border-color);
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 默认常态即展示手柄图标 */
   opacity: 1;
   color: var(--text-muted, #888);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
-  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  transition: border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease, background-color 0.2s ease;
+}
+
+.pane-splitter-handle.collapsed-handle {
+  width: 14px;
+  height: 38px;
+  border-radius: 6px;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color-active, var(--border-color));
+  color: var(--text-primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+/* 左侧贴边展开把手：固定贴在可见区域左内侧，杜绝被屏幕切边 */
+.pane-splitter.is-collapsed-left .pane-splitter-handle {
+  left: 0;
+  transform: translateY(-50%);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+  padding-right: 1px;
+}
+
+/* 右侧贴边展开把手：固定贴在可见区域右内侧，杜绝被屏幕切边 */
+.pane-splitter.is-collapsed-right .pane-splitter-handle {
+  left: auto;
+  right: 0;
+  transform: translateY(-50%);
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: none;
+  padding-left: 1px;
+}
+
+.pane-splitter:hover .pane-splitter-handle,
+.pane-splitter.active .pane-splitter-handle {
+  border-color: var(--primary-color, #3b82f6);
+  color: var(--primary-color, #3b82f6);
+  background-color: var(--bg-panel);
+  box-shadow: 0 0 10px var(--primary-light, rgba(79, 193, 255, 0.3));
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.pane-splitter.is-collapsed-left:hover .pane-splitter-handle {
+  border-color: var(--primary-color, #3b82f6);
+  color: var(--primary-color, #3b82f6);
+  background-color: var(--bg-panel);
+  box-shadow: 0 0 12px var(--primary-light, rgba(79, 193, 255, 0.35));
+  transform: translateY(-50%) scale(1.1);
+  transform-origin: left center;
+}
+
+.pane-splitter.is-collapsed-right:hover .pane-splitter-handle {
+  border-color: var(--primary-color, #3b82f6);
+  color: var(--primary-color, #3b82f6);
+  background-color: var(--bg-panel);
+  box-shadow: 0 0 12px var(--primary-light, rgba(79, 193, 255, 0.35));
+  transform: translateY(-50%) scale(1.1);
+  transform-origin: right center;
 }
 
 .pane-splitter-icon {
@@ -4076,14 +4448,87 @@ onBeforeUnmount(() => {
   stroke-width: 2.2;
 }
 
-/* 仅在 hover / active 时高亮图标和手柄，1px 轴线不发亮 */
-.pane-splitter:hover .pane-splitter-handle,
-.pane-splitter.active .pane-splitter-handle {
-  border-color: #3b82f6;
-  color: #3b82f6;
-  background-color: var(--bg-panel);
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.35);
-  transform: translate(-50%, -50%) scale(1.06);
+.pane-splitter-icon.expand-icon {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.8;
+}
+
+/* ─── Floating Snap Badge（遵循系统毛玻璃与主题色调） ─── */
+.splitter-snap-badge {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: var(--bg-panel, rgba(255, 255, 255, 0.95));
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16), 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.splitter-snap-badge.badge-center {
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.splitter-snap-badge.badge-left {
+  left: 18px;
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22), 0 0 12px var(--primary-light, rgba(79, 193, 255, 0.25));
+}
+
+.splitter-snap-badge.badge-right {
+  right: 18px;
+  border-color: var(--primary-color, #3b82f6);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22), 0 0 12px var(--primary-light, rgba(79, 193, 255, 0.25));
+}
+
+.snap-badge-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--primary-color, #3b82f6);
+  flex-shrink: 0;
+}
+
+@keyframes pulseLeft {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(-4px); }
+}
+
+@keyframes pulseRight {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(4px); }
+}
+
+.pulse-left {
+  animation: pulseLeft 0.8s ease-in-out infinite;
+}
+
+.pulse-right {
+  animation: pulseRight 0.8s ease-in-out infinite;
+}
+
+/* Fade scale transition */
+.fade-scale-enter-active,
+.fade-scale-leave-active {
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-scale-enter-from,
+.fade-scale-leave-to {
+  opacity: 0;
+  transform: translateY(-50%) scale(0.9);
 }
 
 /* Editor Panel */
@@ -4092,12 +4537,19 @@ onBeforeUnmount(() => {
   flex-direction: column;
   background-color: var(--bg-panel);
   min-height: 0;
-  min-width: 29rem;
+  min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
-.editor-panel:first-child {
-  min-width: 29rem;
+.editor-panel.is-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  overflow: hidden !important;
+  border: none !important;
 }
 
 .workspace-grid.single-panel .editor-panel {
@@ -4115,10 +4567,10 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: auto !important;
+  height: 40px !important;
   min-height: 40px !important;
-  max-height: none !important;
-  padding: 2px 10px !important;
+  max-height: 40px !important;
+  padding: 0 10px !important;
   border-bottom: 1px solid var(--border-color) !important;
   background-color: var(--bg-panel);
   box-sizing: border-box !important;
@@ -4126,6 +4578,7 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 10;
   overflow: visible;
+  flex-wrap: nowrap;
 }
 
 .panel-title {
@@ -4416,8 +4869,140 @@ onBeforeUnmount(() => {
   gap: 1px;
   min-width: 0;
   overflow: visible;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   flex-shrink: 1;
+}
+
+/* More Tools Dropdown */
+.more-tools-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.more-tools-trigger {
+  flex-direction: row !important;
+  gap: 3px !important;
+  padding: 4px 7px !important;
+}
+
+.more-arrow-icon {
+  width: 10px;
+  height: 10px;
+  transition: transform 0.2s ease;
+  color: var(--text-muted);
+}
+
+.more-arrow-icon.is-open {
+  transform: rotate(180deg);
+}
+
+.more-tools-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 170px;
+  background: var(--bg-panel, #ffffff);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.15), 0 4px 10px -2px rgba(0, 0, 0, 0.05);
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 999;
+}
+
+:global(.dark-mode) .more-tools-menu {
+  background: rgba(45, 45, 52, 0.95);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+}
+
+.more-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.more-menu-item:hover {
+  background-color: var(--primary-light, rgba(37, 99, 235, 0.08));
+  color: var(--primary-color);
+}
+
+:global(.dark-mode) .more-menu-item:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.more-menu-item.active {
+  background-color: var(--primary-light, rgba(37, 99, 235, 0.12));
+  color: var(--primary-color);
+}
+
+.more-item-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.more-menu-item:hover .more-item-icon,
+.more-menu-item.active .more-item-icon {
+  color: inherit;
+}
+
+/* Fade Dropdown Transition */
+.fade-dropdown-enter-active,
+.fade-dropdown-leave-active {
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.more-menu-divider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 3px 0;
+}
+
+.more-menu-item.danger-item:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+/* ─── 极窄模式（< 380px）纯图标收敛与防挤压 ─── */
+.editor-panel.is-ultra-narrow .toolbar-item {
+  min-width: 28px !important;
+  padding: 3px 4px !important;
+}
+
+.editor-panel.is-ultra-narrow .toolbar-label {
+  display: none !important;
+}
+
+.editor-panel.is-ultra-narrow .toolbar-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.editor-panel.is-ultra-narrow .more-tools-trigger {
+  padding: 3px 4px !important;
+  min-width: 32px !important;
+}
+
+.editor-panel.is-ultra-narrow .more-tools-trigger .more-arrow-icon {
+  display: none;
 }
 
 .toolbar-item {
@@ -4831,46 +5416,52 @@ body.utools-mode {
 /* Search & Replace Box */
 .search-replace-box {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 4px);
   right: 0;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-panel);
-  border-radius: 6px;
-  width: clamp(220px, 20vw, 320px);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  width: 310px;
+  max-width: calc(100vw - 20px);
   height: auto;
   box-sizing: border-box;
-  overflow: visible;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
   z-index: 100;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   transition: box-shadow 0.2s ease;
 }
 
 .dark-mode .search-replace-box {
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
+  background-color: rgba(40, 40, 46, 0.95);
 }
 
 .search-replace-box:focus-within {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), 0 0 0 2px var(--primary-light);
-  background-color: var(--bg-panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16), 0 0 0 2px var(--primary-light);
 }
 
 .dark-mode .search-replace-box:focus-within {
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45), 0 0 0 2px var(--primary-light);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--primary-light);
 }
 
 .search-row,
 .replace-row {
   display: flex;
   align-items: center;
-  gap: clamp(2px, 0.2vw, 4px);
-  padding: clamp(2px, 0.2vw, 4px) clamp(3px, 0.3vw, 5px);
-  min-height: clamp(22px, 1.8vw, 28px);
+  gap: 3px;
+  padding: 3px 6px;
+  min-height: 28px;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 .replace-row {
   border-top: 1px solid var(--border-color);
-  padding-left: clamp(20px, 1.8vw, 28px);
+  padding-left: 25px;
 }
 
 .sr-toggle-btn {

@@ -1,13 +1,81 @@
 <script setup>
-import { ref, inject, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, inject, onMounted, onBeforeUnmount } from 'vue'
 import { UploadCloud, Terminal, Globe, FileCode, RefreshCw } from 'lucide-vue-next'
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js'
+
+const props = defineProps({
+  hideTrigger: {
+    type: Boolean,
+    default: false
+  }
+})
 
 const emit = defineEmits(['import-text'])
 const showToast = inject('showToast')
 const autoPaste = inject('autoPaste', ref(false))
 
 const panelOpen = ref(false)
+const triggerBtnRef = ref(null)
+const popoverPosition = ref({ top: 100, left: 100 })
+
+const updatePopoverPosition = (customAnchor = null) => {
+  const anchor = customAnchor || triggerBtnRef.value
+  if (anchor && typeof anchor.getBoundingClientRect === 'function') {
+    const rect = anchor.getBoundingClientRect()
+    const popoverWidth = 360
+    let left = rect.left
+    if (left + popoverWidth > window.innerWidth - 12) {
+      left = window.innerWidth - popoverWidth - 12
+    }
+    if (left < 12) left = 12
+    popoverPosition.value = {
+      top: rect.bottom + 6,
+      left
+    }
+  } else {
+    popoverPosition.value = {
+      top: 75,
+      left: 20
+    }
+  }
+}
+
+const popoverStyle = computed(() => ({
+  position: 'fixed',
+  top: popoverPosition.value.top + 'px',
+  left: popoverPosition.value.left + 'px',
+  zIndex: 9999
+}))
+
+const openPanel = (anchorEl = null) => {
+  updatePopoverPosition(anchorEl)
+  panelOpen.value = true
+  document.removeEventListener('click', onDocClick)
+  setTimeout(() => {
+    document.addEventListener('click', onDocClick)
+  }, 50)
+}
+
+const closePanel = () => {
+  panelOpen.value = false
+  document.removeEventListener('click', onDocClick)
+}
+
+const togglePanel = (e) => {
+  if (e) e.stopPropagation?.()
+  if (!panelOpen.value) {
+    openPanel()
+  } else {
+    closePanel()
+  }
+}
+
+defineExpose({
+  openPanel,
+  closePanel,
+  togglePanel,
+  panelOpen
+})
 const activeTab = ref('file') // 'file' | 'curl' | 'url' | 'base64'
 const curlInput = ref('')
 const urlInput = ref('')
@@ -489,29 +557,41 @@ const handleBase64 = () => {
 
 // 外部点击关闭
 const onDocClick = (e) => {
-  if (panelOpen.value && !e.target.closest('.import-btn-wrap')) {
-    panelOpen.value = false
+  if (panelOpen.value) {
+    const isInsidePopover = e.target.closest('.import-dropdown')
+    const isTrigger = triggerBtnRef.value && triggerBtnRef.value.contains(e.target)
+    if (!isInsidePopover && !isTrigger) {
+      closePanel()
+    }
   }
 }
 
-onMounted(() => document.addEventListener('click', onDocClick))
 onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
-  <div class="import-btn-wrap">
+  <div class="import-btn-wrap" :class="{ 'no-trigger': hideTrigger }">
     <button
+      v-if="!hideTrigger"
+      ref="triggerBtnRef"
       class="trigger-btn"
       :class="{ 'active': panelOpen }"
       data-tooltip-bottom="导入数据"
-      @click.stop="panelOpen = !panelOpen"
+      @click.stop="togglePanel"
     >
       <UploadCloud class="trigger-icon" />
       <span class="trigger-label">导入</span>
     </button>
 
-    <!-- 下拉选项卡面板 -->
-    <div class="import-dropdown" :class="{ open: panelOpen }" @click.stop>
+    <!-- 下拉选项卡面板（Teleport 到 body，彻底摆脱父容器 overflow: hidden 裁剪） -->
+    <Teleport to="body">
+      <Transition name="fade-dropdown">
+        <div
+          v-if="panelOpen"
+          class="import-dropdown open"
+          :style="popoverStyle"
+          @click.stop
+        >
       <!-- macOS Inset Segmented Tabs 选项卡 -->
       <div class="import-tabs">
         <button 
@@ -647,7 +727,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         </div>
 
       </div>
-    </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -726,35 +808,38 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
   line-height: 1;
 }
 
-/* ─── 下拉气泡面板（Retina 视网膜玻璃材质） ─── */
+/* ─── 下拉气泡面板（Retina 视网膜玻璃材质，已 Teleport 到 body） ─── */
 .import-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  width: 350px; /* 大气的横向宽度，粘贴多行文本极为惬意 */
-  background: var(--bg-panel, rgba(255, 255, 255, 0.85));
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  width: 360px;
+  max-width: calc(100vw - 24px);
+  background: var(--bg-panel, rgba(255, 255, 255, 0.95));
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
   border-radius: 12px;
-  box-shadow:
-    0 12px 30px -4px rgba(0, 0, 0, 0.08),
-    0 4px 12px -2px rgba(0, 0, 0, 0.03);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-4px);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  z-index: 999; /* 提高层级避免被遮挡 */
+  box-shadow: 0 16px 40px -4px rgba(0, 0, 0, 0.18), 0 4px 12px -2px rgba(0, 0, 0, 0.08);
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   box-sizing: border-box;
 }
-.import-dropdown.open {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
+
+:global(.dark-mode) .import-dropdown {
+  background: rgba(35, 35, 42, 0.96);
+  border-color: var(--border-color, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.fade-dropdown-enter-active,
+.fade-dropdown-leave-active {
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.fade-dropdown-enter-from,
+.fade-dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
 }
 
 /* ─── macOS Inset Segmented Tabs ─── */

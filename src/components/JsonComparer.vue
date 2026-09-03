@@ -1659,17 +1659,17 @@ onMounted(() => {
     <!-- Tab Context Menu -->
     <Teleport to="body">
       <div
-        v-if="tabContextMenu.visible"
+        v-if="tabContextMenu?.visible"
         class="tab-context-menu"
-        :style="{ left: tabContextMenu.x + 'px', top: tabContextMenu.y + 'px' }"
+        :style="{ left: (tabContextMenu?.x || 0) + 'px', top: (tabContextMenu?.y || 0) + 'px' }"
       >
-        <button @click="closeTab(tabContextMenu.tabId)" :disabled="tabs.length <= 1"><X class="ctx-icon" />关闭</button>
+        <button @click="closeTab(tabContextMenu?.tabId)" :disabled="tabs.length <= 1"><X class="ctx-icon" />关闭</button>
         <button @click="closeOtherTabs" :disabled="tabs.length <= 1"><X class="ctx-icon" />关闭其他</button>
-        <button @click="closeLeftTabs" :disabled="tabs.findIndex(t => t.id === tabContextMenu.tabId) === 0"><ArrowLeft class="ctx-icon" />关闭左侧</button>
-        <button @click="closeRightTabs" :disabled="tabs.findIndex(t => t.id === tabContextMenu.tabId) === tabs.length - 1"><ArrowRight class="ctx-icon" />关闭右侧</button>
+        <button @click="closeLeftTabs" :disabled="tabs.findIndex(t => t.id === tabContextMenu?.tabId) === 0"><ArrowLeft class="ctx-icon" />关闭左侧</button>
+        <button @click="closeRightTabs" :disabled="tabs.findIndex(t => t.id === tabContextMenu?.tabId) === tabs.length - 1"><ArrowRight class="ctx-icon" />关闭右侧</button>
         <button @click="closeAllTabs" :disabled="tabs.length <= 1"><Trash2 class="ctx-icon" />关闭全部</button>
         <div class="context-menu-divider"></div>
-        <button @click="startEditTab(tabContextMenu.tabId); tabContextMenu.visible = false"><Pencil class="ctx-icon" />重命名</button>
+        <button @click="startEditTab(tabContextMenu?.tabId); if (tabContextMenu) tabContextMenu.visible = false"><Pencil class="ctx-icon" />重命名</button>
       </div>
     </Teleport>
 
