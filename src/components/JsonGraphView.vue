@@ -165,9 +165,9 @@ const layout = computed(() => {
       if (e.preview.length > maxPLen) maxPLen = e.preview.length
     })
 
-    const keyW = isArray ? Math.max(20, maxKLen * 6 + 4) : Math.max(100, Math.min(600, maxKLen * 8 + 16))
-    const valW = isArray ? Math.max(30, maxPLen * 6 + 4) : Math.max(60, Math.min(600, maxPLen * 8 + 16))
-    const width = isArray ? Math.max(75, keyW + valW + 16) : Math.max(140, keyW + valW + 32)
+    const keyW = isArray ? Math.max(20, maxKLen * 6 + 4) : Math.max(70, Math.min(300, maxKLen * 7.5 + 12))
+    const valW = isArray ? Math.max(30, maxPLen * 6 + 4) : Math.max(60, Math.min(360, maxPLen * 7.5 + 12))
+    const width = isArray ? Math.max(75, Math.min(640, keyW + valW + 16)) : Math.max(140, Math.min(700, keyW + valW + 28))
     const height = CARD_PAD * 2 + Math.max(cardEntries.length, 1) * CARD_ROW_H
 
     // Track max width for this depth level
@@ -526,16 +526,18 @@ const graphViewStyle = computed(() => {
         >
           <span
             class="card-key node-key"
-            :title="`点击复制键名: ${entry.key}`"
             :class="{ 'card-key--index': node.isArray, 'root-key--complex': entry.isComplex }"
             :style="node.isArray ? {} : { width: node.keyW + 'px', minWidth: node.keyW + 'px', maxWidth: node.keyW + 'px' }"
             @click.stop="handleCopyKey(entry.key); emitClick(getEntryPath(node, entry))"
-            v-html="highlightText(entry.key, searchQuery)"
           >
+            <span
+              class="card-key-text"
+              data-tooltip="点击复制键名"
+              v-html="highlightText(entry.key, searchQuery)"
+            ></span>
           </span>
           <span
             class="card-val"
-            :title="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : (getTooltipText(entry.value) + ' (点击复制键值)'))"
             @click.stop="handleCopyValue(entry.value); emitClick(getEntryPath(node, entry))"
           >
             <span
@@ -543,13 +545,13 @@ const graphViewStyle = computed(() => {
               class="graph-img-badge"
               @mouseenter="(e) => onValMouseEnter(entry.value, e)"
               @mouseleave="() => onValMouseLeave(entry.value)"
-              title="图片链接 (悬停预览)"
+              data-tooltip="图片链接 (悬停预览)"
             >🖼️</span>
             <button
               v-else-if="isHttpLink(entry.value)"
               class="graph-url-jump-btn"
               @click.stop="handleOpenUrl(entry.value)"
-              title="在浏览器中直接打开链接"
+              data-tooltip="在浏览器中直接打开链接"
             >
               <ExternalLink class="url-jump-icon" />
             </button>
@@ -563,6 +565,7 @@ const graphViewStyle = computed(() => {
               ]"
               @mouseenter="(e) => onValMouseEnter(entry.value, e)"
               @mouseleave="() => onValMouseLeave(entry.value)"
+              :data-tooltip="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
               v-html="highlightText(entry.preview, searchQuery)"
             ></span>
           </span>
@@ -572,10 +575,10 @@ const graphViewStyle = computed(() => {
 
     <!-- Zoom controls -->
     <div class="graph-controls">
-      <button class="ctrl-btn" @click.stop="zoomIn"     title="放大">＋</button>
-      <button class="ctrl-btn" @click.stop="zoomOut"    title="缩小">－</button>
-      <button class="ctrl-btn" @click.stop="fitToScreen" title="适应屏幕">⊡</button>
-      <button class="ctrl-btn" @click.stop="toggleWheelMode" :title="wheelMode === 'zoom' ? '当前模式: 滚轮缩放 (点击切换为滚动)' : '当前模式: 滚轮滚动 (点击切换为缩放)'">
+      <button class="ctrl-btn" @click.stop="zoomIn"     data-tooltip-right="放大">＋</button>
+      <button class="ctrl-btn" @click.stop="zoomOut"    data-tooltip-right="缩小">－</button>
+      <button class="ctrl-btn" @click.stop="fitToScreen" data-tooltip-right="适应屏幕">⊡</button>
+      <button class="ctrl-btn" @click.stop="toggleWheelMode" :data-tooltip-right="wheelMode === 'zoom' ? '当前模式: 滚轮缩放 (点击切换为滚动)' : '当前模式: 滚轮滚动 (点击切换为缩放)'">
         {{ wheelMode === 'zoom' ? '🔍' : '↕' }}
       </button>
     </div>
@@ -655,10 +658,22 @@ const graphViewStyle = computed(() => {
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--json-key);
-  min-width: 100px;
+  min-width: 60px;
+  max-width: 300px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+}
+
+.card-key-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
 }
 .card-key--index {
   color: #0000004d;

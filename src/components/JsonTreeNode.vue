@@ -180,12 +180,12 @@ const handleCopyValue = (e) => {
           <ChevronRight v-else class="toggle-icon" />
         </span>
         
-        <span v-if="name" class="node-key" @click.stop="handleCopyKey" title="点击复制键名" v-html="highlightKey(name)"></span>
+        <span v-if="name" class="node-key" @click.stop="handleCopyKey" data-tooltip="点击复制键名" v-html="highlightKey(name)"></span>
         <span v-if="name" class="node-colon">: </span>
         
-        <span class="node-bracket" @click.stop="handleCopyValue" title="点击复制整个子树 JSON">{{ isArray ? '[' : '{' }}</span>
+        <span class="node-bracket" @click.stop="handleCopyValue" data-tooltip="点击复制子树 JSON">{{ isArray ? '[' : '{' }}</span>
         
-        <span v-if="!isExpanded" class="node-collapsed-summary" @click.stop="handleCopyValue" title="点击复制整个子树 JSON">
+        <span v-if="!isExpanded" class="node-collapsed-summary" @click.stop="handleCopyValue" data-tooltip="点击复制子树 JSON">
           {{ isArray ? `Array(${value.length})` : `Object(${Object.keys(value).length})` }}
           <span class="node-bracket">{{ isArray ? ']' : '}' }}</span>
           <span v-if="!isLast" class="node-comma">,</span>
@@ -219,7 +219,7 @@ const handleCopyValue = (e) => {
       </div>
 
       <div v-if="isExpanded" class="node-footer">
-        <span class="node-bracket" @click.stop="handleCopyValue" title="点击复制整个子树 JSON">{{ isArray ? ']' : '}' }}</span>
+        <span class="node-bracket" @click.stop="handleCopyValue" data-tooltip="点击复制子树 JSON">{{ isArray ? ']' : '}' }}</span>
         <span v-if="!isLast" class="node-comma">,</span>
       </div>
     </div>
@@ -233,16 +233,16 @@ const handleCopyValue = (e) => {
       @mouseleave="onKeyMouseLeave"
     >
       <span class="icon-spacer"></span>
-      <span v-if="name" class="node-key" @click.stop="handleCopyKey" title="点击复制键名" v-html="highlightKey(name)"></span>
+      <span v-if="name" class="node-key" @click.stop="handleCopyKey" data-tooltip="点击复制键名" v-html="highlightKey(name)"></span>
       <span v-if="name" class="node-colon">: </span>
       
       <!-- 前置图标：图片悬停徽标 / 链接一键跳转 -->
-      <span v-if="isImageValue" class="tree-img-badge" @mouseenter="onValueMouseEnter" @mouseleave="onValueMouseLeave" title="图片链接 (悬停预览)">🖼️</span>
+      <span v-if="isImageValue" class="tree-img-badge" @mouseenter="onValueMouseEnter" @mouseleave="onValueMouseLeave" data-tooltip="图片链接 (悬停预览)">🖼️</span>
       <button
         v-else-if="isOtherUrlValue"
         class="url-jump-btn"
         @click.stop="handleOpenUrl(value)"
-        title="在浏览器中直接打开链接"
+        data-tooltip="在浏览器中直接打开链接"
       >
         <ExternalLink class="url-jump-icon" />
       </button>
@@ -253,7 +253,7 @@ const handleCopyValue = (e) => {
         @click.stop="handleCopyValue"
         @mouseenter="onValueMouseEnter"
         @mouseleave="onValueMouseLeave"
-        :title="isImageValue ? '悬停预览图片，点击复制键值' : (isOtherUrlValue ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
+        :data-tooltip="isImageValue ? '悬停预览图片，点击复制键值' : (isOtherUrlValue ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
         v-html="highlightValue(value)"
       ></span>
       <span v-if="!isLast" class="node-comma">,</span>
@@ -265,8 +265,9 @@ const handleCopyValue = (e) => {
 .tree-node {
   font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.55;
   text-align: left;
+  white-space: nowrap;
 }
 
 .node-row {
@@ -276,8 +277,11 @@ const handleCopyValue = (e) => {
 
 .node-row.primitive {
   flex-direction: row;
-  align-items: flex-start;
+  align-items: center;
   padding-left: 4px;
+  white-space: nowrap;
+  width: max-content;
+  min-height: 20px;
 }
 
 .node-header {
@@ -285,9 +289,10 @@ const handleCopyValue = (e) => {
   align-items: center;
   cursor: pointer;
   border-radius: 6px;
-  padding: 1px 4px;
+  padding: 0 4px;
   user-select: none;
   width: fit-content;
+  min-height: 20px;
 }
 
 .node-header:hover {
@@ -306,6 +311,7 @@ const handleCopyValue = (e) => {
 
 .icon-spacer {
   width: 18px; /* matches icon-wrapper + margin-right */
+  flex-shrink: 0;
 }
 
 .toggle-icon {
@@ -328,6 +334,7 @@ const handleCopyValue = (e) => {
 .node-colon {
   color: var(--text-secondary);
   margin-right: 4px;
+  flex-shrink: 0;
 }
 
 .node-bracket {
@@ -374,27 +381,32 @@ const handleCopyValue = (e) => {
 
 .tree-string {
   color: var(--json-string);
-  word-break: break-all;
+  white-space: nowrap;
 }
 
 .tree-number {
   color: var(--json-number);
+  white-space: nowrap;
 }
 
 .tree-boolean {
   color: var(--json-boolean);
+  white-space: nowrap;
 }
 
 .tree-null {
   color: var(--json-null);
+  white-space: nowrap;
 }
 
 .node-comma {
   color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .copyable-value {
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.2s ease;
 }
 
@@ -410,6 +422,7 @@ const handleCopyValue = (e) => {
 
 .tree-img-badge {
   font-size: 13px;
+  line-height: 1;
   margin-right: 4px;
   margin-left: 1px;
   cursor: pointer;
@@ -417,7 +430,10 @@ const handleCopyValue = (e) => {
   opacity: 0.9;
   transition: transform 0.15s ease, opacity 0.15s ease;
   user-select: none;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .tree-img-badge:hover {
@@ -447,6 +463,7 @@ const handleCopyValue = (e) => {
   opacity: 0.9;
   vertical-align: middle;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .url-jump-btn:hover {

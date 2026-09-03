@@ -412,18 +412,80 @@ const handleOutputPreMouseLeave = () => {
 }
 
 const handleOutputPreClick = (e) => {
+  // If user selected text with mouse drag, don't trigger copy on click
+  const selection = window.getSelection()
+  if (selection && selection.toString().length > 0) return
+
   let current = e.target
   let pathAttr = null
+  let targetType = null
+  let rawText = null
+
   while (current && current !== outputPreRef.value) {
-    pathAttr = current.getAttribute?.('data-path')
-    if (pathAttr) break
+    if (!pathAttr) pathAttr = current.getAttribute?.('data-path')
+    
+    if (current.classList) {
+      if (current.classList.contains('json-key')) {
+        targetType = 'key'
+        rawText = current.textContent
+        break
+      } else if (current.classList.contains('json-string') ||
+                 current.classList.contains('json-number') ||
+                 current.classList.contains('json-boolean') ||
+                 current.classList.contains('json-null')) {
+        targetType = 'val'
+        rawText = current.textContent
+        break
+      } else if (current.classList.contains('json-bracket')) {
+        targetType = 'bracket'
+        break
+      }
+    }
     current = current.parentElement
   }
+
+  let parsedPath = null
   if (pathAttr) {
     try {
-      const path = JSON.parse(pathAttr)
-      setSelectedPath(path)
-      return
+      parsedPath = JSON.parse(pathAttr)
+      setSelectedPath(parsedPath)
+    } catch (err) {}
+  }
+
+  if (targetType === 'key' && rawText) {
+    const cleanKey = rawText.trim().replace(/^"|"$/g, '').replace(/^\\"|\\"$/g, '')
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(cleanKey).then(() => {
+        if (showToast) showToast(`已复制键名: ${cleanKey}`)
+      }).catch(() => {})
+    }
+  } else if (targetType === 'val' && rawText) {
+    let cleanVal = rawText.trim()
+    if (current && current.classList && current.classList.contains('json-string')) {
+      cleanVal = cleanVal.replace(/^"|"$/g, '').replace(/^\\"|\\"$/g, '')
+    }
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(cleanVal).then(() => {
+        const preview = cleanVal.length > 30 ? cleanVal.slice(0, 27) + '...' : cleanVal
+        if (showToast) showToast(`已复制键值: ${preview}`)
+      }).catch(() => {})
+    }
+  } else if (targetType === 'bracket' && parsedPath && activeTab.value?.parsedObj) {
+    try {
+      let targetObj = activeTab.value.parsedObj
+      for (const seg of parsedPath) {
+        if (targetObj && typeof targetObj === 'object') {
+          targetObj = targetObj[seg]
+        }
+      }
+      if (targetObj !== undefined) {
+        const jsonStr = safeStringify(targetObj, null, 2)
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(jsonStr).then(() => {
+            if (showToast) showToast('已复制子树 JSON')
+          }).catch(() => {})
+        }
+      }
     } catch (err) {}
   }
 }
@@ -1436,7 +1498,7 @@ const syncGutterScroll = () => {
     inputHighlightRef.value.scrollLeft = scrollLeft
   }
 
-  // Sync Output Pane (text view)
+  // Sync Output Pane (text view & tree view)
   if (activeScrollTarget.value === 'left') {
     if (outputPreRef.value) {
       outputPreRef.value.scrollTop = scrollTop
@@ -1446,6 +1508,7 @@ const syncGutterScroll = () => {
     // Sync tree view
     if (treeWrapperRef.value) {
       treeWrapperRef.value.scrollTop = scrollTop
+      treeWrapperRef.value.scrollLeft = scrollLeft
     }
   }
 }
@@ -1487,18 +1550,21 @@ const handleOutputScroll = () => {
   }
 }
 
-// 树形视图滚动同步
+// 树形视图滚动同步（垂直 + 水平双向同步）
 const handleTreeScroll = () => {
   if (activeScrollTarget.value === 'right' && treeWrapperRef.value) {
     const scrollTop = treeWrapperRef.value.scrollTop
+    const scrollLeft = treeWrapperRef.value.scrollLeft
     if (textareaRef.value) {
       textareaRef.value.scrollTop = scrollTop
+      textareaRef.value.scrollLeft = scrollLeft
     }
     if (gutterRef.value) {
       gutterRef.value.scrollTop = scrollTop
     }
     if (inputHighlightRef.value) {
       inputHighlightRef.value.scrollTop = scrollTop
+      inputHighlightRef.value.scrollLeft = scrollLeft
     }
   }
 }
@@ -1898,14 +1964,14 @@ const applyJsonHighlightWithPath = (text, counter) => {
       }
       stack.push({ type: 'object', lastKey: null, path: currentPath })
       const display = highlightMatchText('{', q, c)
-      return `<span class="json-bracket" data-path="${JSON.stringify(currentPath).replace(/"/g, '&quot;')}">${display}</span>`
+      return `<span class="json-bracket" data-path="${JSON.stringify(currentPath).replace(/"/g, '&quot;')}" data-tooltip="点击复制子树 JSON">${display}</span>`
     }
 
     if (match === '}') {
       const current = stack.pop()
       const path = current ? current.path : []
       const display = highlightMatchText('}', q, c)
-      return `<span class="json-bracket" data-path="${JSON.stringify(path).replace(/"/g, '&quot;')}">${display}</span>`
+      return `<span class="json-bracket" data-path="${JSON.stringify(path).replace(/"/g, '&quot;')}" data-tooltip="点击复制子树 JSON">${display}</span>`
     }
 
     if (match === '[') {
@@ -1920,14 +1986,14 @@ const applyJsonHighlightWithPath = (text, counter) => {
       }
       stack.push({ type: 'array', index: 0, path: currentPath })
       const display = highlightMatchText('[', q, c)
-      return `<span class="json-bracket" data-path="${JSON.stringify(currentPath).replace(/"/g, '&quot;')}">${display}</span>`
+      return `<span class="json-bracket" data-path="${JSON.stringify(currentPath).replace(/"/g, '&quot;')}" data-tooltip="点击复制子树 JSON">${display}</span>`
     }
 
     if (match === ']') {
       const current = stack.pop()
       const path = current ? current.path : []
       const display = highlightMatchText(']', q, c)
-      return `<span class="json-bracket" data-path="${JSON.stringify(path).replace(/"/g, '&quot;')}">${display}</span>`
+      return `<span class="json-bracket" data-path="${JSON.stringify(path).replace(/"/g, '&quot;')}" data-tooltip="点击复制子树 JSON">${display}</span>`
     }
 
     if (match === ',') {
@@ -1969,17 +2035,25 @@ const applyJsonHighlightWithPath = (text, counter) => {
 
       const pathStr = JSON.stringify(keyPath).replace(/"/g, '&quot;')
       const highlightedKey = highlightMatchText(keyPart, q, c)
-      return `<span class="json-key" data-path="${pathStr}">${highlightedKey}</span><span class="json-colon">${colonPart}</span>`
+      return `<span class="json-key" data-path="${pathStr}" data-tooltip="点击复制键名">${highlightedKey}</span><span class="json-colon">${colonPart}</span>`
     }
 
     // Primitive values
     let cls = 'json-number'
+    let valTitle = '点击复制键值'
     const isString = isEscaped
       ? match.startsWith('\\'.repeat((1 << depth) - 1) + '"')
       : match.startsWith('"')
 
     if (isString) {
       cls = 'json-string'
+      const rawVal = match.trim().replace(/^"|"$/g, '').replace(/^\\"|\\"$/g, '')
+      if (rawVal && isImageUrl(rawVal)) {
+        cls += ' is-image-url'
+        valTitle = '悬停预览图片，点击复制键值'
+      } else if (rawVal && (rawVal.startsWith('http://') || rawVal.startsWith('https://'))) {
+        cls += ' is-web-url'
+      }
     } else if (/true|false/.test(match)) {
       cls = 'json-boolean'
     } else if (/null/.test(match)) {
@@ -1998,7 +2072,7 @@ const applyJsonHighlightWithPath = (text, counter) => {
 
     const pathStr = JSON.stringify(valPath).replace(/"/g, '&quot;')
     const highlightedVal = highlightMatchText(match, q, c)
-    return `<span class="${cls}" data-path="${pathStr}">${highlightedVal}</span>`
+    return `<span class="${cls}" data-path="${pathStr}" data-tooltip="${valTitle}">${highlightedVal}</span>`
   })
 }
 
@@ -4056,6 +4130,46 @@ onBeforeUnmount(() => {
   contain-intrinsic-size: auto 3000px;
 }
 
+.output-pre .json-key,
+.output-pre .json-string,
+.output-pre .json-number,
+.output-pre .json-boolean,
+.output-pre .json-null,
+.output-pre .json-bracket {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.output-pre .json-key:hover,
+.output-pre .json-string:hover,
+.output-pre .json-number:hover,
+.output-pre .json-boolean:hover,
+.output-pre .json-null:hover,
+.output-pre .json-bracket:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+.output-pre .is-image-url {
+  text-decoration: underline dotted var(--accent-color, #6366f1) !important;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.output-pre .is-image-url:hover {
+  opacity: 0.8;
+}
+
+.output-pre .is-web-url {
+  text-decoration: underline dotted var(--text-secondary, #9ca3af) !important;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.output-pre .is-web-url:hover {
+  opacity: 0.8;
+}
+
 .output-wrapper {
   display: flex;
   flex-direction: row;
@@ -4067,7 +4181,7 @@ onBeforeUnmount(() => {
 }
 
 .tree-wrapper {
-  padding: 16px;
+  padding: 8px 12px;
   overflow: auto;
   flex-grow: 1;
 }

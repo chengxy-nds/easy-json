@@ -3,6 +3,7 @@ import { ref, computed, onMounted, provide, watch, onBeforeUnmount, defineAsyncC
 import JsonFormatter from './components/JsonFormatter.vue'
 import JsonComparer from './components/JsonComparer.vue'
 import ClickSpark from './components/ClickSpark.vue'
+import GlobalTooltip from './components/GlobalTooltip.vue'
 const HomeView = defineAsyncComponent(() => import('./components/HomeView.vue'))
 const TestView = defineAsyncComponent(() => import('./components/TestView.vue'))
 const CommentView = defineAsyncComponent(() => import('./components/Comment.vue'))
@@ -715,6 +716,9 @@ onBeforeUnmount(() => {
         </div>
       </TransitionGroup>
     </div>
+
+    <!-- Global Floating Tooltip System -->
+    <GlobalTooltip />
   </div>
 </template>
 

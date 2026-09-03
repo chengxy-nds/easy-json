@@ -12,13 +12,14 @@ const emit = defineEmits(['go-back'])
 const changelog = [
   {
     version: 'v1.0.5',
-    date: '2026-09-01',
+    date: '2026-09-03',
     sections: [
       {
         icon: Sparkles,
         title: '功能新增',
         iconClass: 'cl-section-sparkle',
         items: [
+          '新增 URL 图片悬停实时浮窗预览与点击快捷打开外部链接',
           '新增智能数据脱敏：支持 9 大内置规则与指定 Key 提取脱敏',
           '新增 JSONPath 表达式提取器：支持多层级节点筛选与一键导出'
         ]

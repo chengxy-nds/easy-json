@@ -111,20 +111,27 @@ const getValueColorClass = (type) => {
 }
 
 // ─── Path tracking & Expand/Collapse ──────────────────────────────────────────
-// absent from set = expanded (default); present = collapsed
-const collapsedPaths = ref(new Set())
+const treeExpanded = inject('treeExpanded', ref(true))
+// Individual user toggles on specific rows: pathStr -> boolean
+const userToggledPaths = ref(new Map())
+
+watch(treeExpanded, () => {
+  // When global toggle is clicked, reset individual overrides
+  userToggledPaths.value.clear()
+})
 
 const toggleExpandPath = (path) => {
   const pathStr = JSON.stringify(path)
-  if (collapsedPaths.value.has(pathStr)) {
-    collapsedPaths.value.delete(pathStr)
-  } else {
-    collapsedPaths.value.add(pathStr)
-  }
+  const currentlyExpanded = isPathExpanded(path)
+  userToggledPaths.value.set(pathStr, !currentlyExpanded)
 }
 
 const isPathExpanded = (path) => {
-  return !collapsedPaths.value.has(JSON.stringify(path))
+  const pathStr = JSON.stringify(path)
+  if (userToggledPaths.value.has(pathStr)) {
+    return userToggledPaths.value.get(pathStr)
+  }
+  return treeExpanded.value
 }
 
 // ─── Main flat 3-column table computations (depth === 0) ──────────────────────
@@ -227,6 +234,16 @@ const emitHover = (path) => {
 const handleChildHover = (path) => {
   emit('hover-path', path)
 }
+
+const getValTooltip = (val) => {
+  if (isImg(val)) {
+    return '悬停预览图片，点击复制键值'
+  }
+  if (isHttpLink(val)) {
+    return '点击复制键值，点击左侧图标可直接打开'
+  }
+  return '点击复制键值'
+}
 </script>
 
 <template>
@@ -247,9 +264,8 @@ const handleChildHover = (path) => {
             @mouseenter="emitHover([row.rootIsIndex ? Number(row.rootKey) : row.rootKey])"
             @mouseleave="emitHover(null)"
             @click.stop="handleCopyKey(row.rootKey)"
-            :title="`点击复制键名: ${row.rootKey}`"
-            v-html="highlightText(row.rootKey, searchQuery)"
           >
+            <span class="table-key-text" data-tooltip="点击复制键名" v-html="highlightText(row.rootKey, searchQuery)"></span>
           </td>
 
           <!-- Sub-key cell and value cell -->
@@ -263,9 +279,8 @@ const handleChildHover = (path) => {
               @mouseenter="emitHover(getCellPath(row))"
               @mouseleave="emitHover(null)"
               @click.stop="handleCopyKey(row.subKey)"
-              :title="`点击复制键名: ${row.subKey}`"
-              v-html="highlightText(row.subKey, searchQuery)"
             >
+              <span class="table-key-text" data-tooltip="点击复制键名" v-html="highlightText(row.subKey, searchQuery)"></span>
             </td>
             
             <td 
@@ -280,23 +295,25 @@ const handleChildHover = (path) => {
             >
               <!-- Primitive sub-value -->
               <template v-if="isPrimitive(row.rawVal)">
-                <span v-if="isImg(row.rawVal)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(row.rawVal, e)" @mouseleave="() => onValMouseLeave(row.rawVal)" title="图片链接 (悬停预览)">🖼️</span>
-                <button
-                  v-else-if="isHttpLink(row.rawVal)"
-                  class="url-jump-btn"
-                  @click.stop="handleOpenUrl(row.rawVal)"
-                  title="在浏览器中直接打开链接"
-                >
-                  <ExternalLink class="url-jump-icon" />
-                </button>
-                <span
-                  :class="[getValueColorClass(row.valueType), 'copyable-val', { 'is-image-url': isImg(row.rawVal), 'is-web-url': isHttpLink(row.rawVal) }]"
-                  @mouseenter="(e) => onValMouseEnter(row.rawVal, e)"
-                  @mouseleave="() => onValMouseLeave(row.rawVal)"
-                  @click.stop="handleCopyValue(row.rawVal)"
-                  :title="isImg(row.rawVal) ? '悬停预览图片，点击复制键值' : (isHttpLink(row.rawVal) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
-                  v-html="highlightText(row.value, searchQuery)"
-                ></span>
+                <div class="val-primitive-wrap">
+                  <span v-if="isImg(row.rawVal)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(row.rawVal, e)" @mouseleave="() => onValMouseLeave(row.rawVal)" data-tooltip="图片链接 (悬停预览)">🖼️</span>
+                  <button
+                    v-else-if="isHttpLink(row.rawVal)"
+                    class="url-jump-btn"
+                    @click.stop="handleOpenUrl(row.rawVal)"
+                    data-tooltip="在浏览器中直接打开链接"
+                  >
+                    <ExternalLink class="url-jump-icon" />
+                  </button>
+                  <span
+                    :class="[getValueColorClass(row.valueType), 'copyable-val', { 'is-image-url': isImg(row.rawVal), 'is-web-url': isHttpLink(row.rawVal) }]"
+                    @mouseenter="(e) => onValMouseEnter(row.rawVal, e)"
+                    @mouseleave="() => onValMouseLeave(row.rawVal)"
+                    @click.stop="handleCopyValue(row.rawVal)"
+                    :data-tooltip="getValTooltip(row.rawVal)"
+                    v-html="highlightText(row.value, searchQuery)"
+                  ></span>
+                </div>
               </template>
               
               <!-- Complex sub-value (with expand/collapse and copy subtree) -->
@@ -305,7 +322,7 @@ const handleChildHover = (path) => {
                   <button 
                     class="toggle-btn" 
                     @click.stop="toggleExpandPath(getCellPath(row))"
-                    :title="isPathExpanded(getCellPath(row)) ? '收起子层级' : '展开子层级'"
+                    :data-tooltip="isPathExpanded(getCellPath(row)) ? '收起子层级' : '展开子层级'"
                   >
                     <span class="toggle-icon">{{ isPathExpanded(getCellPath(row)) ? '▼' : '▶' }}</span>
                     <span class="preview-text" v-html="highlightText(row.value, searchQuery)"></span>
@@ -313,7 +330,7 @@ const handleChildHover = (path) => {
                   <button
                     class="copy-subtree-btn"
                     @click.stop="handleCopySubtree(row.rawVal)"
-                    title="复制此子层级 JSON"
+                    data-tooltip="点击复制子树 JSON"
                   >
                     <Copy class="copy-subtree-icon" />
                   </button>
@@ -346,23 +363,25 @@ const handleChildHover = (path) => {
             >
               <!-- Primitive root value -->
               <template v-if="isPrimitive(row.rawVal)">
-                <span v-if="isImg(row.rawVal)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(row.rawVal, e)" @mouseleave="() => onValMouseLeave(row.rawVal)" title="图片链接 (悬停预览)">🖼️</span>
-                <button
-                  v-else-if="isHttpLink(row.rawVal)"
-                  class="url-jump-btn"
-                  @click.stop="handleOpenUrl(row.rawVal)"
-                  title="在浏览器中直接打开链接"
-                >
-                  <ExternalLink class="url-jump-icon" />
-                </button>
-                <span
-                  :class="[getValueColorClass(row.valueType), 'copyable-val', { 'is-image-url': isImg(row.rawVal), 'is-web-url': isHttpLink(row.rawVal) }]"
-                  @mouseenter="(e) => onValMouseEnter(row.rawVal, e)"
-                  @mouseleave="() => onValMouseLeave(row.rawVal)"
-                  @click.stop="handleCopyValue(row.rawVal)"
-                  :title="isImg(row.rawVal) ? '悬停预览图片，点击复制键值' : (isHttpLink(row.rawVal) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
-                  v-html="highlightText(row.value, searchQuery)"
-                ></span>
+                <div class="val-primitive-wrap">
+                  <span v-if="isImg(row.rawVal)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(row.rawVal, e)" @mouseleave="() => onValMouseLeave(row.rawVal)" data-tooltip="图片链接 (悬停预览)">🖼️</span>
+                  <button
+                    v-else-if="isHttpLink(row.rawVal)"
+                    class="url-jump-btn"
+                    @click.stop="handleOpenUrl(row.rawVal)"
+                    data-tooltip="在浏览器中直接打开链接"
+                  >
+                    <ExternalLink class="url-jump-icon" />
+                  </button>
+                  <span
+                    :class="[getValueColorClass(row.valueType), 'copyable-val', { 'is-image-url': isImg(row.rawVal), 'is-web-url': isHttpLink(row.rawVal) }]"
+                    @mouseenter="(e) => onValMouseEnter(row.rawVal, e)"
+                    @mouseleave="() => onValMouseLeave(row.rawVal)"
+                    @click.stop="handleCopyValue(row.rawVal)"
+                    :data-tooltip="getValTooltip(row.rawVal)"
+                    v-html="highlightText(row.value, searchQuery)"
+                  ></span>
+                </div>
               </template>
 
               <!-- Complex root value (e.g. empty object/array) -->
@@ -371,7 +390,7 @@ const handleChildHover = (path) => {
                   <button 
                     class="toggle-btn" 
                     @click.stop="toggleExpandPath(getCellPath(row))"
-                    :title="isPathExpanded(getCellPath(row)) ? '收起子层级' : '展开子层级'"
+                    :data-tooltip="isPathExpanded(getCellPath(row)) ? '收起子层级' : '展开子层级'"
                   >
                     <span class="toggle-icon">{{ isPathExpanded(getCellPath(row)) ? '▼' : '▶' }}</span>
                     <span class="preview-text" v-html="highlightText(row.value, searchQuery)"></span>
@@ -379,7 +398,7 @@ const handleChildHover = (path) => {
                   <button
                     class="copy-subtree-btn"
                     @click.stop="handleCopySubtree(row.rawVal)"
-                    title="复制此子层级 JSON"
+                    data-tooltip="点击复制子树 JSON"
                   >
                     <Copy class="copy-subtree-icon" />
                   </button>
@@ -414,14 +433,13 @@ const handleChildHover = (path) => {
             @mouseenter="emitHover(getNestedCellPath(entry.key, entry.isIndex))"
             @mouseleave="emitHover(null)"
             @click.stop="handleCopyKey(entry.key)"
-            :title="`点击复制键名: ${entry.key}`"
-            v-html="highlightText(entry.key, searchQuery)"
           >
+            <span class="table-key-text" data-tooltip="点击复制键名" v-html="highlightText(entry.key, searchQuery)"></span>
           </td>
 
           <!-- Value column -->
           <td 
-            class="value-cell"
+            class="value-cell" 
             :class="{
               [`val-${getValueType(entry.value)}`]: true,
               'is-hovered': isPathHovered(getNestedCellPath(entry.key, entry.isIndex)),
@@ -432,23 +450,25 @@ const handleChildHover = (path) => {
           >
             <!-- Primitive nested value -->
             <template v-if="isPrimitive(entry.value)">
-              <span v-if="isImg(entry.value)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(entry.value, e)" @mouseleave="() => onValMouseLeave(entry.value)" title="图片链接 (悬停预览)">🖼️</span>
-              <button
-                v-else-if="isHttpLink(entry.value)"
-                class="url-jump-btn"
-                @click.stop="handleOpenUrl(entry.value)"
-                title="在浏览器中直接打开链接"
-              >
-                <ExternalLink class="url-jump-icon" />
-              </button>
-              <span
-                :class="[getValueColorClass(getValueType(entry.value)), 'copyable-val', { 'is-image-url': isImg(entry.value), 'is-web-url': isHttpLink(entry.value) }]"
-                @mouseenter="(e) => onValMouseEnter(entry.value, e)"
-                @mouseleave="() => onValMouseLeave(entry.value)"
-                @click.stop="handleCopyValue(entry.value)"
-                :title="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
-                v-html="highlightText(getPreview(entry.value), searchQuery)"
-              ></span>
+              <div class="val-primitive-wrap">
+                <span v-if="isImg(entry.value)" class="table-img-badge" @mouseenter="(e) => onValMouseEnter(entry.value, e)" @mouseleave="() => onValMouseLeave(entry.value)" data-tooltip="图片链接 (悬停预览)">🖼️</span>
+                <button
+                  v-else-if="isHttpLink(entry.value)"
+                  class="url-jump-btn"
+                  @click.stop="handleOpenUrl(entry.value)"
+                  data-tooltip="在浏览器中直接打开链接"
+                >
+                  <ExternalLink class="url-jump-icon" />
+                </button>
+                <span
+                  :class="[getValueColorClass(getValueType(entry.value)), 'copyable-val', { 'is-image-url': isImg(entry.value), 'is-web-url': isHttpLink(entry.value) }]"
+                  @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+                  @mouseleave="() => onValMouseLeave(entry.value)"
+                  @click.stop="handleCopyValue(entry.value)"
+                  :data-tooltip="getValTooltip(entry.value)"
+                  v-html="highlightText(getPreview(entry.value), searchQuery)"
+                ></span>
+              </div>
             </template>
 
             <!-- Complex nested value -->
@@ -457,7 +477,7 @@ const handleChildHover = (path) => {
                 <button 
                   class="toggle-btn" 
                   @click.stop="toggleExpandPath(getNestedCellPath(entry.key, entry.isIndex))"
-                  :title="isPathExpanded(getNestedCellPath(entry.key, entry.isIndex)) ? '收起子层级' : '展开子层级'"
+                  :data-tooltip="isPathExpanded(getNestedCellPath(entry.key, entry.isIndex)) ? '收起子层级' : '展开子层级'"
                 >
                   <span class="toggle-icon">{{ isPathExpanded(getNestedCellPath(entry.key, entry.isIndex)) ? '▼' : '▶' }}</span>
                   <span class="preview-text" v-html="highlightText(getPreview(entry.value), searchQuery)"></span>
@@ -465,7 +485,7 @@ const handleChildHover = (path) => {
                 <button
                   class="copy-subtree-btn"
                   @click.stop="handleCopySubtree(entry.value)"
-                  title="复制此子层级 JSON"
+                  data-tooltip="点击复制子树 JSON"
                 >
                   <Copy class="copy-subtree-icon" />
                 </button>
@@ -536,7 +556,10 @@ const handleChildHover = (path) => {
   border-right: 1px solid var(--border-color);
   vertical-align: top;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   min-width: 110px;
+  max-width: 300px;
   width: 1%;
   font-family: var(--font-sans);
   letter-spacing: 0.01em;
@@ -558,7 +581,10 @@ const handleChildHover = (path) => {
   border-bottom: 1px solid var(--border-color);
   vertical-align: top;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   min-width: 80px;
+  max-width: 300px;
   width: 1%;
   font-family: var(--font-sans);
   transition: background-color 0.15s, color 0.15s;
@@ -575,7 +601,10 @@ const handleChildHover = (path) => {
   padding: 6px 12px;
   border: 1px solid var(--border-color);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   min-width: 80px;
+  max-width: 300px;
   width: 1%;
   background: var(--bg-panel);
   font-family: var(--font-sans);
@@ -586,6 +615,17 @@ const handleChildHover = (path) => {
   font-family: var(--font-mono);
   color: var(--json-number);
   font-weight: 600;
+}
+
+.table-key-text {
+  display: inline-block;
+  cursor: pointer;
+  transition: opacity 0.15s ease, text-decoration 0.15s ease;
+}
+
+.table-key-text:hover {
+  text-decoration: underline;
+  opacity: 0.85;
 }
 
 /* Value column */
@@ -725,9 +765,23 @@ const handleChildHover = (path) => {
   cursor: pointer;
 }
 
+.val-primitive-wrap {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: middle;
+}
+
 .copyable-val {
   cursor: pointer;
   transition: opacity 0.15s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 360px;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .copyable-val:hover {
@@ -754,7 +808,10 @@ const handleChildHover = (path) => {
   opacity: 0.9;
   transition: transform 0.15s ease, opacity 0.15s ease;
   user-select: none;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .table-img-badge:hover {
@@ -784,6 +841,7 @@ const handleChildHover = (path) => {
   opacity: 0.9;
   vertical-align: middle;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .url-jump-btn:hover {
