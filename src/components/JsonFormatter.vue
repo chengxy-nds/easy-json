@@ -1521,28 +1521,39 @@ const applyAutoExtract = (tab = activeTab.value) => {
 }
 
 const handlePaste = () => {
-  if (!autoExtract.value) return
-  setTimeout(() => applyAutoExtract(), 50)
+  setTimeout(() => {
+    if (autoExtract.value) {
+      applyAutoExtract()
+    }
+    if (autoFormat.value) {
+      const tab = activeTab.value
+      if (tab && tab.inputText && !tab.validationError) {
+        try {
+          const obj = safeParse(tab.inputText)
+          const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
+          const formatted = safeStringify(obj, null, space)
+          if (formatted !== tab.inputText) {
+            tab.inputText = formatted
+          }
+        } catch (_) {}
+      }
+    }
+  }, 60)
 }
 
-// 自动格式化：输入后延迟 500ms 自动格式化输入内容（非粘贴时）
-let autoFormatTimer = null
-watch(() => activeTab.value?.inputText, (newVal) => {
-  if (!autoFormat.value || !newVal) return
-  clearTimeout(autoFormatTimer)
-  autoFormatTimer = setTimeout(() => {
-    // 如果用户正在编辑（textarea 聚焦），不替换，避免光标跳到末尾
-    if (document.activeElement === textareaRef.value) return
-    const tab = activeTab.value
+// 自动格式化设置切换时，对当前输入执行格式化
+watch(autoFormat, (enabled) => {
+  if (enabled && activeTab.value?.inputText) {
     try {
+      const tab = activeTab.value
       const obj = safeParse(tab.inputText)
       const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
       const formatted = safeStringify(obj, null, space)
       if (formatted !== tab.inputText) {
         tab.inputText = formatted
       }
-    } catch (e) { /* JSON 无效时忽略 */ }
-  }, 500)
+    } catch (_) {}
+  }
 })
 
 // 操作后自动复制
@@ -1834,16 +1845,16 @@ const copyToClipboard = () => {
 const handleTextareaFocus = () => {
   activeScrollTarget.value = 'left'
   isTextareaFocused.value = true
-  textareaValue.value = activeTab.value?.inputText || ''
 
   if (!autoPaste.value) return
   const tab = activeTab.value
+  if (!tab) return
   // Only auto-paste into empty input
-  if (tab.inputText.trim()) return
+  if (tab.inputText && tab.inputText.trim()) return
 
   // Delay clipboard reading slightly to allow the OS to synchronize the pasteboard
   setTimeout(async () => {
-    if (tab.inputText.trim()) return
+    if (tab.inputText && tab.inputText.trim()) return
 
     const processAutoPaste = (text) => {
       if (!text || !text.trim()) return
@@ -1853,7 +1864,6 @@ const handleTextareaFocus = () => {
       formatterLastPasted.value = trimmed
       tab.inputText = text
       tab._unsortedText = null
-      textareaValue.value = text
       if (autoExtract.value) {
         applyAutoExtract()
       }
@@ -1898,8 +1908,18 @@ const handleTextareaBlur = () => {
   if (inputDebounceTimer) {
     clearTimeout(inputDebounceTimer)
     inputDebounceTimer = null
-    if (activeTab.value && activeTab.value.inputText !== textareaValue.value) {
-      activeTab.value.inputText = textareaValue.value
+  }
+  if (autoFormat.value) {
+    const tab = activeTab.value
+    if (tab && tab.inputText && !tab.validationError) {
+      try {
+        const obj = safeParse(tab.inputText)
+        const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
+        const formatted = safeStringify(obj, null, space)
+        if (formatted !== tab.inputText) {
+          tab.inputText = formatted
+        }
+      } catch (_) {}
     }
   }
 }
@@ -3380,8 +3400,8 @@ onBeforeUnmount(() => {
                 @select="updateCursorPath"
                 @mouseenter="activeScrollTarget = 'left'"
                 @touchstart="activeScrollTarget = 'left'"
-                @focus="isTextareaFocused = true; updateCursorPath()"
-                @blur="isTextareaFocused = false"
+                @focus="handleTextareaFocus(); updateCursorPath()"
+                @blur="handleTextareaBlur"
                 @mousemove="handleTextareaMouseMove"
                 @mouseleave="handleTextareaMouseLeave"
               ></textarea>

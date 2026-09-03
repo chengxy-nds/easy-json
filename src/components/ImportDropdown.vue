@@ -760,13 +760,13 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 /* ─── macOS Inset Segmented Tabs ─── */
 .import-tabs {
   display: flex;
-  background: rgba(0, 0, 0, 0.03);
+  background: var(--bg-input, rgba(0, 0, 0, 0.03));
   border-radius: 8px;
   padding: 2.5px;
   gap: 2px;
 }
 .dark-mode .import-tabs {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-app, #27272b);
 }
 .tab-btn {
   flex: 1;
@@ -795,7 +795,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
     0 1px 1px rgba(0, 0, 0, 0.02);
 }
 .dark-mode .tab-btn.active {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-panel, #313136);
+  color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 .tab-icon {
   width: 12px;
@@ -878,16 +880,16 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 .import-input {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid #d0d7de;
+  border: 1px solid var(--border-color, #d0d7de);
   border-radius: 8px;
-  background: #ffffff;
-  color: #24292f;
-  font-size: 11px;
+  background: var(--bg-input, #f8fafc);
+  color: var(--text-primary, #24292f);
+  font-size: 11.5px;
   font-family: var(--font-mono);
   line-height: 1.6;
   box-sizing: border-box;
   outline: none;
-  caret-color: #0969da;
+  caret-color: var(--primary-color, #0969da);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .import-textarea::selection,
@@ -902,40 +904,36 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 }
 .import-textarea:focus,
 .import-input:focus {
-  border-color: #0969da;
-  box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
+  border-color: var(--primary-color, #0969da);
+  box-shadow: 0 0 0 2px var(--primary-light, rgba(9, 105, 218, 0.15));
 }
 
 .import-textarea::placeholder,
 .import-input::placeholder {
-  color: #8c959f;
+  color: var(--text-muted, #8c959f);
   opacity: 1;
 }
 
-/* ─── 暗色主题输入框 ─── */
+/* ─── 暗色主题输入框（与左侧编辑区底色完美一致） ─── */
 .dark-mode .import-textarea,
 .dark-mode .import-input {
-  background: #0d1117;
-  color: #e6edf3;
-  border-color: rgba(255, 255, 255, 0.08);
-  caret-color: #39ff14;
+  background: var(--bg-app, #27272b);
+  color: var(--text-primary, #f8fafc);
+  border-color: var(--border-color, #404046);
+  caret-color: var(--text-primary, #f8fafc);
 }
 .dark-mode .import-textarea::selection,
 .dark-mode .import-input::selection {
-  background: rgba(88, 166, 255, 0.25);
+  background: rgba(97, 175, 239, 0.3);
 }
 .dark-mode .import-textarea:focus,
 .dark-mode .import-input:focus {
-  border-color: #39ff14;
-  box-shadow: 0 0 0 3px rgba(57, 255, 20, 0.15);
-}
-.dark-mode .import-textarea::selection,
-.dark-mode .import-input::selection {
-  background: rgba(57, 255, 20, 0.25);
+  border-color: #61afef;
+  box-shadow: 0 0 0 2px rgba(97, 175, 239, 0.2);
 }
 .dark-mode .import-textarea::placeholder,
 .dark-mode .import-input::placeholder {
-  color: #484f58;
+  color: var(--text-muted, #8b949e);
 }
 
 /* ─── 底部 Action 栏 ─── */
