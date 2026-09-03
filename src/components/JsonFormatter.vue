@@ -1076,7 +1076,7 @@ const updateShowOutput = () => {
 }
 
 const workspaceGridRef = ref(null)
-const splitPercent = ref(50)
+const splitPercent = ref(40)
 const isDraggingSplitter = ref(false)
 
 // 恢复已保存的分栏比例
@@ -1100,11 +1100,11 @@ const gridStyle = computed(() => {
 })
 
 const resetSplitRatio = () => {
-  splitPercent.value = 50
+  splitPercent.value = 40
   try {
-    localStorage.setItem('ej_fmt_split_ratio', '50')
+    localStorage.setItem('ej_fmt_split_ratio', '40')
   } catch (e) {}
-  if (showToast) showToast('分栏比例已重置为 50:50')
+  if (showToast) showToast('分栏比例已重置为 40:60')
 }
 
 const startSplitterDrag = (e) => {
@@ -2875,7 +2875,7 @@ onMounted(() => {
             validationError: null,
             errorLine: null,
             duplicateLines: [],
-            viewMode: t.viewMode || 'text',
+            viewMode: 'tree',
             convertFormat: null,
             extractedFormat: null
           }))
@@ -3285,7 +3285,7 @@ onBeforeUnmount(() => {
         @mousedown.prevent="startSplitterDrag"
         @touchstart.prevent="startSplitterTouch"
         @dblclick="resetSplitRatio"
-        title="按住左右拖拽调整宽度（双击重置 50:50）"
+        title="按住左右拖拽调整宽度（双击重置 40:60）"
       >
         <div class="pane-splitter-handle">
           <GripVertical class="pane-splitter-icon" />
@@ -3444,7 +3444,9 @@ onBeforeUnmount(() => {
               v-else-if="activeTab.viewMode === 'table' && activeTab.parsedObj"
               :data="activeTab.parsedObj"
               :hoveredPath="hoveredPath"
+              :selectedPath="selectedPath"
               @hover-path="setHoveredPath"
+              @click-path="handlePathClick"
               @mouseenter="activeScrollTarget = 'right'"
               @touchstart="activeScrollTarget = 'right'"
               key="table"
@@ -4051,6 +4053,14 @@ onBeforeUnmount(() => {
   background-color: var(--bg-input);
   min-height: 0;
   height: 100%;
+}
+
+.editor-panel:first-child .textarea-overlay-container {
+  background-color: rgba(0, 0, 0, 0.01);
+}
+
+.editor-panel:first-child .gutter {
+  background-color: var(--bg-panel);
 }
 
 .editor-wrapper {

@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, watch, inject } from 'vue'
-import { ExternalLink } from 'lucide-vue-next'
+import { ExternalLink, Image as ImageIcon } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, openExternalUrl } from '../utils/imageDetector.js'
 
@@ -98,7 +98,7 @@ const getPreview = (v) => {
   if (v === null) return 'null'
   if (Array.isArray(v)) return `[${v.length}]`
   if (typeof v === 'object') return `{${Object.keys(v).length}}`
-  if (typeof v === 'string') return `"${v}"`
+  if (typeof v === 'string') return v
   if (typeof v === 'boolean') return v ? 'true' : 'false'
   return String(v)
 }
@@ -131,6 +131,7 @@ const layout = computed(() => {
 
   const nodesMap = new Map()
   const maxColWidths = []
+  const nodesByDepth = []
 
   // 1. Recursive function to construct nodes tree
   const buildTreeNodes = (currentObj, path = [], key = "", parentId = null, parentRowIdx = null, depth = 0) => {
@@ -165,9 +166,9 @@ const layout = computed(() => {
       if (e.preview.length > maxPLen) maxPLen = e.preview.length
     })
 
-    const keyW = isArray ? Math.max(20, maxKLen * 6 + 4) : Math.max(70, Math.min(300, maxKLen * 7.5 + 12))
-    const valW = isArray ? Math.max(30, maxPLen * 6 + 4) : Math.max(60, Math.min(360, maxPLen * 7.5 + 12))
-    const width = isArray ? Math.max(75, Math.min(640, keyW + valW + 16)) : Math.max(140, Math.min(700, keyW + valW + 28))
+    const keyW = isArray ? Math.max(24, maxKLen * 7 + 8) : Math.max(70, Math.min(300, maxKLen * 7.5 + 12))
+    const valW = isArray ? Math.max(40, maxPLen * 7 + 10) : Math.max(60, Math.min(360, maxPLen * 7.5 + 12))
+    const width = isArray ? Math.max(90, Math.min(640, keyW + valW + 20)) : Math.max(140, Math.min(700, keyW + valW + 28))
     const height = CARD_PAD * 2 + Math.max(cardEntries.length, 1) * CARD_ROW_H
 
     // Track max width for this depth level
@@ -193,6 +194,10 @@ const layout = computed(() => {
     }
 
     nodesMap.set(nodeId, node)
+    if (!nodesByDepth[depth]) {
+      nodesByDepth[depth] = []
+    }
+    nodesByDepth[depth].push(node)
 
     // Recursively build children
     cardEntries.forEach(entry => {
@@ -206,74 +211,43 @@ const layout = computed(() => {
   }
 
   // Build the root tree
-  const rootId = JSON.stringify([])
   buildTreeNodes(obj, [], "", null, null, 0)
 
-  // 2. Compute vertical footprint of each subtree (post-order height calculation)
-  const subtreeHeights = new Map()
-  const computeSubtreeHeights = (nodeId) => {
-    const node = nodesMap.get(nodeId)
-    if (!node) return 0
+  // 2. Compute Column X coordinates
+  const colX = []
+  let curX = 0
+  for (let d = 0; d < maxColWidths.length; d++) {
+    colX[d] = curX
+    curX += (maxColWidths[d] || 260) + 80
+  }
 
-    if (node.childrenIds.length === 0) {
-      subtreeHeights.set(nodeId, node.height)
-      return node.height
-    }
+  // 3. Compact & Tidy Column-wise Y-coordinate calculation
+  nodesByDepth.forEach((depthNodes, depth) => {
+    let prevBottom = 0
+    depthNodes.forEach((node, idx) => {
+      node.x = colX[depth] || 0
 
-    let childrenHeightSum = 0
-    node.childrenIds.forEach((childId, idx) => {
-      childrenHeightSum += computeSubtreeHeights(childId)
-      if (idx < node.childrenIds.length - 1) {
-        childrenHeightSum += CARD_GAP
+      let idealY = 0
+      if (node.parentId !== null) {
+        const parentNode = nodesMap.get(node.parentId)
+        if (parentNode) {
+          const parentRowY = parentNode.y + CARD_PAD + (node.parentRowIdx ?? 0) * CARD_ROW_H + CARD_ROW_H / 2
+          idealY = parentRowY - (CARD_PAD + CARD_ROW_H / 2)
+        }
       }
+
+      if (idx === 0) {
+        node.y = Math.max(0, idealY)
+      } else {
+        const minAllowedY = prevBottom + CARD_GAP
+        node.y = Math.max(minAllowedY, idealY)
+      }
+
+      prevBottom = node.y + node.height
     })
+  })
 
-    const totalHeight = Math.max(node.height, childrenHeightSum)
-    subtreeHeights.set(nodeId, totalHeight)
-    return totalHeight
-  }
-  computeSubtreeHeights(rootId)
-
-  // 3. Assign positions recursively, centering parent nodes vertically
-  const assignCoords = (nodeId, startY, depth) => {
-    const node = nodesMap.get(nodeId)
-    if (!node) return
-
-    // Calculate x coordinate by summing up max widths of previous columns
-    let x = 0
-    for (let i = 0; i < depth; i++) {
-      x += (maxColWidths[i] || 330) + 90
-    }
-    node.x = x
-
-    const nodeSubtreeH = subtreeHeights.get(nodeId)
-
-    if (node.childrenIds.length === 0) {
-      node.y = startY
-      return
-    }
-
-    // Align parent to the top of the subtree
-    node.y = startY
-
-    // Center children relative to parent if parent card is taller
-    let currentChildY = startY
-    const totalChildrenH = node.childrenIds.reduce((sum, cid, idx) => {
-      return sum + subtreeHeights.get(cid) + (idx < node.childrenIds.length - 1 ? CARD_GAP : 0)
-    }, 0)
-
-    if (totalChildrenH < node.height) {
-      currentChildY = node.y + (node.height - totalChildrenH) / 2
-    }
-
-    node.childrenIds.forEach(childId => {
-      assignCoords(childId, currentChildY, depth + 1)
-      currentChildY += subtreeHeights.get(childId) + CARD_GAP
-    })
-  }
-  assignCoords(rootId, 0, 0)
-
-  // 4. Bounding box computation & coordinate normalization (shift everything to align with a 20px padding)
+  // 4. Bounding box computation & coordinate normalization
   const allNodes = Array.from(nodesMap.values())
   if (allNodes.length === 0) return null
 
@@ -283,12 +257,12 @@ const layout = computed(() => {
   const maxY = Math.max(...allNodes.map(n => n.y + n.height))
 
   allNodes.forEach(node => {
-    node.x = node.x - minX + 20
-    node.y = node.y - minY + 20
+    node.x = node.x - minX + 24
+    node.y = node.y - minY + 24
   })
 
-  const wsW = maxX - minX + 40
-  const wsH = maxY - minY + 40
+  const wsW = maxX - minX + 48
+  const wsH = maxY - minY + 48
 
   return { nodes: allNodes, wsW, wsH }
 })
@@ -323,8 +297,8 @@ const curves = computed(() => {
 // ─── Pan / Zoom (Adapted for smoother interaction) ──────────────────────────
 const containerRef = ref(null)
 const tx = ref(60)
-const ty = ref(60)
-const scale = ref(1)
+const ty = ref(40)
+const scale = ref(0.9)
 const isPanning = ref(false)
 const panStartX = ref(0)
 const panStartY = ref(0)
@@ -346,6 +320,9 @@ const doPan = (e) => {
 }
 const stopPan = () => { isPanning.value = false }
 
+const MIN_SCALE = 0.65 // 最小缩小比例 (65%)
+const MAX_SCALE = 1.45 // 最大放大比例 (145%)
+
 const wheelMode = ref('zoom') // 'zoom' or 'scroll' (默认滚轮缩放)
 const toggleWheelMode = () => {
   wheelMode.value = wheelMode.value === 'zoom' ? 'scroll' : 'zoom'
@@ -354,8 +331,10 @@ const toggleWheelMode = () => {
 const doZoom = (e) => {
   e.preventDefault()
   if (wheelMode.value === 'zoom') {
-    const factor = e.deltaY < 0 ? 1.06 : 0.94
-    const newScale = Math.min(3, Math.max(0.1, scale.value * factor))
+    const factor = e.deltaY < 0 ? 1.08 : 0.92
+    const targetScale = scale.value * factor
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Number(targetScale.toFixed(3))))
+    if (newScale === scale.value) return
     
     if (containerRef.value) {
       const rect = containerRef.value.getBoundingClientRect()
@@ -374,30 +353,90 @@ const doZoom = (e) => {
   }
 }
 
-const zoomIn  = () => { scale.value = Math.min(3,    scale.value * 1.08) }
-const zoomOut = () => { scale.value = Math.max(0.10, scale.value / 1.08) }
+const zoomIn  = () => { scale.value = Math.min(MAX_SCALE, Number((scale.value * 1.15).toFixed(3))) }
+const zoomOut = () => { scale.value = Math.max(MIN_SCALE, Number((scale.value / 1.15).toFixed(3))) }
 
 const fitToScreen = () => {
-  if (!containerRef.value || !layout.value) return
-  const { wsW, wsH } = layout.value
-  const cw = containerRef.value.clientWidth
-  const ch = containerRef.value.clientHeight
-  
-  // Multiply by 0.9 to make the fit slightly smaller/spaced
-  let s = Math.min(cw / (wsW + 40), ch / (wsH + 40)) * 0.9
-  // Keep it bounded so it doesn't get too large or too small
-  s = Math.min(Math.max(s, 1.0), 1.25)
-  
-  scale.value = s
-  // Shift the entire graph slightly to the top-left (using 0.2 factor instead of 0.5 centering)
-  tx.value = Math.max(40, (cw - wsW * s) * 0.2)
-  ty.value = Math.max(40, (ch - wsH * s) * 0.2)
+  scale.value = 0.9
+  tx.value = 40
+  ty.value = 40
 }
 
-const resetView = () => { tx.value = 60; ty.value = 60; scale.value = 1.1 }
+const resetView = () => { tx.value = 40; ty.value = 40; scale.value = 0.9 }
 
 onMounted(fitToScreen)
 watch(() => props.parsedObj, fitToScreen)
+
+// ─── SelectedPath Anchor & Centering ──────────────────────────────────────────
+const selectedPath = inject('selectedPath', ref(null))
+let panAnimId = null
+
+const animatePanTo = (destTx, destTy, duration = 280) => {
+  if (panAnimId) cancelAnimationFrame(panAnimId)
+  const startTx = tx.value
+  const startTy = ty.value
+  const startTime = performance.now()
+
+  const step = (now) => {
+    const elapsed = now - startTime
+    const progress = Math.min(1, elapsed / duration)
+    // Ease out cubic
+    const ease = 1 - Math.pow(1 - progress, 3)
+    tx.value = startTx + (destTx - startTx) * ease
+    ty.value = startTy + (destTy - startTy) * ease
+    if (progress < 1) {
+      panAnimId = requestAnimationFrame(step)
+    } else {
+      panAnimId = null
+    }
+  }
+  panAnimId = requestAnimationFrame(step)
+}
+
+const centerOnPath = (path) => {
+  if (!path || !layout.value || !containerRef.value) return
+  const { nodes } = layout.value
+
+  let matchedNode = null
+  let maxMatchLen = -1
+
+  for (const node of nodes) {
+    const np = node.path
+    if (np.length <= path.length && np.every((v, i) => v === path[i])) {
+      if (np.length > maxMatchLen) {
+        maxMatchLen = np.length
+        matchedNode = node
+      }
+    }
+  }
+
+  if (!matchedNode) return
+
+  let targetX = matchedNode.x + matchedNode.width / 2
+  let targetY = matchedNode.y + matchedNode.height / 2
+
+  if (path.length === matchedNode.path.length + 1) {
+    const rowKey = String(path[path.length - 1])
+    const rowIdx = matchedNode.entries.findIndex(e => String(e.key) === rowKey)
+    if (rowIdx !== -1) {
+      targetY = matchedNode.y + CARD_PAD + rowIdx * CARD_ROW_H + CARD_ROW_H / 2
+    }
+  }
+
+  const cw = containerRef.value.clientWidth
+  const ch = containerRef.value.clientHeight
+  // 水平正中，垂直方向定位在距离顶部 35% 处
+  const destTx = cw / 2 - targetX * scale.value
+  const destTy = ch * 0.35 - matchedNode.y * scale.value
+
+  animatePanTo(destTx, destTy, 280)
+}
+
+watch(selectedPath, (newPath) => {
+  if (newPath && newPath.length > 0) {
+    centerOnPath(newPath)
+  }
+})
 
 // ─── Hover synchronization helpers ───────────────────────────────────────────
 const emitHover = (path) => {
@@ -405,34 +444,34 @@ const emitHover = (path) => {
 }
 
 const isPathHovered = (path) => {
-  if (!props.hoveredPath || props.hoveredPath.length !== path.length) return false
-  return path.every((v, i) => v === props.hoveredPath[i])
+  const current = props.hoveredPath || selectedPath.value
+  if (!current || path.length === 0 || path.length > current.length) return false
+  return path.every((v, i) => String(v) === String(current[i]))
 }
 
 const isCardHovered = (node) => {
-  if (!props.hoveredPath) return false
-  const lenH = props.hoveredPath.length
-  const lenN = node.path.length
-  if (lenH === lenN || lenH === lenN + 1) {
-    return node.path.every((v, i) => v === props.hoveredPath[i])
-  }
-  return false
+  const current = props.hoveredPath || selectedPath.value
+  if (!current || node.path.length > current.length) return false
+  return node.path.every((v, i) => String(v) === String(current[i]))
 }
 
 const isCurveHovered = (curve) => {
-  if (!props.hoveredPath || props.hoveredPath.length === 0) return false
+  const current = props.hoveredPath || selectedPath.value
+  if (!current || current.length === 0) return false
   try {
     const nodePath = JSON.parse(curve.id)
-    if (nodePath.length > props.hoveredPath.length) return false
-    return nodePath.every((v, i) => v === props.hoveredPath[i])
+    if (nodePath.length > current.length) return false
+    return nodePath.every((v, i) => String(v) === String(current[i]))
   } catch (e) {
     return false
   }
 }
 
+const BASE_DOT_GRID = 20
+
 const graphViewStyle = computed(() => {
-  const s = Math.max(1, scale.value)
-  const size = 16 * s
+  const s = Math.max(0.2, scale.value)
+  const size = BASE_DOT_GRID * s
   return {
     backgroundSize: `${size}px ${size}px`,
     backgroundPosition: `${tx.value}px ${ty.value}px`
@@ -546,7 +585,7 @@ const graphViewStyle = computed(() => {
               @mouseenter="(e) => onValMouseEnter(entry.value, e)"
               @mouseleave="() => onValMouseLeave(entry.value)"
               data-tooltip="图片链接 (悬停预览)"
-            >🖼️</span>
+            ><ImageIcon class="img-badge-icon" /></span>
             <button
               v-else-if="isHttpLink(entry.value)"
               class="graph-url-jump-btn"
@@ -597,8 +636,8 @@ const graphViewStyle = computed(() => {
   cursor: grab;
   user-select: none;
   background-color: var(--bg-panel);
-  background-image: radial-gradient(var(--graph-dot-color) 0.8px, transparent 0);
-  background-size: 14px 14px;
+  background-image: radial-gradient(var(--graph-dot-color) 0.75px, transparent 0.75px);
+  background-size: 20px 20px;
 }
 .graph-view.panning { cursor: grabbing; }
 
@@ -618,26 +657,69 @@ const graphViewStyle = computed(() => {
 }
 .graph-edge {
   fill: none;
-  stroke: var(--border-color);
-  stroke-width: 1.5;
+  stroke: #94a3b8;
+  stroke-width: 1;
+  stroke-linecap: round;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
 }
+:global(.dark-mode) .graph-edge {
+  stroke: #64748b;
+}
+.graph-edge.is-hovered {
+  stroke: var(--json-key, #6366f1) !important;
+  stroke-width: 1.5 !important;
+}
+:global(.dark-mode) .graph-edge.is-hovered {
+  stroke: var(--json-key, #818cf8) !important;
+}
+
 .graph-bullet {
-  fill: var(--text-secondary);
+  fill: #94a3b8;
+  transition: fill 0.2s ease;
+}
+:global(.dark-mode) .graph-bullet {
+  fill: #64748b;
+}
+.graph-bullet.is-hovered {
+  fill: var(--json-key, #6366f1) !important;
+}
+:global(.dark-mode) .graph-bullet.is-hovered {
+  fill: var(--json-key, #a5b4fc) !important;
 }
 
 /* ── Nodes (shared) ── */
 .graph-node {
   position: absolute;
-  background: var(--bg-panel);
-  border: 1px solid var(--border-color);
-  /* border-radius: 4px; */
-  /* box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02); */
+  background: var(--bg-panel, #ffffff);
+  border: 1px solid var(--graph-node-border, #d2d2d2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+:global(.dark-mode) .graph-node {
+  background: #232328;
+  border-color: #555555 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 }
 
 /* ── Root node special styling ── */
 .root-node {
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+:global(.dark-mode) .root-node {
+  background: #27272d;
+  border-color: #555555 !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
+}
+
+.graph-node.is-hovered {
+  border-color: var(--json-key, #6366f1);
+  box-shadow: 0 0 0 1px var(--json-key, #6366f1), 0 4px 14px rgba(99, 102, 241, 0.18);
+}
+:global(.dark-mode) .graph-node.is-hovered {
+  border-color: var(--json-key, #818cf8);
+  box-shadow: 0 0 0 1px var(--json-key, #818cf8), 0 6px 20px rgba(0, 0, 0, 0.6);
 }
 
 .card-row {
@@ -646,12 +728,21 @@ const graphViewStyle = computed(() => {
   padding: 0 12px;
   gap: 8px;
   cursor: pointer;
-  /* border-bottom: 1px solid var(--border-color); */
+  transition: background-color 0.12s ease;
+}
+.card-row:hover {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.08));
+}
+.card-row.is-hovered {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
+}
+:global(.dark-mode) .card-row.is-hovered {
+  background-color: var(--json-hover-bg, rgba(129, 140, 248, 0.24)) !important;
 }
 .card-row:last-child { border-bottom: none; }
 .card-row--array {
-  padding: 0 6px !important;
-  gap: 4px !important;
+  padding: 0 8px !important;
+  gap: 8px !important;
 }
 
 .card-key {
@@ -676,23 +767,15 @@ const graphViewStyle = computed(() => {
   cursor: pointer;
 }
 .card-key--index {
-  color: #0000004d;
-  font-weight: normal;
+  color: var(--json-number, #2563eb);
+  font-weight: 600;
   min-width: auto !important;
 }
-.dark-mode .card-key--index {
-  color: rgba(255, 255, 255, 0.3);
-}
-.card-row--array .card-key,
-.card-row--array .val-text {
-  color: #0000004d !important;
-}
-.dark-mode .card-row--array .card-key,
-.dark-mode .card-row--array .val-text {
-  color: rgba(255, 255, 255, 0.3) !important;
+:global(.dark-mode) .card-key--index {
+  color: var(--json-number, #60a5fa);
 }
 .root-key--complex {
-  font-weight: 600;
+  font-weight: 500;
 }
 .card-val {
   font-family: var(--font-mono);
@@ -775,41 +858,6 @@ const graphViewStyle = computed(() => {
 }
 
 /* ── Hover synchronization styles ── */
-.card-row {
-  transition: background-color 0.15s ease;
-}
-.card-row.is-hovered {
-  background-color: rgba(249, 115, 22, 0.12);
-}
-.dark-mode .card-row.is-hovered {
-  background-color: rgba(249, 115, 22, 0.22);
-}
-
-.graph-edge {
-  transition: stroke 0.15s ease, stroke-width 0.15s ease, filter 0.15s ease;
-}
-.graph-edge.is-hovered {
-  stroke: var(--json-key) !important;
-  stroke-width: 2.5 !important;
-  filter: drop-shadow(0 0 2.5px var(--json-key));
-}
-
-.graph-bullet {
-  transition: fill 0.15s ease, r 0.15s ease;
-}
-.graph-bullet.is-hovered {
-  fill: var(--json-key) !important;
-  r: 6px !important;
-}
-
-.graph-node {
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.graph-node.is-hovered {
-  border-color: var(--json-key);
-  /* box-shadow: 0 0 10px var(--json-hover-bg); */
-}
-
 /* ── Watermark ── */
 .graph-credit {
   position: absolute;
@@ -851,16 +899,30 @@ const graphViewStyle = computed(() => {
 .graph-img-badge {
   font-size: 13px;
   cursor: pointer;
-  opacity: 0.9;
-  transition: transform 0.15s ease;
+  opacity: 0.85;
+  transition: transform 0.15s ease, opacity 0.15s ease;
   user-select: none;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   vertical-align: middle;
   flex-shrink: 0;
+  margin-right: 4px;
+  color: #0284c7;
+}
+
+:global(.dark-mode) .graph-img-badge {
+  color: #38bdf8;
+}
+
+.img-badge-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
 }
 
 .graph-img-badge:hover {
-  transform: scale(1.2);
+  transform: scale(1.15);
   opacity: 1;
 }
 
@@ -876,22 +938,36 @@ const graphViewStyle = computed(() => {
   width: 15px;
   height: 15px;
   padding: 0;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.25);
   border-radius: 3px;
-  color: var(--accent-color, #6366f1);
+  color: #2563eb;
   cursor: pointer;
-  opacity: 0.9;
+  opacity: 0.95;
   vertical-align: middle;
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
 
 .graph-url-jump-btn:hover {
-  background: var(--accent-color, #6366f1);
+  background: #2563eb;
   color: #ffffff;
   opacity: 1;
   transform: scale(1.15);
+}
+
+:global(.dark-mode) .graph-url-jump-btn {
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  opacity: 1;
+}
+
+:global(.dark-mode) .graph-url-jump-btn:hover {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
 }
 
 .url-jump-icon {

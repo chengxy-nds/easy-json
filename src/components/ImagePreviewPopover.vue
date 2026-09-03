@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue'
 import { ExternalLink, Check, Image as ImageIcon, AlertCircle, Loader2, Maximize2, ZoomIn, ZoomOut, RotateCcw, X } from 'lucide-vue-next'
-import { getImageType } from '../utils/imageDetector.js'
+import { getImageType, openExternalUrl } from '../utils/imageDetector.js'
 
 const props = defineProps({
   visible: {
@@ -208,7 +208,7 @@ const openInNewTab = () => {
       win.document.write(`<iframe src="${props.url}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`)
     }
   } else {
-    window.open(props.url, '_blank', 'noopener,noreferrer')
+    openExternalUrl(props.url)
   }
 }
 

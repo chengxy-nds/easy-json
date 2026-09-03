@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, inject, watch } from 'vue'
-import { ChevronDown, ChevronRight, ExternalLink } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, ExternalLink, Image as ImageIcon } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, openExternalUrl } from '../utils/imageDetector.js'
 
@@ -237,7 +237,7 @@ const handleCopyValue = (e) => {
       <span v-if="name" class="node-colon">: </span>
       
       <!-- 前置图标：图片悬停徽标 / 链接一键跳转 -->
-      <span v-if="isImageValue" class="tree-img-badge" @mouseenter="onValueMouseEnter" @mouseleave="onValueMouseLeave" data-tooltip="图片链接 (悬停预览)">🖼️</span>
+      <span v-if="isImageValue" class="tree-img-badge" @mouseenter="onValueMouseEnter" @mouseleave="onValueMouseLeave" data-tooltip="图片链接 (悬停预览)"><ImageIcon class="img-badge-icon" /></span>
       <button
         v-else-if="isOtherUrlValue"
         class="url-jump-btn"
@@ -427,17 +427,28 @@ const handleCopyValue = (e) => {
   margin-left: 1px;
   cursor: pointer;
   vertical-align: middle;
-  opacity: 0.9;
+  opacity: 0.85;
   transition: transform 0.15s ease, opacity 0.15s ease;
   user-select: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  color: #0284c7;
+}
+
+:global(.dark-mode) .tree-img-badge {
+  color: #38bdf8;
+}
+
+.img-badge-icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2;
 }
 
 .tree-img-badge:hover {
-  transform: scale(1.2);
+  transform: scale(1.15);
   opacity: 1;
 }
 
@@ -455,22 +466,36 @@ const handleCopyValue = (e) => {
   margin-right: 4px;
   margin-left: 1px;
   padding: 0;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.25);
   border-radius: 4px;
-  color: var(--accent-color, #6366f1);
+  color: #2563eb;
   cursor: pointer;
-  opacity: 0.9;
+  opacity: 0.95;
   vertical-align: middle;
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
 
 .url-jump-btn:hover {
-  background: var(--accent-color, #6366f1);
+  background: #2563eb;
   color: #ffffff;
   opacity: 1;
   transform: scale(1.15);
+}
+
+:global(.dark-mode) .url-jump-btn {
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  opacity: 1;
+}
+
+:global(.dark-mode) .url-jump-btn:hover {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
 }
 
 .url-jump-icon {

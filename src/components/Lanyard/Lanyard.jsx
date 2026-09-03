@@ -12,6 +12,7 @@ import cardGLB from '../../assets/lanyard/card.glb'
 import lanyard from '../../assets/lanyard/lanyard.png'
 
 extend({ MeshLineGeometry, MeshLineMaterial })
+useGLTF.preload(cardGLB)
 
 const BLANK_PIXEL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=='
@@ -43,10 +44,13 @@ export default function Lanyard({
     <div className="lanyard-wrapper">
       <Canvas
         camera={{ position: position, fov: fov }}
-        dpr={[1, isMobile ? 1.2 : Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1.5, 1.5)]}
-        gl={{ alpha: transparent, powerPreference: 'high-performance', antialias: true }}
-        onCreated={({ gl }) => {
+        dpr={[1, isMobile ? 1.0 : Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1.25, 1.25)]}
+        gl={{ alpha: transparent, powerPreference: 'high-performance', antialias: true, stencil: false, depth: true }}
+        onCreated={({ gl, scene, camera }) => {
           gl.setClearColor(new THREE.Color(0x000000), transparent ? 0 : 1)
+          try {
+            gl.compile(scene, camera)
+          } catch (e) {}
           if (onLoaded) onLoaded()
         }}
       >
@@ -202,9 +206,8 @@ function Band({
     const composite = new THREE.CanvasTexture(canvas)
     composite.colorSpace = THREE.SRGBColorSpace
     composite.flipY = baseMap.flipY
-    composite.anisotropy = 8
-    composite.generateMipmaps = true
-    composite.minFilter = THREE.LinearMipmapLinearFilter
+    composite.generateMipmaps = false
+    composite.minFilter = THREE.LinearFilter
     composite.magFilter = THREE.LinearFilter
     composite.needsUpdate = true
     return composite
@@ -233,6 +236,8 @@ function Band({
   }, [hovered, dragged])
 
   useFrame((state, delta) => {
+    const clampedDelta = Math.min(delta, 0.033)
+
     if (dragged) {
       vec.set(state.pointer.x, state.pointer.y, 0.5).unproject(state.camera)
       dir.copy(vec).sub(state.camera.position).normalize()
@@ -240,13 +245,13 @@ function Band({
         ;[card, j1, j2, j3, fixed].forEach(ref => ref.current?.wakeUp())
       card.current?.setNextKinematicTranslation({ x: vec.x - dragged.x, y: vec.y - dragged.y, z: vec.z - dragged.z })
     }
-    if (fixed.current) {
+    if (fixed.current && j1.current && j2.current && j3.current && card.current && band.current) {
       ;[j1, j2].forEach(ref => {
         if (!ref.current.lerped) ref.current.lerped = new THREE.Vector3().copy(ref.current.translation())
         const clampedDistance = Math.max(0.1, Math.min(1, ref.current.lerped.distanceTo(ref.current.translation())))
         ref.current.lerped.lerp(
           ref.current.translation(),
-          delta * (minSpeed + clampedDistance * (maxSpeed - minSpeed))
+          clampedDelta * (minSpeed + clampedDistance * (maxSpeed - minSpeed))
         )
       })
       curve.points[0].copy(j3.current.translation())

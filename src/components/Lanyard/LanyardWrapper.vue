@@ -64,11 +64,20 @@ const init3D = () => {
 }
 
 onMounted(() => {
-  // 让首屏首帧 DOM 优先完成绘制，再启动 3D 画布渲染
-  timeoutId = setTimeout(init3D, 50)
+  // 避开首页路由切换、DOM 绘制与 Hero 区粒子初始化的 CPU 峰值
+  if ('requestIdleCallback' in window) {
+    idleId = requestIdleCallback(() => {
+      timeoutId = setTimeout(init3D, 180)
+    }, { timeout: 600 })
+  } else {
+    timeoutId = setTimeout(init3D, 250)
+  }
 })
 
 onBeforeUnmount(() => {
+  if (idleId && 'cancelIdleCallback' in window) {
+    cancelIdleCallback(idleId)
+  }
   if (timeoutId) {
     clearTimeout(timeoutId)
   }
@@ -83,6 +92,7 @@ onBeforeUnmount(() => {
   <div 
     ref="containerRef" 
     class="lanyard-vue-container"
+    :class="{ 'is-ready': isLoaded }"
   ></div>
 </template>
 
@@ -93,6 +103,13 @@ onBeforeUnmount(() => {
   min-height: 480px;
   position: relative;
   overflow: visible;
+  opacity: 0;
+  transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity;
+}
+
+.lanyard-vue-container.is-ready {
+  opacity: 1;
 }
 </style>
 

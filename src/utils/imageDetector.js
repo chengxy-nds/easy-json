@@ -50,14 +50,64 @@ export function isHttpUrl(val) {
 }
 
 /**
- * 在新标签页中直接安全打开链接
+ * 在系统默认浏览器或新标签页中安全打开链接（全面兼容 Tauri 桌面端 / uTools / VSCode / Web）
  * @param {string} url
  */
-export function openExternalUrl(url) {
+export async function openExternalUrl(url) {
   if (!url || typeof url !== 'string') return
   const trimmed = url.trim()
-  if (/^https?:\/\//i.test(trimmed)) {
+  if (!/^https?:\/\//i.test(trimmed)) return
+
+  // 1. uTools 插件环境
+  if (typeof window !== 'undefined' && window.utools && typeof window.utools.shellOpenExternal === 'function') {
+    try {
+      window.utools.shellOpenExternal(trimmed)
+      return
+    } catch (e) {
+      console.warn('[openExternalUrl] utools open failed:', e)
+    }
+  }
+
+  // 2. VSCode 插件 Webview 环境
+  if (typeof window !== 'undefined' && window.__VSCODE_API__ && typeof window.__VSCODE_API__.postMessage === 'function') {
+    try {
+      window.__VSCODE_API__.postMessage({ command: 'openExternal', url: trimmed })
+      return
+    } catch (e) {
+      console.warn('[openExternalUrl] vscode open failed:', e)
+    }
+  }
+
+  // 3. Tauri 客户端环境 (调用系统默认浏览器打开)
+  const isTauri = typeof window !== 'undefined' && (
+    !!window.__TAURI__ ||
+    !!window.__TAURI_INTERNALS__ ||
+    navigator.userAgent.includes('Tauri')
+  )
+
+  if (isTauri) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      if (typeof invoke === 'function') {
+        await invoke('open_url', { url: trimmed })
+        return
+      }
+    } catch (_) {}
+
+    try {
+      const invoke = window.__TAURI__?.core?.invoke || window.__TAURI_INTERNALS__?.invoke
+      if (typeof invoke === 'function') {
+        await invoke('open_url', { url: trimmed })
+        return
+      }
+    } catch (_) {}
+  }
+
+  // 4. 标准浏览器 / Web / Chrome 扩展环境
+  try {
     window.open(trimmed, '_blank', 'noopener,noreferrer')
+  } catch (e) {
+    console.error('[openExternalUrl] window.open failed:', e)
   }
 }
 

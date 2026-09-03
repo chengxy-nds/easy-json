@@ -36,14 +36,16 @@
   --success-text: #16a34a;
 
   --grid-line-color: rgba(0, 0, 0, 0.04);
-  --graph-dot-color: rgba(0, 0, 0, 0.18);
+  --graph-dot-color: rgba(0, 0, 0, 0.22);
+  --graph-node-border: #d2d2d2;
 
   --font-sans: "Inter Display SemiBold", "Inter Display SemiBold Placeholder", sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code',
     Menlo, Monaco, 'Courier New', monospace;
 
   /* Table view colors */
-  --table-root-bg: var(--bg-app);
+  --table-root-bg: rgba(0, 0, 0, 0.05);
+  --table-header-bg: rgba(0, 0, 0, 0.08);
   --table-root-fg: var(--json-key);
   --table-subkey-fg: var(--json-key);
   --bg-hover: rgba(0, 0, 0, 0.025);
@@ -61,16 +63,16 @@
 
 :root.dark-mode {
   /* ── Dark Mode ── */
-  --bg-app: #212121;
-  --bg-panel: #2a2a2c;
+  --bg-app: #27272b;
+  --bg-panel: #313136;
   --action-btn-bg: rgba(255, 255, 255, 0.10);
-  --bg-input: #1e1e1e;
-  --bg-header: #2a2a2c;
-  --border-color: #38383a;
-  --border-color-active: #5a5a5d;
-  --text-primary: #d4d4d4;
-  --text-secondary: #a0a0a0;
-  --text-muted: #7a7a7a;
+  --bg-input: #2e2e33;
+  --bg-header: #313136;
+  --border-color: #404046;
+  --border-color-active: #63636b;
+  --text-primary: #e4e4e7;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
 
   --primary-color: #4fc1ff;
   --primary-light: rgba(79, 193, 255, 0.1);
@@ -94,10 +96,12 @@
   --success-text: #89d185;
 
   --grid-line-color: rgba(255, 255, 255, 0.025);
-  --graph-dot-color: rgba(255, 255, 255, 0.15);
+  --graph-dot-color: rgba(255, 255, 255, 0.18);
+  --graph-node-border: #555555;
 
   /* Table view colors (dark) */
-  --table-root-bg: var(--bg-app);
+  --table-root-bg: rgba(255, 255, 255, 0.04);
+  --table-header-bg: rgba(255, 255, 255, 0.08);
   --table-root-fg: var(--json-key);
   --table-subkey-fg: var(--json-key);
   --bg-hover: rgba(255, 255, 255, 0.04);
@@ -868,7 +872,8 @@ body.vscode-mode .sr-action-btn:hover {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-break: break-all;
   overflow: hidden;
   box-sizing: border-box;
   pointer-events: none;
@@ -882,11 +887,13 @@ body.vscode-mode .sr-action-btn:hover {
   /* Force WebKit layering for background highlights */
   display: block;
   width: 100%;
-  min-width: max-content;
+  min-width: 100%;
   box-sizing: border-box;
   line-height: 20.15px;
   min-height: 20.15px;
   padding: 0 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .editor-line.has-error {
@@ -940,8 +947,10 @@ html.popup-mode .editor-line {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.55;
-  white-space: pre;
-  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  overflow-x: hidden;
+  overflow-y: auto;
   box-sizing: border-box;
   background-color: transparent !important;
   color: transparent !important;
@@ -1326,7 +1335,7 @@ html.popup-mode .editor-line {
   --json-boolean: #0451a5;
   --json-null: #64748b;
   --json-bracket: #16a34a;
-  --json-hover-bg: rgba(163, 21, 21, 0.08);
+  --json-hover-bg: rgba(163, 21, 21, 0.15);
 }
 
 .dark-mode {
@@ -1336,7 +1345,7 @@ html.popup-mode .editor-line {
   --json-boolean: #60a5fa;
   --json-null: #94a3b8;
   --json-bracket: #4ade80;
-  --json-hover-bg: rgba(251, 146, 60, 0.12);
+  --json-hover-bg: rgba(251, 146, 60, 0.22);
 }
 
 .one-dark-syntax {
@@ -1346,7 +1355,7 @@ html.popup-mode .editor-line {
   --json-boolean: #0369a1;
   --json-null: #9ca3af;
   --json-bracket: #374151;
-  --json-hover-bg: rgba(124, 58, 237, 0.08);
+  --json-hover-bg: rgba(124, 58, 237, 0.16);
 }
 
 .dark-mode.one-dark-syntax {
@@ -1356,7 +1365,7 @@ html.popup-mode .editor-line {
   --json-boolean: #56b6c2;
   --json-null: #5c6370;
   --json-bracket: #abb2bf;
-  --json-hover-bg: rgba(198, 120, 221, 0.12);
+  --json-hover-bg: rgba(198, 120, 221, 0.25);
 }
 
 /* Search Highlight Styling (Zero layout-shift: using paint-layer expansion to preserve exact textarea alignment) */
