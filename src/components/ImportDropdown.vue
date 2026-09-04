@@ -1,6 +1,9 @@
 <script setup>
 import { ref, computed, inject, onMounted, onBeforeUnmount } from 'vue'
-import { UploadCloud, Terminal, Globe, FileCode, RefreshCw } from 'lucide-vue-next'
+import {
+  UploadCloud, Terminal, Globe, FileCode, RefreshCw,
+  X, FileText, Check, AlertCircle, Copy
+} from 'lucide-vue-next'
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js'
 
 const props = defineProps({
@@ -16,58 +19,18 @@ const autoPaste = inject('autoPaste', ref(false))
 
 const panelOpen = ref(false)
 const triggerBtnRef = ref(null)
-const popoverPosition = ref({ top: 100, left: 100 })
 
-const updatePopoverPosition = (customAnchor = null) => {
-  const anchor = customAnchor || triggerBtnRef.value
-  if (anchor && typeof anchor.getBoundingClientRect === 'function') {
-    const rect = anchor.getBoundingClientRect()
-    const popoverWidth = 360
-    let left = rect.left
-    if (left + popoverWidth > window.innerWidth - 12) {
-      left = window.innerWidth - popoverWidth - 12
-    }
-    if (left < 12) left = 12
-    popoverPosition.value = {
-      top: rect.bottom + 6,
-      left
-    }
-  } else {
-    popoverPosition.value = {
-      top: 75,
-      left: 20
-    }
-  }
-}
-
-const popoverStyle = computed(() => ({
-  position: 'fixed',
-  top: popoverPosition.value.top + 'px',
-  left: popoverPosition.value.left + 'px',
-  zIndex: 9999
-}))
-
-const openPanel = (anchorEl = null) => {
-  updatePopoverPosition(anchorEl)
+const openPanel = () => {
   panelOpen.value = true
-  document.removeEventListener('click', onDocClick)
-  setTimeout(() => {
-    document.addEventListener('click', onDocClick)
-  }, 50)
 }
 
 const closePanel = () => {
   panelOpen.value = false
-  document.removeEventListener('click', onDocClick)
 }
 
 const togglePanel = (e) => {
   if (e) e.stopPropagation?.()
-  if (!panelOpen.value) {
-    openPanel()
-  } else {
-    closePanel()
-  }
+  panelOpen.value = !panelOpen.value
 }
 
 defineExpose({
@@ -76,19 +39,17 @@ defineExpose({
   togglePanel,
   panelOpen
 })
+
 const activeTab = ref('file') // 'file' | 'curl' | 'url' | 'base64'
 const curlInput = ref('')
 const urlInput = ref('')
 const base64Input = ref('')
 const loading = ref(false)
-const showRawOutput = ref(false) // 是否显示原始输出
 const rawOutput = ref('') // 原始输出内容
 
 const switchTab = (tab) => {
   activeTab.value = tab
-  curlInput.value = ''
-  urlInput.value = ''
-  base64Input.value = ''
+  rawOutput.value = ''
 }
 
 // 自动粘贴：焦点进入空输入框时读取剪贴板
@@ -98,23 +59,16 @@ const handleBase64AutoPaste = () => handleAutoPaste(base64Input)
 
 const handleAutoPaste = async (targetRef) => {
   if (!autoPaste.value) return
-  // 只往空输入框粘贴
   if (targetRef.value?.trim()) return
 
   try {
     let text = ''
-
-    // 1. uTools 环境
     if (window.utools && typeof window.utools.readText === 'function') {
       text = window.utools.readText()
-    }
-    // 2. Tauri 桌面环境
-    else if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
+    } else if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
       const { invoke } = await import('@tauri-apps/api/core')
       text = await invoke('read_clipboard')
-    }
-    // 3. 标准 Web 环境
-    else {
+    } else {
       text = await navigator.clipboard.readText()
     }
 
@@ -122,14 +76,10 @@ const handleAutoPaste = async (targetRef) => {
       targetRef.value = text
       showToast('已自动粘贴')
     }
-  } catch (e) {
-    // 静默忽略，clipboard 权限问题不打扰用户
-  }
+  } catch (e) {}
 }
 
 // ─── 多格式请求解析器（curl / fetch / PowerShell） ───
-
-// 提取单引号或双引号字符串内容
 const extractQuoted = (s) => {
   if (!s) return ''
   s = s.trim()
@@ -139,10 +89,8 @@ const extractQuoted = (s) => {
   return s
 }
 
-// 从 JS 对象字面量中提取 headers
 const extractJsHeaders = (text) => {
   const headers = {}
-  // 匹配 headers 块: headers: { ... } 或 headers: { ... }（嵌套括号处理）
   const hdrMatch = text.match(/headers\s*:\s*\{/)
   if (!hdrMatch) return headers
   const start = hdrMatch.index + hdrMatch[0].length
@@ -172,19 +120,15 @@ const extractJsHeaders = (text) => {
   return headers
 }
 
-// 检测输入格式
 const detectFormat = (cmd) => {
   const trimmed = cmd.trim()
   if (/^(curl|curl\.exe)\s/i.test(trimmed)) return 'curl'
   if (/^fetch\s*\(/i.test(trimmed) || /^(const\s+|let\s+|var\s+)?(\w+\s*=\s*)?(await\s+)?fetch\s*\(/i.test(trimmed)) return 'fetch'
   if (/^Invoke-(RestMethod|WebRequest)\s/i.test(trimmed)) return 'powershell'
-  // 默认按 curl 处理
   return 'curl'
 }
 
-// ─── curl 解析器（bash / cmd / PowerShell curl.exe） ───
 const parseCurlFormat = (cmd) => {
-  // 清洗折行符：\ (Unix) / ^ (Windows cmd) / ` (PowerShell)
   const cleaned = cmd.replace(/\\\r?\n/g, ' ').replace(/\^\r?\n/g, ' ').replace(/`\r?\n/g, ' ')
   const tokens = []
   const re = /'([^']*)'|"([^"]*)"|(\S+)/g
@@ -229,7 +173,6 @@ const parseCurlFormat = (cmd) => {
     } else if (t.startsWith('http://') || t.startsWith('https://')) {
       url = t
     } else if (/^curl(\.exe)?$/i.test(t) || t.startsWith('-') || t.startsWith('--')) {
-      // skip flags like --compressed, -s, -k, --insecure, -L, --location
     } else if (!url && /^[a-zA-Z0-9][-a-zA-Z0-9+&@#/%?=~_|!:,.;]+/.test(t)) {
       url = 'https://' + t
     }
@@ -244,40 +187,30 @@ const parseCurlFormat = (cmd) => {
   return { url, method, headers, body }
 }
 
-// ─── JavaScript/Node.js fetch 解析器 ───
 const parseFetchFormat = (cmd) => {
-  // 提取 fetch(...) 第一个参数 URL
   const urlMatch = cmd.match(/fetch\s*\(\s*(['"])(https?:\/\/[^'"]+)\1/)
   if (!urlMatch) throw new Error('未找到有效的 fetch URL')
   const url = urlMatch[2]
 
-  // 提取 method
   let method = 'GET'
   const methodMatch = cmd.match(/method\s*:\s*(['"])(\w+)\1/i)
   if (methodMatch) method = methodMatch[2].toUpperCase()
 
-  // 提取 headers
   const headers = extractJsHeaders(cmd)
-
-  // 提取 body
   let body = ''
-  // 匹配 body: '...' 或 body: "..." 或 body: JSON.stringify(...)
   const bodyMatch = cmd.match(/body\s*:\s*(['"])([\s\S]*?)\1\s*[,})]/)
   if (bodyMatch) {
     body = bodyMatch[2]
   } else {
-    // body: JSON.stringify({...}) 或 body: JSON.stringify("...")
     const stringifyMatch = cmd.match(/body\s*:\s*JSON\.stringify\s*\(([\s\S]*?)\)\s*[,})]/)
     if (stringifyMatch) {
       try {
-        // 尝试用 eval 解析（安全风险低，因为是用户自己粘贴的代码）
         const parsed = new Function(`return ${stringifyMatch[1]}`)()
         body = safeStringify(parsed)
       } catch (e) {
         body = stringifyMatch[1].trim()
       }
     } else {
-      // body: { ... } 直接是对象字面量
       const objMatch = cmd.match(/body\s*:\s*(\{[\s\S]*?\})\s*[,})]/)
       if (objMatch) {
         try {
@@ -293,28 +226,21 @@ const parseFetchFormat = (cmd) => {
   return { url, method, headers, body }
 }
 
-// ─── PowerShell Invoke-RestMethod / Invoke-WebRequest 解析器 ───
 const parsePowerShellFormat = (cmd) => {
-  // 清洗折行符
   const cleaned = cmd.replace(/`\r?\n/g, ' ')
-
-  // 提取 URL
   const uriMatch = cleaned.match(/-Uri\s+(['"]?)(https?:\/\/[^'"\s]+)\1/i)
   const urlMatch = cleaned.match(/-Url\s+(['"]?)(https?:\/\/[^'"\s]+)\1/i)
   const url = (uriMatch?.[2] || urlMatch?.[2] || '').replace(/['"]/g, '')
   if (!url) throw new Error('未找到有效 URL')
 
-  // 提取 Method
   let method = 'GET'
   const methodMatch = cleaned.match(/-Method\s+(['"]?)(\w+)\1/i)
   if (methodMatch) method = methodMatch[2].toUpperCase()
 
-  // 提取 Headers (@{ key = value; ... })
   const headers = {}
   const hdrBlock = cleaned.match(/-Headers\s+(@\{[\s\S]*?\})\s*(-|$)/i)
   if (hdrBlock) {
     const hdrText = hdrBlock[1]
-    // 匹配 key = value 或 'key' = 'value' 或 "key" = "value"
     const pairRe = /(['"]?)([\w-]+)\1\s*=\s*(['"]?)([^'";}]+)\3/g
     let pm
     while ((pm = pairRe.exec(hdrText)) !== null) {
@@ -322,7 +248,6 @@ const parsePowerShellFormat = (cmd) => {
     }
   }
 
-  // 提取 Body
   let body = ''
   const bodyMatch = cleaned.match(/-Body\s+(['"])([\s\S]*?)\1\s*(-|$)/)
   if (bodyMatch) {
@@ -332,12 +257,8 @@ const parsePowerShellFormat = (cmd) => {
   return { url, method, headers, body }
 }
 
-// ─── 统一入口 ───
 const parseCurl = (cmd) => {
-  console.log('检测命令格式...')
   const format = detectFormat(cmd)
-  console.log('识别为:', format)
-
   let result
   switch (format) {
     case 'fetch':
@@ -350,7 +271,6 @@ const parseCurl = (cmd) => {
       result = parseCurlFormat(cmd)
   }
 
-  // 尝试格式化 JSON body
   try {
     if (result.body) {
       const parsed = safeParse(result.body)
@@ -358,11 +278,9 @@ const parseCurl = (cmd) => {
     }
   } catch (e) {}
 
-  console.log('解析完成:', { url: result.url, method: result.method, headersCount: Object.keys(result.headers).length, hasBody: !!result.body })
   return result
 }
 
-// 美化 JSON 文本
 const beautify = (text) => {
   try { return safeStringify(safeParse(text), null, 2) } catch { return text }
 }
@@ -411,16 +329,13 @@ const onDrop = (e) => {
 // curl 导入
 const handleCurl = async () => {
   if (!curlInput.value.trim()) {
-    showToast('请输入 curl 命令', 'error')
+    showToast('请输入 cURL / fetch 命令', 'error')
     return
   }
 
   loading.value = true
-
   try {
-    console.log('========== 开始处理 curl 命令 ==========')
     const { url, method, headers, body } = parseCurl(curlInput.value)
-
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000)
 
@@ -436,29 +351,22 @@ const handleCurl = async () => {
       opts.body = body
     }
 
-    console.log('发送请求:', { url, method, headersCount: Object.keys(headers).length, hasBody: !!body })
-
     const res = await fetch(url, opts)
     clearTimeout(timeoutId)
-    console.log('响应状态:', res.status, res.statusText)
 
     const text = await res.text()
-
     if (!res.ok) {
       rawOutput.value = `HTTP ${res.status} ${res.statusText}\n\n${text}`
       throw new Error(`HTTP ${res.status} ${res.statusText}`)
     }
 
     emit('import-text', beautify(text))
-    showToast('请求完成')
+    showToast('请求完成并已导入')
     panelOpen.value = false
-
   } catch (e) {
-    console.error('curl 请求失败:', e)
-
     if (e.name === 'AbortError') {
       showToast('请求超时（30 秒）', 'error')
-    } else if (e.message.includes('Failed to fetch')) {
+    } else if (e.message?.includes('Failed to fetch')) {
       showToast('请求失败：CORS 跨域限制，请直接在 Network 面板复制响应数据', 'error')
     } else {
       showToast(e.message || '请求失败', 'error')
@@ -486,8 +394,6 @@ const handleUrl = async () => {
   loading.value = true
   try {
     const url = /^https?:\/\//i.test(raw) ? raw : 'https://' + raw
-    console.log('发送请求到:', url)
-
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), 30000)
     const res = await fetch(url, { signal: controller.signal })
@@ -496,11 +402,9 @@ const handleUrl = async () => {
 
     const text = await res.text()
     emit('import-text', beautify(text))
-    showToast('请求完成')
+    showToast('请求完成并已导入')
     panelOpen.value = false
   } catch (e) {
-    console.error('请求失败:', e)
-
     if (e.name === 'AbortError') {
       showToast('请求超时（30 秒）', 'error')
     } else if (e.message?.includes('Failed to fetch')) {
@@ -508,11 +412,12 @@ const handleUrl = async () => {
     } else {
       showToast(e.message || '请求失败', 'error')
     }
-  } finally { loading.value = false }
+  } finally {
+    loading.value = false
+  }
 }
 
-// ─── UTF-8 / URL-Safe / Data URI 兼容 Base64 解码器 ───
-// 通过 Uint8Array 与 TextDecoder 转换原始二进制字节流，100% 解决各种非西欧字符（如中文）解码时的乱码问题
+// Base64 解码
 const handleBase64 = () => {
   let raw = base64Input.value.trim()
   if (!raw) {
@@ -520,23 +425,18 @@ const handleBase64 = () => {
     return
   }
   try {
-    // 1. 兼容去除 Data URI 前缀 (如 data:application/json;base64, 等)
     if (raw.includes(';base64,')) {
       raw = raw.split(';base64,')[1]
     } else if (raw.startsWith('data:')) {
       const commaIdx = raw.indexOf(',')
       if (commaIdx !== -1) raw = raw.slice(commaIdx + 1)
     }
-    // 2. 去除所有内部空格与换行符
     raw = raw.replace(/\s+/g, '')
-    // 3. 兼容 URL-Safe Base64 (- 转 +, _ 转 /)
     raw = raw.replace(/-/g, '+').replace(/_/g, '/')
-    // 4. 自动补齐缺失的 = 填充符
     while (raw.length % 4 !== 0) {
       raw += '='
     }
 
-    console.log('开始解码 Base64，处理后长度:', raw.length)
     const binString = atob(raw)
     const len = binString.length
     const bytes = new Uint8Array(len)
@@ -544,29 +444,34 @@ const handleBase64 = () => {
       bytes[i] = binString.charCodeAt(i)
     }
     const decodedText = new TextDecoder('utf-8').decode(bytes)
-    console.log('解码成功，结果长度:', decodedText.length)
 
     emit('import-text', beautify(decodedText))
-    showToast('Base64 解码成功')
+    showToast('Base64 解码并导入成功')
     panelOpen.value = false
   } catch (e) {
-    console.error('Base64 解码失败:', e)
     showToast('Base64 解码失败，请检查输入格式是否正确', 'error')
   }
 }
 
-// 外部点击关闭
-const onDocClick = (e) => {
-  if (panelOpen.value) {
-    const isInsidePopover = e.target.closest('.import-dropdown')
-    const isTrigger = triggerBtnRef.value && triggerBtnRef.value.contains(e.target)
-    if (!isInsidePopover && !isTrigger) {
-      closePanel()
-    }
-  }
-}
+const isSubmitDisabled = computed(() => {
+  if (activeTab.value === 'curl') return !curlInput.value.trim()
+  if (activeTab.value === 'url') return !urlInput.value.trim()
+  if (activeTab.value === 'base64') return !base64Input.value.trim()
+  return false
+})
 
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+const submitButtonText = computed(() => {
+  if (activeTab.value === 'curl') return loading.value ? '请求中...' : '执行并导入'
+  if (activeTab.value === 'url') return loading.value ? '请求中...' : '发送并导入'
+  if (activeTab.value === 'base64') return '解码并导入'
+  return '导入'
+})
+
+const handleSubmit = () => {
+  if (activeTab.value === 'curl') handleCurl()
+  else if (activeTab.value === 'url') handleUrl()
+  else if (activeTab.value === 'base64') handleBase64()
+}
 </script>
 
 <template>
@@ -583,150 +488,179 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
       <span class="trigger-label">导入</span>
     </button>
 
-    <!-- 下拉选项卡面板（Teleport 到 body，彻底摆脱父容器 overflow: hidden 裁剪） -->
+    <!-- 统一模态弹窗风格 (Teleport 到 body，与智能数据脱敏弹窗 UI 保持完全一致) -->
     <Teleport to="body">
-      <Transition name="fade-dropdown">
-        <div
-          v-if="panelOpen"
-          class="import-dropdown open"
-          :style="popoverStyle"
-          @click.stop
-        >
-      <!-- macOS Inset Segmented Tabs 选项卡 -->
-      <div class="import-tabs">
-        <button 
-          class="tab-btn" 
-          :class="{ active: activeTab === 'file' }" 
-          @click="switchTab('file')"
-        >
-          <UploadCloud class="tab-icon" />
-          <span>文件</span>
-        </button>
-        <button 
-          class="tab-btn" 
-          :class="{ active: activeTab === 'curl' }" 
-          @click="switchTab('curl')"
-        >
-          <Terminal class="tab-icon" />
-          <span>cURL</span>
-        </button>
-        <button 
-          class="tab-btn" 
-          :class="{ active: activeTab === 'url' }" 
-          @click="switchTab('url')"
-        >
-          <Globe class="tab-icon" />
-          <span>URL</span>
-        </button>
-        <button 
-          class="tab-btn" 
-          :class="{ active: activeTab === 'base64' }" 
-          @click="switchTab('base64')"
-        >
-          <FileCode class="tab-icon" />
-          <span>Base64</span>
-        </button>
-      </div>
-
-      <!-- 面板内容区 -->
-      <div class="import-panes">
-        
-        <!-- Tab 1: 拖拽/点击本地文件上传 -->
-        <div v-if="activeTab === 'file'" class="pane-content">
-          <label 
-            class="file-drop-zone"
-            :class="{ dragging: isDragging }"
-            @dragover="onDragOver"
-            @dragleave="onDragLeave"
-            @drop="onDrop"
-          >
-            <UploadCloud class="drop-icon" />
-            <span class="drop-title">拖拽文件到此处，或<span>点击浏览</span></span>
-            <span class="drop-desc">支持 .json / .txt 格式</span>
-            <input type="file" accept=".json,.txt" @change="handleFile" class="hidden-input" />
-          </label>
-        </div>
-
-        <!-- Tab 2: cURL 导入 -->
-        <div v-if="activeTab === 'curl'" class="pane-content">
-          <textarea
-            v-model="curlInput"
-            placeholder="支持 curl / fetch / PowerShell 格式"
-            rows="5"
-            class="import-textarea"
-            @focus="handleCurlAutoPaste"
-          ></textarea>
-          <div class="pane-actions">
-            <span class="pane-hint"></span>
-            <div class="pane-actions-right">
-              <button class="clear-btn" @click="curlInput = ''" :disabled="!curlInput">
-                <span>清空</span>
-              </button>
-              <button class="submit-btn" :disabled="loading" @click="handleCurl">
-                <RefreshCw v-if="loading" class="spinner" />
-                <span>{{ loading ? '请求中' : '执行' }}</span>
+      <Transition name="modal-fade">
+        <div v-if="panelOpen" class="ej-modal-backdrop" @click="closePanel">
+          <div class="ej-modal-dialog import-modal-dialog" @click.stop>
+            
+            <!-- 弹窗 Header -->
+            <div class="ej-modal-header">
+              <div class="ej-modal-title">
+                <UploadCloud class="modal-title-icon" />
+                <span>数据导入与解析</span>
+              </div>
+              <button class="ej-modal-close" @click="closePanel" title="关闭">
+                <X class="modal-close-icon" />
               </button>
             </div>
-          </div>
-          <!-- 原始输出区域 -->
-          <div v-if="rawOutput" class="raw-output">
-            <div class="raw-output-header">
-              <span class="raw-output-title">原始响应</span>
-              <button class="copy-btn" @click="copyRawOutput">
-                <span>复制</span>
-              </button>
-            </div>
-            <div class="raw-output-content">{{ rawOutput }}</div>
-          </div>
-        </div>
 
-        <!-- Tab 3: URL 导入 -->
-        <div v-if="activeTab === 'url'" class="pane-content">
-          <textarea
-            v-model="urlInput"
-            placeholder="输入 API 地址"
-            rows="5"
-            class="import-textarea"
-            @keyup.enter="handleUrl"
-            @focus="handleUrlAutoPaste"
-          ></textarea>
-          <div class="pane-actions">
-            <span class="pane-hint">发送 GET 请求并格式化响应</span>
-            <div class="pane-actions-right">
-              <button class="clear-btn" @click="urlInput = ''" :disabled="!urlInput">
-                <span>清空</span>
-              </button>
-              <button class="submit-btn" :disabled="loading" @click="handleUrl">
-                <RefreshCw v-if="loading" class="spinner" />
-                <span>{{ loading ? '请求中' : '发送' }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
+            <!-- 弹窗 Body -->
+            <div class="ej-modal-body">
+              <!-- 顶部分类 Segmented Tabs -->
+              <div class="import-tabs-bar">
+                <button
+                  class="import-tab-item"
+                  :class="{ active: activeTab === 'file' }"
+                  @click="switchTab('file')"
+                >
+                  <UploadCloud class="tab-icon" />
+                  <span>本地文件</span>
+                </button>
+                <button
+                  class="import-tab-item"
+                  :class="{ active: activeTab === 'curl' }"
+                  @click="switchTab('curl')"
+                >
+                  <Terminal class="tab-icon" />
+                  <span>cURL / 请求</span>
+                </button>
+                <button
+                  class="import-tab-item"
+                  :class="{ active: activeTab === 'url' }"
+                  @click="switchTab('url')"
+                >
+                  <Globe class="tab-icon" />
+                  <span>URL 抓取</span>
+                </button>
+                <button
+                  class="import-tab-item"
+                  :class="{ active: activeTab === 'base64' }"
+                  @click="switchTab('base64')"
+                >
+                  <FileCode class="tab-icon" />
+                  <span>Base64 解码</span>
+                </button>
+              </div>
 
-        <!-- Tab 4: Base64 解码 -->
-        <div v-if="activeTab === 'base64'" class="pane-content">
-          <textarea
-            v-model="base64Input"
-            placeholder="粘贴 Base64 密文"
-            rows="5"
-            class="import-textarea"
-            @focus="handleBase64AutoPaste"
-          ></textarea>
-          <div class="pane-actions">
-            <span class="pane-hint">在浏览器本地安全解码</span>
-            <div class="pane-actions-right">
-              <button class="clear-btn" @click="base64Input = ''" :disabled="!base64Input">
-                <span>清空</span>
-              </button>
-              <button class="submit-btn" @click="handleBase64">
-                <span>解码</span>
-              </button>
-            </div>
-          </div>
-        </div>
+              <!-- 面板核心内容区 -->
+              <div class="import-pane-wrapper">
+                
+                <!-- Tab 1: 本地文件上传 -->
+                <div v-if="activeTab === 'file'" class="pane-content file-pane">
+                  <div class="pane-header-tip">
+                    <span>支持拖拽或直接选择本地 <code>.json</code>、<code>.txt</code> 文件导入</span>
+                  </div>
+                  <label
+                    class="file-drop-card"
+                    :class="{ dragging: isDragging }"
+                    @dragover="onDragOver"
+                    @dragleave="onDragLeave"
+                    @drop="onDrop"
+                  >
+                    <div class="drop-icon-box">
+                      <UploadCloud class="drop-main-icon" />
+                    </div>
+                    <div class="drop-text-primary">
+                      拖拽 JSON / TXT 文件到此处，或 <span class="browse-highlight">点击浏览</span>
+                    </div>
+                    <div class="drop-text-secondary">
+                      支持标准 .json、.txt 文件，自动完成格式化解析
+                    </div>
+                    <input type="file" accept=".json,.txt" @change="handleFile" class="hidden-input" />
+                  </label>
+                </div>
 
-      </div>
+                <!-- Tab 2: cURL / Fetch / PowerShell 导入 -->
+                <div v-if="activeTab === 'curl'" class="pane-content">
+                  <div class="pane-header-tip">
+                    <span>支持标准 <code>curl</code>、<code>fetch()</code>、PowerShell <code>Invoke-RestMethod</code></span>
+                    <button v-if="curlInput" class="text-clear-btn" @click="curlInput = ''">清空输入</button>
+                  </div>
+                  <div class="editor-input-wrap">
+                    <textarea
+                      v-model="curlInput"
+                      placeholder="粘贴 curl 或 fetch 请求命令，如:&#10;curl 'https://api.example.com/data' -H 'Authorization: Bearer token'"
+                      class="import-code-textarea"
+                      @focus="handleCurlAutoPaste"
+                    ></textarea>
+                  </div>
+                  
+                  <!-- 原始响应错误/调试信息 -->
+                  <div v-if="rawOutput" class="raw-output-card">
+                    <div class="raw-output-header">
+                      <div class="raw-output-title">
+                        <AlertCircle class="output-icon-warn" />
+                        <span>原始响应输出</span>
+                      </div>
+                      <button class="raw-copy-btn" @click="copyRawOutput">
+                        <Copy class="raw-btn-icon" />
+                        <span>复制</span>
+                      </button>
+                    </div>
+                    <div class="raw-output-content">{{ rawOutput }}</div>
+                  </div>
+                </div>
+
+                <!-- Tab 3: URL 抓取 -->
+                <div v-if="activeTab === 'url'" class="pane-content">
+                  <div class="pane-header-tip">
+                    <span>输入开放的 JSON API 地址，发送 <code>GET</code> 请求直接拉取并格式化</span>
+                    <button v-if="urlInput" class="text-clear-btn" @click="urlInput = ''">清空输入</button>
+                  </div>
+                  <div class="editor-input-wrap">
+                    <textarea
+                      v-model="urlInput"
+                      placeholder="请输入目标 URL 地址，按回车直接发送 (如 https://api.github.com/users/octocat)"
+                      class="import-code-textarea"
+                      @keyup.enter="handleUrl"
+                      @focus="handleUrlAutoPaste"
+                    ></textarea>
+                  </div>
+                </div>
+
+                <!-- Tab 4: Base64 解码 -->
+                <div v-if="activeTab === 'base64'" class="pane-content">
+                  <div class="pane-header-tip">
+                    <span>在浏览器本地安全解码 Base64 字符串（支持 UTF-8 中文与 Data URI）</span>
+                    <button v-if="base64Input" class="text-clear-btn" @click="base64Input = ''">清空输入</button>
+                  </div>
+                  <div class="editor-input-wrap">
+                    <textarea
+                      v-model="base64Input"
+                      placeholder="粘贴 Base64 编码数据 (如 eyJuYW1lIjoiZWFzeS1qc29uIn0= 或 data:application/json;base64,...)"
+                      class="import-code-textarea"
+                      @focus="handleBase64AutoPaste"
+                    ></textarea>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- 弹窗 Footer -->
+            <div class="ej-modal-footer">
+              <div class="modal-footer-hint">
+                <span v-if="activeTab === 'file'">选择或拖入文件后将自动导入</span>
+                <span v-else-if="activeTab === 'curl'">解析后将自动格式化并填入编辑器</span>
+                <span v-else-if="activeTab === 'url'">如遇跨域限制请直接在控制台复制响应</span>
+                <span v-else>数据全程本地处理，不经过任何第三方服务器</span>
+              </div>
+              <div class="modal-footer-actions">
+                <button class="modal-btn outline" @click="closePanel">取消</button>
+                <button
+                  v-if="activeTab !== 'file'"
+                  class="modal-btn primary"
+                  :disabled="loading || isSubmitDisabled"
+                  @click="handleSubmit"
+                >
+                  <RefreshCw v-if="loading" class="spinner" />
+                  <span>{{ submitButtonText }}</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
         </div>
       </Transition>
     </Teleport>
@@ -734,26 +668,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 </template>
 
 <style scoped>
-/* ─── CSS 变量容错（如项目中未定义，自动回退到优雅配色） ─── */
-:root {
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "Fira Code", "SF Mono", JetBrains Mono, Monaco, Consolas, monospace;
-  --border-color: rgba(0, 0, 0, 0.08);
-  --accent: #000000;
-  --accent-glow: rgba(0, 0, 0, 0.05);
-  --text-primary: #171717;
-  --text-secondary: #52525b;
-  --text-muted: #8e8e93;
-  --bg-panel: rgba(255, 255, 255, 0.85);
-  --bg-app: #f4f4f5;
-  --bg-input: #ffffff;
-}
-
 .import-btn-wrap {
   position: relative;
 }
 
-/* 主触发按钮 — 与 toolbar-item 风格统一 */
+/* 顶部工具栏主触发按钮 */
 .trigger-btn {
   display: inline-flex;
   flex-direction: column;
@@ -765,461 +684,728 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
   height: auto;
   border: none;
   background: transparent;
-  color: var(--text-secondary);
+  color: var(--text-secondary, #64748b);
   border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
-  font-family: var(--font-sans);
+  font-family: var(--font-sans, inherit);
   white-space: nowrap;
-  transform: scale(1);
-  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
-}
-
-:global(.dark-mode) .trigger-btn {
-  color: #cbd5e1;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 .trigger-btn:hover {
-  background-color: var(--segmented-indicator-bg);
-  color: var(--text-primary);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.05));
+  color: var(--text-primary, #0f172a);
+}
+
+:global(.dark-mode) .trigger-btn {
+  color: #94a3b8;
 }
 
 :global(.dark-mode) .trigger-btn:hover,
 :global(.dark-mode) .trigger-btn.active {
-  color: #ffffff;
-  background-color: rgba(255, 255, 255, 0.10);
+  color: #f1f5f9;
+  background-color: rgba(255, 255, 255, 0.08);
 }
-.trigger-btn:active {
-  transform: scale(0.95);
-}
-.trigger-btn.active {
-  background-color: var(--segmented-indicator-bg);
-  color: var(--text-primary);
-}
+
 .trigger-icon {
   width: 15px;
   height: 15px;
   flex-shrink: 0;
 }
+
 .trigger-label {
   font-size: 10px;
   line-height: 1;
 }
 
-/* ─── 下拉气泡面板（Retina 视网膜玻璃材质，已 Teleport 到 body） ─── */
-.import-dropdown {
-  width: 360px;
-  max-width: calc(100vw - 24px);
-  background: var(--bg-panel, rgba(255, 255, 255, 0.95));
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
-  border-radius: 12px;
-  box-shadow: 0 16px 40px -4px rgba(0, 0, 0, 0.18), 0 4px 12px -2px rgba(0, 0, 0, 0.08);
-  padding: 12px;
+/* ─── 统一模态弹窗样式 (rem 响应式高分辨率自适应) ─── */
+.ej-modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
-  flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 1.25rem;
   box-sizing: border-box;
 }
 
-:global(.dark-mode) .import-dropdown {
-  background: rgba(35, 35, 42, 0.96);
-  border-color: var(--border-color, rgba(255, 255, 255, 0.12));
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 6px 16px rgba(0, 0, 0, 0.3);
-}
-
-.fade-dropdown-enter-active,
-.fade-dropdown-leave-active {
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.fade-dropdown-enter-from,
-.fade-dropdown-leave-to {
-  opacity: 0;
-  transform: translateY(-6px) scale(0.96);
-}
-
-/* ─── macOS Inset Segmented Tabs ─── */
-.import-tabs {
+.ej-modal-dialog {
+  background: var(--bg-panel, #ffffff);
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 0.75rem;
+  box-shadow: 0 1.25rem 3rem -0.5rem rgba(0, 0, 0, 0.22), 0 0.25rem 0.75rem -0.125rem rgba(0, 0, 0, 0.08);
   display: flex;
-  background: var(--bg-input, rgba(0, 0, 0, 0.03));
-  border-radius: 8px;
-  padding: 2.5px;
-  gap: 2px;
+  flex-direction: column;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow: hidden;
+  animation: modalPopIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
-.dark-mode .import-tabs {
-  background: var(--bg-app, #27272b);
+
+.import-modal-dialog {
+  width: min(36.25rem, 90vw);
 }
-.tab-btn {
+
+:global(.dark-mode) .ej-modal-dialog {
+  background: rgba(30, 30, 36, 0.98);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1.5rem 3.5rem -0.5rem rgba(0, 0, 0, 0.55), 0 0.25rem 1rem rgba(0, 0, 0, 0.3);
+}
+
+@keyframes modalPopIn {
+  from { opacity: 0; transform: scale(0.96) translateY(0.5rem); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+/* 弹窗 Header */
+.ej-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+}
+
+:global(.dark-mode) .ej-modal-header {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.ej-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+:global(.dark-mode) .ej-modal-title {
+  color: #f8fafc;
+}
+
+.modal-title-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--primary-color, #6366f1);
+}
+
+.ej-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ej-modal-close:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+  color: var(--text-primary, #0f172a);
+}
+
+:global(.dark-mode) .ej-modal-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.modal-close-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+/* 弹窗 Body */
+.ej-modal-body {
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  overflow-y: auto;
+}
+
+/* 顶部 Segmented 选项卡栏 */
+.import-tabs-bar {
+  display: flex;
+  background: var(--bg-app, #f1f5f9);
+  border-radius: 0.5rem;
+  padding: 0.1875rem;
+  gap: 0.1875rem;
+}
+
+:global(.dark-mode) .import-tabs-bar {
+  background: rgba(20, 20, 24, 0.7);
+}
+
+.import-tab-item {
   flex: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 5.5px 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary, #52525b);
+  gap: 0.375rem;
+  padding: 0.375rem 0;
+  font-size: 0.71875rem;
+  font-weight: 500;
+  color: var(--text-secondary, #64748b);
   background: transparent;
   border: none;
-  border-radius: 6px;
+  border-radius: 0.375rem;
   cursor: pointer;
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.tab-btn:hover {
-  color: var(--text-primary, #111111);
-}
-.tab-btn.active {
-  background: #ffffff;
-  color: var(--text-primary, #111111);
-  box-shadow: 
-    0 1px 2px rgba(0, 0, 0, 0.04), 
-    0 1px 1px rgba(0, 0, 0, 0.02);
-}
-.dark-mode .tab-btn.active {
-  background: var(--bg-panel, #313136);
-  color: #ffffff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-}
-.tab-icon {
-  width: 12px;
-  height: 12px;
+  transition: all 0.16s ease;
 }
 
-/* ─── 统一高度内容区 ─── */
-.import-panes {
+.import-tab-item:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.import-tab-item.active {
+  background: var(--bg-panel, #ffffff);
+  color: var(--primary-color, #6366f1);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+:global(.dark-mode) .import-tab-item.active {
+  background: rgba(45, 45, 52, 0.95);
+  color: #818cf8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.tab-icon {
+  width: 0.8125rem;
+  height: 0.8125rem;
+}
+
+/* 核心内容区 */
+.import-pane-wrapper {
   display: flex;
   flex-direction: column;
 }
+
 .pane-content {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: 100%;
+  gap: 0.5rem;
 }
 
-/* ─── 拖拽上传区域（UI 深度优化） ─── */
-.file-drop-zone {
+/* 拖拽上传卡片 */
+.file-drop-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 1px dashed var(--border-color, rgba(0, 0, 0, 0.08));
-  border-radius: 8px;
-  padding: 26px 16px;
-  background: rgba(0, 0, 0, 0.005);
+  height: 10.625rem;
+  min-height: 10.625rem;
+  box-sizing: border-box;
+  border: 1.5px dashed var(--border-color, #cbd5e1);
+  border-radius: 0.5rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-app, #f8fafc);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   text-align: center;
 }
-.file-drop-zone:hover,
-.file-drop-zone.dragging {
-  border-color: var(--accent, #000000);
-  background: rgba(0, 102, 204, 0.015);
+
+.file-drop-card:hover,
+.file-drop-card.dragging {
+  border-color: var(--primary-color, #6366f1);
+  background: var(--primary-light, rgba(99, 102, 241, 0.06));
 }
-.drop-icon {
-  width: 24px;
-  height: 24px;
-  color: var(--text-muted, #8e8e93);
-  margin-bottom: 8px;
-  transition: transform 0.2s, color 0.15s;
+
+:global(.dark-mode) .file-drop-card {
+  background: rgba(20, 20, 24, 0.45);
+  border-color: rgba(255, 255, 255, 0.12);
 }
-.file-drop-zone:hover .drop-icon {
-  transform: translateY(-2px); /* 高级微动效：小云朵向上悬浮漂流 */
-  color: var(--accent, #000000);
+
+:global(.dark-mode) .file-drop-card:hover,
+:global(.dark-mode) .file-drop-card.dragging {
+  border-color: #818cf8;
+  background: rgba(99, 102, 241, 0.1);
 }
-.drop-title {
-  font-size: 11.5px;
+
+.drop-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--primary-light, rgba(99, 102, 241, 0.1));
+  color: var(--primary-color, #6366f1);
+  margin-bottom: 0.5rem;
+  transition: transform 0.2s ease;
+}
+
+.file-drop-card:hover .drop-icon-box {
+  transform: translateY(-0.125rem) scale(1.05);
+}
+
+.drop-main-icon {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.drop-text-primary {
+  font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--text-primary, #111111);
-  margin-bottom: 2px;
+  color: var(--text-primary, #0f172a);
+  margin-bottom: 0.25rem;
 }
-.drop-title span {
-  color: var(--accent, #000000);
+
+:global(.dark-mode) .drop-text-primary {
+  color: #f1f5f9;
+}
+
+.browse-highlight {
+  color: var(--primary-color, #6366f1);
+  font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.drop-desc {
-  font-size: 10px;
-  color: var(--text-muted, #8e8e93);
+
+:global(.dark-mode) .browse-highlight {
+  color: #818cf8;
 }
 
-.dark-mode .drop-icon {
-  color: var(--text-muted, #a1a1aa);
-}
-.dark-mode .drop-title {
-  color: var(--text-primary, #e4e4e7);
-}
-.dark-mode .drop-title span {
-  color: var(--accent, #60a5fa);
-}
-.dark-mode .drop-desc {
-  color: var(--text-muted, #71717a);
+.drop-text-secondary {
+  font-size: 0.6875rem;
+  color: var(--text-muted, #94a3b8);
 }
 
-/* ─── 终端/代码编辑器风格输入框（亮色） ─── */
-.import-textarea,
-.import-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border-color, #d0d7de);
-  border-radius: 8px;
-  background: var(--bg-input, #f8fafc);
-  color: var(--text-primary, #24292f);
-  font-size: 11.5px;
-  font-family: var(--font-mono);
-  line-height: 1.6;
-  box-sizing: border-box;
-  outline: none;
-  caret-color: var(--primary-color, #0969da);
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.import-textarea::selection,
-.import-input::selection {
-  background: rgba(9, 105, 218, 0.15);
-}
-.import-textarea {
-  resize: none;
-}
-.import-input {
-  height: 34px;
-}
-.import-textarea:focus,
-.import-input:focus {
-  border-color: var(--primary-color, #0969da);
-  box-shadow: 0 0 0 2px var(--primary-light, rgba(9, 105, 218, 0.15));
+.hidden-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.import-textarea::placeholder,
-.import-input::placeholder {
-  color: var(--text-muted, #8c959f);
-  opacity: 1;
-}
-
-/* ─── 暗色主题输入框（与左侧编辑区底色完美一致） ─── */
-.dark-mode .import-textarea,
-.dark-mode .import-input {
-  background: var(--bg-app, #27272b);
-  color: var(--text-primary, #f8fafc);
-  border-color: var(--border-color, #404046);
-  caret-color: var(--text-primary, #f8fafc);
-}
-.dark-mode .import-textarea::selection,
-.dark-mode .import-input::selection {
-  background: rgba(97, 175, 239, 0.3);
-}
-.dark-mode .import-textarea:focus,
-.dark-mode .import-input:focus {
-  border-color: #61afef;
-  box-shadow: 0 0 0 2px rgba(97, 175, 239, 0.2);
-}
-.dark-mode .import-textarea::placeholder,
-.dark-mode .import-input::placeholder {
-  color: var(--text-muted, #8b949e);
-}
-
-/* ─── 底部 Action 栏 ─── */
-.pane-actions {
+/* 文本/代码输入区 */
+.pane-header-tip {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 2px;
-}
-.pane-hint {
-  font-size: 10px;
-  color: var(--text-muted, #a1a1aa);
-  line-height: 1.35;
-  max-width: 50%;
+  height: 1.375rem;
+  font-size: 0.71875rem;
+  color: var(--text-muted, #94a3b8);
 }
 
-.pane-actions-right {
+.pane-header-tip code {
+  font-family: var(--font-mono, monospace);
+  padding: 0.0625rem 0.25rem;
+  background: var(--bg-app, #f1f5f9);
+  border-radius: 0.1875rem;
+  color: var(--primary-color, #6366f1);
+  font-size: 0.6875rem;
+}
+
+:global(.dark-mode) .pane-header-tip code {
+  background: rgba(255, 255, 255, 0.08);
+  color: #818cf8;
+}
+
+.text-clear-btn {
+  background: transparent;
+  border: none;
+  color: var(--primary-color, #6366f1);
+  font-size: 0.6875rem;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+:global(.dark-mode) .text-clear-btn {
+  color: #818cf8;
+}
+
+.editor-input-wrap {
+  position: relative;
+}
+
+.import-code-textarea {
+  width: 100%;
+  height: 10.625rem;
+  min-height: 10.625rem;
+  max-height: 10.625rem;
+  box-sizing: border-box;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: 0.5rem;
+  background: var(--bg-app, #f8fafc);
+  color: var(--text-primary, #0f172a);
+  font-size: 0.75rem;
+  font-family: var(--font-mono, monospace);
+  line-height: 1.6;
+  outline: none;
+  resize: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.import-code-textarea:focus {
+  border-color: var(--primary-color, #6366f1);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+}
+
+:global(.dark-mode) .import-code-textarea {
+  background: rgba(20, 20, 24, 0.6);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+
+:global(.dark-mode) .import-code-textarea:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.18);
+}
+
+.import-code-textarea::placeholder {
+  color: var(--text-muted, #94a3b8);
+  font-family: var(--font-sans, inherit);
+  font-size: 0.71875rem;
+}
+
+/* 原始错误输出卡片 */
+.raw-output-card {
+  margin-top: 0.375rem;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: rgba(239, 68, 68, 0.04);
+}
+
+.raw-output-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: space-between;
+  padding: 0.375rem 0.625rem;
+  background: rgba(239, 68, 68, 0.08);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.15);
+}
+
+.raw-output-title {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #ef4444;
+}
+
+.output-icon-warn {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.raw-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1875rem;
+  padding: 0.125rem 0.375rem;
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 0.25rem;
+  font-size: 0.625rem;
+  color: #ef4444;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.raw-copy-btn:hover {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.raw-btn-icon {
+  width: 0.625rem;
+  height: 0.625rem;
+}
+
+.raw-output-content {
+  padding: 0.5rem 0.625rem;
+  font-size: 0.6875rem;
+  font-family: var(--font-mono, monospace);
+  color: #dc2626;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 7.5rem;
+  overflow-y: auto;
+  line-height: 1.45;
+}
+
+:global(.dark-mode) .raw-output-content {
+  color: #f87171;
+}
+
+/* 弹窗 Footer */
+.ej-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  background: var(--bg-panel, #ffffff);
+}
+
+:global(.dark-mode) .ej-modal-footer {
+  background: rgba(30, 30, 36, 0.98);
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.modal-footer-hint {
+  font-size: 0.6875rem;
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.modal-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   flex-shrink: 0;
 }
 
-.clear-btn {
+.modal-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 32px;
-  padding: 0 12px;
-  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
-  border-radius: 6px;
-  background: var(--bg-input, #ffffff);
-  color: var(--text-secondary, #52525b);
-  font-size: 11.5px;
+  gap: 0.3125rem;
+  height: 2rem;
+  padding: 0 0.875rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
   font-weight: 500;
-  font-family: var(--font-sans);
   cursor: pointer;
+  transition: all 0.15s ease;
   white-space: nowrap;
-  transition: all 0.15s;
-}
-.clear-btn:hover:not(:disabled) {
-  background: var(--bg-app, #f4f4f5);
-  color: var(--text-primary, #111111);
-}
-.clear-btn:active:not(:disabled) {
-  transform: scale(0.97);
-}
-.clear-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
+.modal-btn.outline {
+  background: transparent;
+  border: 1px solid var(--border-color, #cbd5e1);
+  color: var(--text-secondary, #64748b);
+}
 
+.modal-btn.outline:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+  color: var(--text-primary, #0f172a);
+}
 
-/* ─── 重新设计的 Linear 风格带微光折折折叠按钮（大气、极度质感） ─── */
-.submit-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 0 16px;
-  height: 32px;
-  /* 带有极轻微立体感渐变和顶部白边微光的优雅深色物理按键 */
-  background: linear-gradient(to bottom, #27272a, #0f172a); 
-  border: 1px solid #0f172a;
+:global(.dark-mode) .modal-btn.outline {
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+}
+
+:global(.dark-mode) .modal-btn.outline:hover {
+  background: rgba(255, 255, 255, 0.08);
   color: #ffffff;
-  border-radius: 6px;
-  font-size: 11.5px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.15), 
-    0 1px 2px rgba(0, 0, 0, 0.1);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.submit-btn:hover:not(:disabled) {
-  background: linear-gradient(to bottom, #3f3f46, #1e293b);
-  transform: translateY(-0.5px);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.2), 
-    0 4px 12px rgba(0, 0, 0, 0.08);
+.modal-btn.primary {
+  background: var(--primary-color, #6366f1);
+  border: 1px solid var(--primary-color, #6366f1);
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(99, 102, 241, 0.2);
 }
 
-.submit-btn:active:not(:disabled) {
-  transform: scale(0.97) translateY(0);
+.modal-btn.primary:hover:not(:disabled) {
+  opacity: 0.92;
+  transform: translateY(-0.03125rem);
+  box-shadow: 0 0.25rem 0.75rem rgba(99, 102, 241, 0.3);
 }
 
-.submit-btn:disabled {
-  opacity: 0.55;
-  cursor: default;
+.modal-btn.primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.modal-btn.primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
   transform: none !important;
+  box-shadow: none;
 }
 
-/* 暗色模式下按钮变为极致对比亮白按键（Linear 灵魂） */
-.dark-mode .submit-btn {
-  background: linear-gradient(to bottom, #ffffff, #f4f4f5);
-  border: 1px solid #e4e4e7;
-  color: #000000;
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.6), 
-    0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-.dark-mode .submit-btn:hover:not(:disabled) {
-  background: linear-gradient(to bottom, #fafafa, #e4e4e7);
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.8), 
-    0 4px 12px rgba(255, 255, 255, 0.08);
-}
-
-/* ─── 动效 ─── */
 .spinner {
-  width: 12px;
-  height: 12px;
+  width: 0.75rem;
+  height: 0.75rem;
   animation: spin 1s linear infinite;
 }
+
 @keyframes spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
-.hidden-input {
-  position: absolute;
-  width: 0; height: 0;
-  opacity: 0;
-  pointer-events: none;
+/* ─── 响应式多分辨率适配 (Responsive Resolution Support) ─── */
+@media (max-width: 640px) {
+  .ej-modal-backdrop {
+    padding: 0.625rem;
+  }
+
+  .import-modal-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 1.25rem);
+    border-radius: 0.625rem;
+  }
+
+  .ej-modal-header {
+    padding: 0.625rem 0.875rem;
+  }
+
+  .ej-modal-title {
+    font-size: 0.875rem;
+  }
+
+  .ej-modal-body {
+    padding: 0.75rem 0.875rem;
+    gap: 0.625rem;
+  }
+
+  .import-tabs-bar {
+    gap: 0.125rem;
+    padding: 0.125rem;
+  }
+
+  .import-tab-item {
+    padding: 0.3125rem 0.125rem;
+    font-size: 0.6875rem;
+    gap: 0.25rem;
+  }
+
+  .tab-icon {
+    width: 0.75rem;
+    height: 0.75rem;
+  }
+
+  .file-drop-card {
+    height: 9rem;
+    min-height: 9rem;
+    padding: 1.25rem 0.75rem;
+  }
+
+  .drop-icon-box {
+    width: 2.25rem;
+    height: 2.25rem;
+    margin-bottom: 0.375rem;
+  }
+
+  .drop-main-icon {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  .drop-text-primary {
+    font-size: 0.75rem;
+  }
+
+  .drop-text-secondary {
+    font-size: 0.625rem;
+  }
+
+  .import-code-textarea {
+    height: 9rem;
+    min-height: 9rem;
+    max-height: 9rem;
+    font-size: 0.6875rem;
+    padding: 0.5rem 0.625rem;
+  }
+
+  .ej-modal-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding: 0.625rem 0.875rem;
+  }
+
+  .modal-footer-hint {
+    text-align: center;
+    white-space: normal;
+    font-size: 0.65625rem;
+  }
+
+  .modal-footer-actions {
+    width: 100%;
+  }
+
+  .modal-btn {
+    flex: 1;
+    height: 2.125rem;
+  }
 }
 
-/* ─── 原始输出区域（亮色） ─── */
-.raw-output {
-  margin-top: 8px;
-  border: 1px solid #d0d7de;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #ffffff;
-}
-.raw-output-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: #f6f8fa;
-  border-bottom: 1px solid #d0d7de;
-}
-.raw-output-title {
-  font-size: 10px;
-  font-weight: 600;
-  color: #656d76;
-}
-.copy-btn {
-  padding: 3px 10px;
-  background: transparent;
-  border: 1px solid #d0d7de;
-  border-radius: 4px;
-  font-size: 10px;
-  font-family: var(--font-sans);
-  color: #656d76;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.copy-btn:hover {
-  background: #f6f8fa;
-  color: #24292f;
-}
-.raw-output-content {
-  padding: 10px 12px;
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: #24292f;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 140px;
-  overflow-y: auto;
-  line-height: 1.5;
+@media (max-width: 420px) {
+  .import-tabs-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .import-tab-item {
+    padding: 0.375rem 0.25rem;
+  }
 }
 
-/* ─── 原始输出区域（暗色） ─── */
-.dark-mode .raw-output {
-  background: #0d1117;
-  border-color: rgba(255, 255, 255, 0.08);
-}
-.dark-mode .raw-output-header {
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom-color: rgba(255, 255, 255, 0.08);
-}
-.dark-mode .raw-output-title {
-  color: #8b949e;
-}
-.dark-mode .copy-btn {
-  border-color: rgba(255, 255, 255, 0.08);
-  color: #8b949e;
-}
-.dark-mode .copy-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #e6edf3;
-}
-.dark-mode .raw-output-content {
-  color: #e6edf3;
-}
+@media (max-height: 580px) {
+  .ej-modal-backdrop {
+    padding: 0.5rem;
+  }
 
+  .import-modal-dialog {
+    max-height: calc(100vh - 1rem);
+  }
+
+  .ej-modal-header {
+    padding: 0.5rem 0.875rem;
+  }
+
+  .ej-modal-body {
+    padding: 0.625rem 0.875rem;
+    gap: 0.5rem;
+  }
+
+  .file-drop-card {
+    height: 7.5rem;
+    min-height: 7.5rem;
+    padding: 0.875rem 0.625rem;
+  }
+
+  .drop-icon-box {
+    width: 1.875rem;
+    height: 1.875rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .import-code-textarea {
+    height: 7.5rem;
+    min-height: 7.5rem;
+    max-height: 7.5rem;
+  }
+
+  .ej-modal-footer {
+    padding: 0.5rem 0.875rem;
+  }
+}
 </style>

@@ -8,7 +8,7 @@ const HomeView = defineAsyncComponent(() => import('./components/HomeView.vue'))
 const TestView = defineAsyncComponent(() => import('./components/TestView.vue'))
 const CommentView = defineAsyncComponent(() => import('./components/Comment.vue'))
 const ChangelogView = defineAsyncComponent(() => import('./components/ChangelogView.vue'))
-import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check } from 'lucide-vue-next'
+import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check, Settings } from 'lucide-vue-next'
 import { useUpdateCheck } from './composables/useUpdateCheck.js'
 import { useInstallCheck } from './composables/useInstallCheck.js'
 
@@ -207,6 +207,94 @@ watch(autoExtract, (newVal) => {
 watch(autoPaste, (newVal) => {
   localStorage.setItem('ej_auto_paste', newVal ? '1' : '0')
 })
+
+// ── 编辑器偏好设置：字号与行号 ──
+const getSavedFontSize = () => {
+  try {
+    const saved = localStorage.getItem('ej_editor_font_size')
+    if (saved) {
+      const n = parseFloat(saved)
+      if (!isNaN(n) && n >= 10 && n <= 24) return n
+    }
+  } catch (e) {}
+  return 13 // 默认 13px
+}
+
+const getSavedShowLineNumbers = () => {
+  try {
+    const saved = localStorage.getItem('ej_show_line_numbers')
+    if (saved !== null) return saved === '1'
+  } catch (e) {}
+  return true // 默认显示行号
+}
+
+const editorFontSize = ref(getSavedFontSize())
+const showLineNumbers = ref(getSavedShowLineNumbers())
+const isSettingsOpen = ref(false)
+
+const stepFontSize = (delta) => {
+  const current = parseFloat(editorFontSize.value) || 13
+  const next = Math.round((current + delta) * 10) / 10
+  editorFontSize.value = Math.max(10, Math.min(24, next))
+}
+
+const handleFontSizeBlur = () => {
+  let val = parseFloat(editorFontSize.value)
+  if (isNaN(val) || val < 10) {
+    val = 10
+  } else if (val > 24) {
+    val = 24
+  } else {
+    val = Math.round(val * 10) / 10
+  }
+  editorFontSize.value = val
+}
+
+const getEditorLineHeight = (size) => {
+  const rounded = Math.round(size)
+  const map = { 10: 16, 11: 18, 12: 20, 13: 20, 14: 22, 15: 23, 16: 24, 18: 26, 20: 28, 22: 30, 24: 32 }
+  return map[rounded] || Math.round(size * 1.55)
+}
+
+const applyEditorStyles = () => {
+  const size = parseFloat(editorFontSize.value) || 13
+  const lh = getEditorLineHeight(size)
+  document.documentElement.style.setProperty('--editor-font-size', `${size}px`)
+  document.documentElement.style.setProperty('--editor-line-height', `${lh}px`)
+}
+
+watch(editorFontSize, (val) => {
+  try {
+    localStorage.setItem('ej_editor_font_size', String(val))
+  } catch (e) {}
+  applyEditorStyles()
+}, { immediate: true })
+
+watch(showLineNumbers, (val) => {
+  try {
+    localStorage.setItem('ej_show_line_numbers', val ? '1' : '0')
+  } catch (e) {}
+})
+
+provide('editorFontSize', editorFontSize)
+provide('showLineNumbers', showLineNumbers)
+
+const toggleSettings = () => {
+  isSettingsOpen.value = !isSettingsOpen.value
+}
+
+const closeSettings = () => {
+  isSettingsOpen.value = false
+}
+
+const onDocumentClick = (e) => {
+  if (!isSettingsOpen.value) return
+  const popover = document.querySelector('.settings-popover')
+  const btn = document.querySelector('.sidebar-settings-btn')
+  if (popover && !popover.contains(e.target) && btn && !btn.contains(e.target)) {
+    isSettingsOpen.value = false
+  }
+}
 
 // Toast System (Stacked Sonner-like notifications)
 const toasts = ref([])
@@ -516,10 +604,14 @@ onMounted(() => {
   if (savedAutoPaste !== null) {
     autoPaste.value = savedAutoPaste === '1'
   }
+
+  applyEditorStyles()
+  document.addEventListener('click', onDocumentClick)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('popstate', handlePopState)
+  document.removeEventListener('click', onDocumentClick)
 })
 </script>
 
@@ -647,7 +739,13 @@ onBeforeUnmount(() => {
           <ArrowUp v-else-if="sortKeys === 1" class="sidebar-btn-icon" />
           <ArrowDown v-else class="sidebar-btn-icon" />
         </button>
-        <button class="sidebar-btn" :class="{ active: ignoreWhitespace }" @click="ignoreWhitespace = !ignoreWhitespace" :data-tooltip-right="ignoreWhitespace ? '关闭忽略空格' : '开启忽略空格'">
+        <button
+          v-if="currentTab === 'compare'"
+          class="sidebar-btn"
+          :class="{ active: ignoreWhitespace }"
+          @click="ignoreWhitespace = !ignoreWhitespace"
+          :data-tooltip-right="ignoreWhitespace ? '关闭忽略空格' : '开启忽略空格'"
+        >
           <Space class="sidebar-btn-icon" />
         </button>
         <button class="sidebar-btn" :class="{ active: autoFormat }" @click="autoFormat = !autoFormat" :data-tooltip-right="autoFormat ? '关闭自动格式化' : '开启自动格式化'">
@@ -672,7 +770,15 @@ onBeforeUnmount(() => {
         <button v-if="isPopup" class="sidebar-btn" @click="openInTab" data-tooltip-right="在新标签页中打开（全屏）">
           <Maximize class="sidebar-btn-icon" />
         </button>
-        
+        <!-- Editor Settings Button -->
+        <button
+          class="sidebar-btn sidebar-settings-btn"
+          :class="{ active: isSettingsOpen }"
+          @click.stop="toggleSettings"
+          data-tooltip-right="设置"
+        >
+          <Settings class="sidebar-btn-icon" />
+        </button>
         <!-- Neon Breathing Feedback Button -->
         <button
           class="sidebar-btn sidebar-btn-neon"
@@ -681,8 +787,73 @@ onBeforeUnmount(() => {
         >
           <MessageCircle class="sidebar-btn-icon" />
         </button>
+
+
       </div>
     </aside>
+
+    <!-- Settings Popover Panel -->
+    <Teleport to="body">
+      <Transition name="settings-pop">
+        <div
+          v-if="isSettingsOpen"
+          class="settings-popover"
+          @click.stop
+        >
+          <!-- Font Size Setting Row -->
+          <div class="settings-row">
+            <span class="settings-label">编辑区字号</span>
+            <div class="unified-stepper">
+              <button
+                type="button"
+                class="stepper-btn"
+                @click="stepFontSize(-0.5)"
+                :disabled="editorFontSize <= 10"
+                title="减小 0.5px"
+              >
+                -
+              </button>
+              <div class="stepper-val-wrap">
+                <input
+                  type="number"
+                  step="0.5"
+                  min="10"
+                  max="24"
+                  class="stepper-input"
+                  v-model.number="editorFontSize"
+                  @blur="handleFontSizeBlur"
+                  @keydown.enter="$event.target.blur()"
+                />
+                <span class="stepper-unit">px</span>
+              </div>
+              <button
+                type="button"
+                class="stepper-btn"
+                @click="stepFontSize(0.5)"
+                :disabled="editorFontSize >= 24"
+                title="增大 0.5px"
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <!-- Show Line Numbers Setting Row -->
+          <div class="settings-row">
+            <span class="settings-label">显示行号</span>
+            <label class="settings-switch">
+              <input
+                type="checkbox"
+                v-model="showLineNumbers"
+              />
+              <span class="switch-slider"></span>
+            </label>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Main Content Area (JSON Formatter & Comparer with ClickSpark) -->
     <main class="app-main-content">
@@ -1050,6 +1221,192 @@ onBeforeUnmount(() => {
 .bounce-scale-leave-to {
   opacity: 0;
   transform: scale(0.4);
+}
+
+/* ─── Settings Popover Panel (Sleek Floating Menu) ─── */
+.settings-popover {
+  position: fixed;
+  left: 48px;
+  bottom: 12px;
+  width: 236px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.16), 0 4px 10px -2px rgba(0, 0, 0, 0.06);
+  z-index: 10000;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--font-sans, sans-serif);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+:global(.dark-mode) .settings-popover {
+  background: var(--bg-panel);
+  border-color: var(--border-color);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+}
+
+.settings-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+/* Unified Stepper Control */
+.unified-stepper {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.unified-stepper:focus-within {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 1px var(--primary-color);
+}
+
+.stepper-btn {
+  width: 22px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  user-select: none;
+  padding: 0;
+}
+
+.stepper-btn:hover:not(:disabled) {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+  color: var(--primary-color);
+}
+
+.stepper-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.stepper-val-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 2px;
+  border-left: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+}
+
+.stepper-input {
+  width: 34px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  outline: none;
+  padding: 0;
+  -moz-appearance: textfield;
+}
+
+.stepper-input::-webkit-outer-spin-button,
+.stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.stepper-unit {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-muted);
+  margin-right: 3px;
+  user-select: none;
+}
+
+.settings-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 1px 0;
+}
+
+/* Refined Sleek Switch */
+.settings-switch {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.settings-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  inset: 0;
+  background-color: var(--border-color-active, #cbd5e1);
+  border-radius: 16px;
+  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 12px;
+  width: 12px;
+  left: 2px;
+  bottom: 2px;
+  background-color: #ffffff;
+  border-radius: 50%;
+  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.settings-switch input:checked + .switch-slider {
+  background-color: var(--primary-color, #2563eb);
+}
+
+.settings-switch input:checked + .switch-slider:before {
+  transform: translateX(12px);
+}
+
+/* Transitions */
+.settings-pop-enter-active,
+.settings-pop-leave-active {
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.settings-pop-enter-from,
+.settings-pop-leave-to {
+  opacity: 0;
+  transform: scale(0.92) translateX(-8px);
 }
 
 </style>

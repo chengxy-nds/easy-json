@@ -18,6 +18,23 @@
   --primary-light: rgba(37, 99, 235, 0.08);
   --primary-hover: #1d4ed8;
 
+  --editor-font-size: 13px;
+  --editor-line-height: 20px;
+
+  /* Path breadcrumbs (light mode) */
+  --breadcrumb-bg: rgba(0, 0, 0, 0.035);
+  --breadcrumb-border: rgba(0, 0, 0, 0.08);
+  --breadcrumb-text: #475569;
+  --breadcrumb-root: #2563eb;
+  --breadcrumb-index: #d97706;
+  --breadcrumb-target: #0f172a;
+  --breadcrumb-sep: #94a3af;
+  --breadcrumb-hover-bg: rgba(37, 99, 235, 0.08);
+  --breadcrumb-hover-text: #2563eb;
+  --breadcrumb-copy-color: #94a3af;
+  --breadcrumb-copy-hover: #2563eb;
+  --breadcrumb-copy-hover-bg: rgba(37, 99, 235, 0.08);
+
   --btn-primary-bg: #18181b;
   --btn-primary-text: #ffffff;
   --btn-primary-hover: #27272a;
@@ -40,7 +57,7 @@
   --graph-node-border: #d2d2d2;
 
   --font-sans: "Inter Display SemiBold", "Inter Display SemiBold Placeholder", sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code',
+  --font-mono: 'JetBrains Mono', Consolas, ui-monospace, 'Cascadia Code', 'Fira Code',
     Menlo, Monaco, 'Courier New', monospace;
 
   /* Table view colors */
@@ -81,6 +98,20 @@
   --btn-primary-bg: #e8e8e8;
   --btn-primary-text: #1a1a1a;
   --btn-primary-hover: #cccccc;
+
+  /* Path breadcrumbs (high contrast dark mode - Option 1) */
+  --breadcrumb-bg: rgba(255, 255, 255, 0.08);
+  --breadcrumb-border: rgba(255, 255, 255, 0.14);
+  --breadcrumb-text: #cbd5e1;
+  --breadcrumb-root: #38bdf8;
+  --breadcrumb-index: #fbbf24;
+  --breadcrumb-target: #ffffff;
+  --breadcrumb-sep: #94a3b8;
+  --breadcrumb-hover-bg: rgba(56, 189, 248, 0.16);
+  --breadcrumb-hover-text: #38bdf8;
+  --breadcrumb-copy-color: #94a3b8;
+  --breadcrumb-copy-hover: #38bdf8;
+  --breadcrumb-copy-hover-bg: rgba(56, 189, 248, 0.16);
 
   /* Diff colors (VSCode dark style) */
   --diff-added-bg: rgba(35, 134, 54, 0.22);
@@ -180,11 +211,11 @@ body {
 
 /* ─── JSON syntax highlight: premium palette (global, for v-html) ─── */
 .json-key {
-  color: #881280;
+  color: #A31515;
 }
 
 .json-string {
-  color: #1a6e1a;
+  color: #0451A5;
 }
 
 .json-number {
@@ -674,7 +705,7 @@ body.vscode-mode .sr-action-btn:hover {
 
 /* Sidebar — 自适应屏幕分辨率 */
 .app-sidebar {
-  width: clamp(38px, 4vw, 48px);
+  width: clamp(38px, 4vw, 42px);
   height: 100%;
   background-color: var(--bg-panel);
   border-right: 1px solid var(--border-color);
@@ -718,8 +749,8 @@ body.vscode-mode .sr-action-btn:hover {
 /* .logo-ej removed — replaced by gun SVG icon */
 
 .sidebar-btn {
-  width: clamp(26px, 2.8vw, 34px);
-  height: clamp(26px, 2.8vw, 34px);
+  width: clamp(26px, 2.8vw, 30px);
+  height: clamp(26px, 2.8vw, 30px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -760,8 +791,8 @@ body.vscode-mode .sr-action-btn:hover {
 /* 导航按钮：图标 + 小字标签 */
 .sidebar-nav-btn {
   flex-direction: column;
-  width: clamp(34px, 3.2vw, 42px) !important;
-  height: clamp(36px, 3.6vw, 44px) !important;
+  width: clamp(34px, 3.2vw, 35px) !important;
+  height: clamp(36px, 3.6vw, 38px) !important;
   gap: 4px;
 }
 
@@ -859,6 +890,7 @@ body.vscode-mode .sr-action-btn:hover {
   height: 100%;
   width: 100%;
   min-width: 0;
+  overflow: hidden;
 }
 
 .editor-highlight {
@@ -866,34 +898,40 @@ body.vscode-mode .sr-action-btn:hover {
   top: 0;
   left: 0;
   width: 100%;
-  height: 100%;
+  height: auto;
+  min-height: 100%;
   margin: 0;
-  padding: 8px 0;
+  padding: 8px 0 24px 0;
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-all;
-  overflow: hidden;
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
+  white-space: pre;
+  word-break: normal;
+  overflow: visible;
   box-sizing: border-box;
   pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
   color: var(--text-primary);
   background-color: transparent;
   text-align: left;
+  will-change: transform;
 }
 
 .editor-line {
   position: relative;
   /* Force WebKit layering for background highlights */
   display: block;
-  width: 100%;
+  width: max-content;
   min-width: 100%;
   box-sizing: border-box;
-  line-height: 20.15px;
-  min-height: 20.15px;
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
+  height: var(--editor-line-height, 20px);
+  min-height: var(--editor-line-height, 20px);
   padding: 0 12px;
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: pre;
+  word-break: normal;
 }
 
 .editor-line.has-error {
@@ -912,26 +950,31 @@ body.vscode-mode .sr-action-btn:hover {
 }
 
 html.popup-mode .editor-highlight {
-  padding: 6px 0 !important;
+  padding: 6px 0 18px 0 !important;
 }
 
 html.popup-mode .editor-line {
   padding: 0 8px;
-  line-height: 18.6px;
-  min-height: 18.6px;
+  line-height: 18px;
+  min-height: 18px;
+  height: 18px;
 }
 
 /* edit-pane uses same sizing */
 .edit-pane-container .editor-highlight {
-  padding: 8px 0;
-  font-size: 13px;
-  line-height: 1.55;
+  padding: 8px 0 24px 0;
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
+  white-space: pre;
+  word-break: normal;
 }
 
 .edit-pane-container .edit-textarea {
-  padding: 8px 12px;
-  font-size: 13px;
-  line-height: 1.55;
+  padding: 8px 12px 24px 12px;
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
+  white-space: pre;
+  word-break: normal;
 }
 
 /* Transparent textarea on top of highlight pre */
@@ -943,13 +986,13 @@ html.popup-mode .editor-line {
   width: 100%;
   height: 100%;
   margin: 0;
-  padding: 8px 12px;
+  padding: 8px 12px 24px 12px;
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-all;
-  overflow-x: hidden;
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
   overflow-y: auto;
   box-sizing: border-box;
   background-color: transparent !important;
@@ -961,16 +1004,23 @@ html.popup-mode .editor-line {
   text-align: left;
 }
 
-/* 暗色主题：霓虹光标 */
-.dark-mode .editor-textarea,
-.dark-mode .edit-textarea {
-  caret-color: #39ff14;
+/* ── Textarea Transparent Selection (杜绝双层叠加重影) ── */
+.editor-textarea::selection,
+.edit-textarea::selection {
+  background: rgba(37, 99, 235, 0.22);
+  color: transparent !important;
 }
 
-/* 暗色主题：霓虹选中 */
-.dark-mode .editor-textarea::selection {
-  background: rgba(57, 255, 20, 0.25);
-  color: transparent;
+/* 暗色主题：光标与选中效果（VSCode / Modern IDE 冰蓝半透明） */
+.dark-mode .editor-textarea,
+.dark-mode .edit-textarea {
+  caret-color: #38bdf8;
+}
+
+.dark-mode .editor-textarea::selection,
+.dark-mode .edit-textarea::selection {
+  background: rgba(56, 189, 248, 0.28);
+  color: transparent !important;
 }
 
 /* Auto-wrap rules for minified/single-line JSON */
@@ -994,7 +1044,7 @@ html.popup-mode .editor-line {
 .output-pre .json-key,
 .mask-preview-pre .json-key,
 .node-key {
-  color: #a31515;
+  color: #A31515;
 }
 
 /* warm VSCode red */
@@ -1002,7 +1052,7 @@ html.popup-mode .editor-line {
 .output-pre .json-string,
 .mask-preview-pre .json-string,
 .tree-string {
-  color: #0451a5;
+  color: #0451A5;
 }
 
 /* VSCode blue */
@@ -1030,12 +1080,16 @@ html.popup-mode .editor-line {
 }
 
 /* slate gray */
-.editor-highlight .json-bracket,
 .output-pre .json-bracket,
 .mask-preview-pre .json-bracket,
 .node-bracket {
   color: #16a34a;
   font-weight: 600;
+}
+
+.editor-highlight .json-bracket {
+  color: #16a34a;
+  font-weight: normal;
 }
 
 /* grass green */
@@ -1326,10 +1380,10 @@ html.popup-mode .editor-line {
 
 /* ── Dynamic CSS variables for JSON themes (shared by Graph View & other components) ── */
 :root {
-  --json-key: #a31515;
-  --json-string: #0451a5;
-  --json-number: #0451a5;
-  --json-boolean: #0451a5;
+  --json-key: #A31515;
+  --json-string: #0451A5;
+  --json-number: #0451A5;
+  --json-boolean: #0451A5;
   --json-null: #64748b;
   --json-bracket: #16a34a;
   --json-hover-bg: rgba(163, 21, 21, 0.15);

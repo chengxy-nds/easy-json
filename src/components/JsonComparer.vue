@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, nextTick, inject } from 'vue'
+import { ref, computed, watch, onMounted, onActivated, onDeactivated, nextTick, inject } from 'vue'
 import {
   Split, ArrowRightLeft, RefreshCw, Copy, SlidersHorizontal,
   FileJson, Check, AlertTriangle, Plus, Minus, FileCode, X, Trash2,
@@ -20,6 +20,22 @@ const autoPaste = inject('autoPaste', ref(false))
 const autoExtract = inject('autoExtract', ref(true))
 const incomingCompareText = inject('incomingCompareText', ref(null))
 const caseInsensitive = ref(false)
+
+const editorFontSize = inject('editorFontSize', ref(12))
+const showLineNumbers = inject('showLineNumbers', ref(true))
+
+const editorLineHeight = computed(() => {
+  const size = Number(editorFontSize.value) || 12
+  const map = { 11: 18, 12: 20, 13: 20, 14: 22, 15: 23, 16: 24, 18: 26, 20: 28 }
+  return map[size] || Math.round(size * 1.6)
+})
+
+watch(editorFontSize, () => {
+  nextTick(() => {
+    if (leftEditing.value) handleLeftTextareaScroll()
+    if (rightEditing.value) handleRightTextareaScroll()
+  })
+})
 
 const copySuccessLeft = ref(false)
 const copySuccessRight = ref(false)
@@ -322,44 +338,70 @@ const locateJsonError = (text) => {
   return null
 }
 
-// 从 JSON.parse 错误中提取行列号并修正（兼容 Chrome/V8、Firefox 和 macOS Safari）
+// 从 JSON.parse 错误中提取行列号并修正（优先扫描原始文本定位，兼容 Chrome/V8、Firefox 和 macOS Safari）
 const getErrorLineAndColumn = (error, text) => {
-  const msg = error.message
+  const rawMsg = error?.message || ''
+  const cleanMsg = rawMsg
+    .replace(/\s+in\s+JSON\s+at\s+position\s+\d+.*$/i, '')
+    .replace(/\s+\(line\s+\d+\s+column\s+\d+\).*$/i, '')
+    .replace(/\s+at\s+line\s+\d+\s+column\s+\d+.*$/i, '')
+    .replace(/\s+at\s+position\s+\d+.*$/i, '')
+    .trim() || rawMsg
 
-  // Firefox 格式: "line X column Y"
-  const lc = msg.match(/line\s+(\d+)\s+column\s+(\d+)/i)
-  let line = null, col = null
-  if (lc) {
-    line = parseInt(lc[1])
-    col  = parseInt(lc[2])
-  }
+  if (!text) return { line: null, column: null, message: cleanMsg }
 
-  // Chrome/V8 格式: "position X"
-  const pm = msg.match(/position\s+(\d+)/i)
-  if (!line && pm) {
-    const pos = parseInt(pm[1])
-    line = 1; col = 1
-    for (let i = 0; i < pos && i < text.length; i++) {
-      if (text[i] === '\n') { line++; col = 1 }
-      else { col++ }
-    }
-  }
+  let line = null
+  let col = null
 
-  // macOS WebKit/Safari 降级兼容：如果在 error.message 中提取不到行列号，使用纯 JS 解析器检测错误位置
-  if (!line && text) {
-    const pos = locateJsonError(text)
-    if (pos !== null) {
-      line = 1; col = 1
-      for (let i = 0; i < pos && i < text.length; i++) {
-        if (text[i] === '\n') { line++; col = 1 }
-        else { col++ }
+  // 1. 优先使用精确定位器扫描原始输入文本
+  const precisePos = locateJsonError(text)
+  if (precisePos !== null && precisePos >= 0) {
+    line = 1
+    col = 1
+    for (let i = 0; i < precisePos && i < text.length; i++) {
+      if (text[i] === '\n') {
+        line++
+        col = 1
+      } else {
+        col++
       }
     }
   }
 
-  if (!line) return { line: null, column: null }
+  // 2. 备用：从原生 JSON.parse(text) 的 position 索引计算
+  if (!line) {
+    try {
+      JSON.parse(text)
+    } catch (nativeErr) {
+      const pm = (nativeErr?.message || '').match(/position\s+(\d+)/i)
+      if (pm) {
+        const p = parseInt(pm[1], 10)
+        line = 1
+        col = 1
+        for (let i = 0; i < p && i < text.length; i++) {
+          if (text[i] === '\n') {
+            line++
+            col = 1
+          } else {
+            col++
+          }
+        }
+      }
+    }
+  }
 
-  // 启发式修正：缺逗号导致报错偏移
+  // 3. 备用：正则匹配 Firefox 等浏览器的 line X column Y
+  if (!line) {
+    const lc = rawMsg.match(/line\s+(\d+)(?:\s+column\s+(\d+))?/i)
+    if (lc) {
+      line = parseInt(lc[1], 10)
+      col = lc[2] ? parseInt(lc[2], 10) : 1
+    }
+  }
+
+  if (!line) return { line: null, column: null, message: cleanMsg }
+
+  // 4. 启发式修正：缺逗号导致报错偏移
   const lines = text.split('\n')
   if (line > 1) {
     const errLine = (lines[line - 1] || '').trim()
@@ -377,7 +419,7 @@ const getErrorLineAndColumn = (error, text) => {
     }
   }
 
-  return { line, column: col }
+  return { line, column: col, message: cleanMsg }
 }
 
 // JSON Validation Watchers to avoid side-effects in computed
@@ -404,12 +446,12 @@ const validateJson = (text, isLeft) => {
       tab.rightErrorLine = null
     }
   } catch (err) {
-    const { line } = getErrorLineAndColumn(err, text)
+    const { line, message } = getErrorLineAndColumn(err, text)
     if (isLeft) {
-      tab.leftError = `无效的 JSON: ${err.message}`
+      tab.leftError = message ? `无效的 JSON: ${message}` : `无效的 JSON`
       tab.leftErrorLine = line
     } else {
-      tab.rightError = `无效的 JSON: ${err.message}`
+      tab.rightError = message ? `无效的 JSON: ${message}` : `无效的 JSON`
       tab.rightErrorLine = line
     }
   }
@@ -644,8 +686,8 @@ const formatInputs = () => {
       success = true
       autoCopyResult(formatted, true)
     } catch (err) {
-      const { line } = getErrorLineAndColumn(err, tab.leftText)
-      tab.leftError = `格式化左侧失败: ${err.message}`
+      const { line, message } = getErrorLineAndColumn(err, tab.leftText)
+      tab.leftError = `格式化左侧失败: ${message || err.message}`
       tab.leftErrorLine = line
     }
   }
@@ -662,8 +704,8 @@ const formatInputs = () => {
       success = true
       autoCopyResult(formatted, false)
     } catch (err) {
-      const { line } = getErrorLineAndColumn(err, tab.rightText)
-      tab.rightError = `格式化右侧失败: ${err.message}`
+      const { line, message } = getErrorLineAndColumn(err, tab.rightText)
+      tab.rightError = `格式化右侧失败: ${message || err.message}`
       tab.rightErrorLine = line
     }
   }
@@ -684,8 +726,8 @@ const minifyInputs = () => {
       tab.leftErrorLine = null
       success = true
     } catch (err) {
-      const { line } = getErrorLineAndColumn(err, tab.leftText)
-      tab.leftError = `压缩左侧失败: ${err.message}`
+      const { line, message } = getErrorLineAndColumn(err, tab.leftText)
+      tab.leftError = `压缩左侧失败: ${message || err.message}`
       tab.leftErrorLine = line
     }
   }
@@ -696,8 +738,8 @@ const minifyInputs = () => {
       tab.rightErrorLine = null
       success = true
     } catch (err) {
-      const { line } = getErrorLineAndColumn(err, tab.rightText)
-      tab.rightError = `压缩右侧失败: ${err.message}`
+      const { line, message } = getErrorLineAndColumn(err, tab.rightText)
+      tab.rightError = `压缩右侧失败: ${message || err.message}`
       tab.rightErrorLine = line
     }
   }
@@ -708,33 +750,49 @@ const minifyInputs = () => {
 
 // Synchronized scrolling logic for diff panes
 const handleLeftScroll = () => {
-  if (activeScrollTarget.value === 'left' && leftPaneRef.value) {
+  if (leftPaneRef.value) {
     const scrollTop = leftPaneRef.value.scrollTop
     const scrollLeft = leftPaneRef.value.scrollLeft
-    
-    if (rightEditing.value && rightTextareaRef.value) {
-      rightTextareaRef.value.scrollTop = scrollTop
-      rightTextareaRef.value.scrollLeft = scrollLeft
-      if (rightGutterRef.value) rightGutterRef.value.scrollTop = scrollTop
-    } else if (rightPaneRef.value) {
-      rightPaneRef.value.scrollTop = scrollTop
-      rightPaneRef.value.scrollLeft = scrollLeft
+    savedComparerScrollState.leftTop = scrollTop
+    savedComparerScrollState.leftLeft = scrollLeft
+
+    if (activeScrollTarget.value === 'left') {
+      if (rightEditing.value && rightTextareaRef.value) {
+        rightTextareaRef.value.scrollTop = scrollTop
+        rightTextareaRef.value.scrollLeft = scrollLeft
+        savedComparerScrollState.rightTop = scrollTop
+        savedComparerScrollState.rightLeft = scrollLeft
+        if (rightGutterRef.value) rightGutterRef.value.scrollTop = scrollTop
+      } else if (rightPaneRef.value) {
+        rightPaneRef.value.scrollTop = scrollTop
+        rightPaneRef.value.scrollLeft = scrollLeft
+        savedComparerScrollState.rightTop = scrollTop
+        savedComparerScrollState.rightLeft = scrollLeft
+      }
     }
   }
 }
 
 const handleRightScroll = () => {
-  if (activeScrollTarget.value === 'right' && rightPaneRef.value) {
+  if (rightPaneRef.value) {
     const scrollTop = rightPaneRef.value.scrollTop
     const scrollLeft = rightPaneRef.value.scrollLeft
-    
-    if (leftEditing.value && leftTextareaRef.value) {
-      leftTextareaRef.value.scrollTop = scrollTop
-      leftTextareaRef.value.scrollLeft = scrollLeft
-      if (leftGutterRef.value) leftGutterRef.value.scrollTop = scrollTop
-    } else if (leftPaneRef.value) {
-      leftPaneRef.value.scrollTop = scrollTop
-      leftPaneRef.value.scrollLeft = scrollLeft
+    savedComparerScrollState.rightTop = scrollTop
+    savedComparerScrollState.rightLeft = scrollLeft
+
+    if (activeScrollTarget.value === 'right') {
+      if (leftEditing.value && leftTextareaRef.value) {
+        leftTextareaRef.value.scrollTop = scrollTop
+        leftTextareaRef.value.scrollLeft = scrollLeft
+        savedComparerScrollState.leftTop = scrollTop
+        savedComparerScrollState.leftLeft = scrollLeft
+        if (leftGutterRef.value) leftGutterRef.value.scrollTop = scrollTop
+      } else if (leftPaneRef.value) {
+        leftPaneRef.value.scrollTop = scrollTop
+        leftPaneRef.value.scrollLeft = scrollLeft
+        savedComparerScrollState.leftTop = scrollTop
+        savedComparerScrollState.leftLeft = scrollLeft
+      }
     }
   }
 }
@@ -1204,26 +1262,34 @@ const handleLeftTextareaScroll = () => {
   if (leftTextareaRef.value) {
     const scrollTop = leftTextareaRef.value.scrollTop
     const scrollLeft = leftTextareaRef.value.scrollLeft
+    savedComparerScrollState.leftTop = scrollTop
+    savedComparerScrollState.leftLeft = scrollLeft
     if (leftGutterRef.value) {
       leftGutterRef.value.scrollTop = scrollTop
     }
     if (leftHighlightRef.value) {
-      leftHighlightRef.value.scrollTop = scrollTop
-      leftHighlightRef.value.scrollLeft = scrollLeft
+      leftHighlightRef.value.scrollTop = 0
+      leftHighlightRef.value.scrollLeft = 0
+      leftHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
     }
     // Also scroll sync right diff pane or right textarea if left is active scroll target
     if (activeScrollTarget.value === 'left') {
       if (rightEditing.value && rightTextareaRef.value) {
         rightTextareaRef.value.scrollTop = scrollTop
         rightTextareaRef.value.scrollLeft = scrollLeft
+        savedComparerScrollState.rightTop = scrollTop
+        savedComparerScrollState.rightLeft = scrollLeft
         if (rightGutterRef.value) rightGutterRef.value.scrollTop = scrollTop
         if (rightHighlightRef.value) {
-          rightHighlightRef.value.scrollTop = scrollTop
-          rightHighlightRef.value.scrollLeft = scrollLeft
+          rightHighlightRef.value.scrollTop = 0
+          rightHighlightRef.value.scrollLeft = 0
+          rightHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
         }
       } else if (rightPaneRef.value) {
         rightPaneRef.value.scrollTop = scrollTop
         rightPaneRef.value.scrollLeft = scrollLeft
+        savedComparerScrollState.rightTop = scrollTop
+        savedComparerScrollState.rightLeft = scrollLeft
       }
     }
   }
@@ -1233,28 +1299,81 @@ const handleRightTextareaScroll = () => {
   if (rightTextareaRef.value) {
     const scrollTop = rightTextareaRef.value.scrollTop
     const scrollLeft = rightTextareaRef.value.scrollLeft
+    savedComparerScrollState.rightTop = scrollTop
+    savedComparerScrollState.rightLeft = scrollLeft
     if (rightGutterRef.value) {
       rightGutterRef.value.scrollTop = scrollTop
     }
     if (rightHighlightRef.value) {
-      rightHighlightRef.value.scrollTop = scrollTop
-      rightHighlightRef.value.scrollLeft = scrollLeft
+      rightHighlightRef.value.scrollTop = 0
+      rightHighlightRef.value.scrollLeft = 0
+      rightHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
     }
     // Also scroll sync left diff pane or left textarea if right is active scroll target
     if (activeScrollTarget.value === 'right') {
       if (leftEditing.value && leftTextareaRef.value) {
         leftTextareaRef.value.scrollTop = scrollTop
         leftTextareaRef.value.scrollLeft = scrollLeft
+        savedComparerScrollState.leftTop = scrollTop
+        savedComparerScrollState.leftLeft = scrollLeft
         if (leftGutterRef.value) leftGutterRef.value.scrollTop = scrollTop
         if (leftHighlightRef.value) {
-          leftHighlightRef.value.scrollTop = scrollTop
-          leftHighlightRef.value.scrollLeft = scrollLeft
+          leftHighlightRef.value.scrollTop = 0
+          leftHighlightRef.value.scrollLeft = 0
+          leftHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
         }
       } else if (leftPaneRef.value) {
         leftPaneRef.value.scrollTop = scrollTop
         leftPaneRef.value.scrollLeft = scrollLeft
+        savedComparerScrollState.leftTop = scrollTop
+        savedComparerScrollState.leftLeft = scrollLeft
       }
     }
+  }
+}
+
+// KeepAlive 标签页切换时保存与恢复滚动位置
+const savedComparerScrollState = {
+  leftTop: 0,
+  leftLeft: 0,
+  rightTop: 0,
+  rightLeft: 0
+}
+
+onDeactivated(() => {
+  // 注意：DOM 分离时浏览器会将 scrollTop 重置为 0，滚动状态已在实时滚动事件中记录在 savedComparerScrollState 中，此处无需覆盖
+})
+
+onActivated(() => {
+  nextTick(() => {
+    const leftEl = leftEditing.value ? leftTextareaRef.value : leftPaneRef.value
+    if (leftEl) {
+      leftEl.scrollTop = savedComparerScrollState.leftTop
+      leftEl.scrollLeft = savedComparerScrollState.leftLeft
+    }
+    const rightEl = rightEditing.value ? rightTextareaRef.value : rightPaneRef.value
+    if (rightEl) {
+      rightEl.scrollTop = savedComparerScrollState.rightTop
+      rightEl.scrollLeft = savedComparerScrollState.rightLeft
+    }
+    if (leftEditing.value) handleLeftTextareaScroll()
+    if (rightEditing.value) handleRightTextareaScroll()
+  })
+})
+
+const handleLeftGutterWheel = (e) => {
+  if (leftTextareaRef.value) {
+    leftTextareaRef.value.scrollTop += e.deltaY
+    leftTextareaRef.value.scrollLeft += e.deltaX
+    handleLeftTextareaScroll()
+  }
+}
+
+const handleRightGutterWheel = (e) => {
+  if (rightTextareaRef.value) {
+    rightTextareaRef.value.scrollTop += e.deltaY
+    rightTextareaRef.value.scrollLeft += e.deltaX
+    handleRightTextareaScroll()
   }
 }
 
@@ -1316,6 +1435,71 @@ const startEditingRight = () => {
       rightTextareaRef.value.scrollLeft = scrollLeft
       rightTextareaRef.value.focus()
     }
+  })
+}
+
+// 错误定位锚点滚动
+const scrollToLeftErrorLine = () => {
+  const tab = activeTab.value
+  if (!tab || !tab.leftErrorLine) return
+  if (!leftEditing.value) {
+    startEditingLeft()
+  }
+  nextTick(() => {
+    const textarea = leftTextareaRef.value
+    if (!textarea) return
+    
+    const targetLine = tab.leftErrorLine
+    const lines = (tab.leftText || '').split('\n')
+    const targetLineIdx = Math.max(0, Math.min(targetLine - 1, lines.length - 1))
+    
+    const targetTop = 8 + targetLineIdx * editorLineHeight.value
+    const targetScrollTop = Math.max(0, targetTop - textarea.clientHeight / 2 + 10)
+    
+    textarea.scrollTo({
+      top: targetScrollTop,
+      behavior: 'smooth'
+    })
+    handleLeftTextareaScroll()
+
+    let charIndex = 0
+    for (let i = 0; i < targetLineIdx; i++) {
+      charIndex += lines[i].length + 1
+    }
+    textarea.focus({ preventScroll: true })
+    textarea.setSelectionRange(charIndex, charIndex + (lines[targetLineIdx]?.length || 0))
+  })
+}
+
+const scrollToRightErrorLine = () => {
+  const tab = activeTab.value
+  if (!tab || !tab.rightErrorLine) return
+  if (!rightEditing.value) {
+    startEditingRight()
+  }
+  nextTick(() => {
+    const textarea = rightTextareaRef.value
+    if (!textarea) return
+    
+    const targetLine = tab.rightErrorLine
+    const lines = (tab.rightText || '').split('\n')
+    const targetLineIdx = Math.max(0, Math.min(targetLine - 1, lines.length - 1))
+    
+    const targetTop = 8 + targetLineIdx * editorLineHeight.value
+    const targetScrollTop = Math.max(0, targetTop - textarea.clientHeight / 2 + 10)
+    
+    textarea.scrollTo({
+      top: targetScrollTop,
+      behavior: 'smooth'
+    })
+    handleRightTextareaScroll()
+
+    let charIndex = 0
+    for (let i = 0; i < targetLineIdx; i++) {
+      charIndex += lines[i].length + 1
+    }
+    textarea.focus({ preventScroll: true })
+    textarea.setSelectionRange(charIndex, charIndex + (lines[targetLineIdx]?.length || 0))
   })
 }
 
@@ -1732,7 +1916,7 @@ onMounted(() => {
 
             <!-- Edit Mode -->
             <div v-if="leftEditing" class="edit-pane-container">
-              <div class="edit-gutter" ref="leftGutterRef">
+              <div v-show="showLineNumbers" class="edit-gutter" ref="leftGutterRef" @wheel.prevent="handleLeftGutterWheel">
                 <div v-for="n in leftLinesCount" :key="n" class="edit-line-number" :class="{ 'has-error': activeTab.leftErrorLine === n, 'diff-removed-line-number': leftLineClasses[n - 1] === 'diff-removed-line', 'diff-modified-line-number': leftLineClasses[n - 1] === 'diff-modified-line' }">{{ n }}</div>
               </div>
               <div class="textarea-overlay-container" :class="{ 'minify-wrap': isLeftMinified }">
@@ -1812,9 +1996,15 @@ onMounted(() => {
             </div>
 
             <!-- Error Banner -->
-            <div v-if="activeTab.leftError" class="input-error-banner">
+            <div 
+              v-if="activeTab.leftError" 
+              class="input-error-banner clickable-error-banner"
+              @click="scrollToLeftErrorLine"
+              :title="activeTab.leftErrorLine ? `点击定位到错误所在行 (第 ${activeTab.leftErrorLine} 行)` : '点击定位错误'"
+            >
               <AlertTriangle class="banner-icon" />
-              <span>{{ activeTab.leftError }}</span>
+              <span>{{ activeTab.leftError }} {{ activeTab.leftErrorLine ? `(第 ${activeTab.leftErrorLine} 行)` : '' }}</span>
+              <span v-if="activeTab.leftErrorLine" class="error-banner-hint">点击定位</span>
             </div>
           </div>
 
@@ -1881,7 +2071,7 @@ onMounted(() => {
 
             <!-- Edit Mode -->
             <div v-if="rightEditing" class="edit-pane-container">
-              <div class="edit-gutter" ref="rightGutterRef">
+              <div v-show="showLineNumbers" class="edit-gutter" ref="rightGutterRef" @wheel.prevent="handleRightGutterWheel">
                 <div v-for="n in rightLinesCount" :key="n" class="edit-line-number" :class="{ 'has-error': activeTab.rightErrorLine === n, 'diff-added-line-number': rightLineClasses[n - 1] === 'diff-added-line', 'diff-modified-line-number': rightLineClasses[n - 1] === 'diff-modified-line' }">{{ n }}</div>
               </div>
               <div class="textarea-overlay-container" :class="{ 'minify-wrap': isRightMinified }">
@@ -1961,9 +2151,15 @@ onMounted(() => {
             </div>
 
             <!-- Error Banner -->
-            <div v-if="activeTab.rightError" class="input-error-banner">
+            <div 
+              v-if="activeTab.rightError" 
+              class="input-error-banner clickable-error-banner"
+              @click="scrollToRightErrorLine"
+              :title="activeTab.rightErrorLine ? `点击定位到错误所在行 (第 ${activeTab.rightErrorLine} 行)` : '点击定位错误'"
+            >
               <AlertTriangle class="banner-icon" />
-              <span>{{ activeTab.rightError }}</span>
+              <span>{{ activeTab.rightError }} {{ activeTab.rightErrorLine ? `(第 ${activeTab.rightErrorLine} 行)` : '' }}</span>
+              <span v-if="activeTab.rightErrorLine" class="error-banner-hint">点击定位</span>
             </div>
           </div>
         </div>
@@ -1972,10 +2168,6 @@ onMounted(() => {
     
     <!-- Bottom Stats Bar -->
     <div class="comparer-status-bar">
-      <div class="instruction-badge" style="margin-right: 16px;">
-        <SlidersHorizontal class="badge-icon" />
-        <span>点击窗格即可编辑，鼠标移出自动对比</span>
-      </div>
       <div class="diff-stats">
         <span class="stat-badge addition">
           <Plus class="stat-icon" /> {{ stats.additions }} 增加
@@ -2292,9 +2484,9 @@ onMounted(() => {
 .panel-header {
   display: flex;
   align-items: center;
-  height: clamp(40px, 4vw, 50px) !important;
-  min-height: clamp(40px, 4vw, 50px) !important;
-  max-height: clamp(36px, 4vw, 50px) !important;
+  height: clamp(40px, 4vw, 40px) !important;
+  min-height: clamp(40px, 4vw, 40px) !important;
+  max-height: clamp(40px, 4vw, 40px) !important;
   padding: 0 10px !important;
   border-bottom: 1px solid var(--border-color) !important;
   background-color: var(--bg-panel);
@@ -2395,12 +2587,13 @@ onMounted(() => {
 }
 
 .edit-gutter {
-  width: 40px;
+  min-width: 42px;
+  width: auto;
   background-color: var(--bg-panel);
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  padding: 8px 0;
+  padding: 8px 0 24px 0;
   overflow: hidden;
   user-select: none;
   flex-shrink: 0;
@@ -2408,12 +2601,13 @@ onMounted(() => {
 
 .edit-line-number {
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: var(--editor-line-height, 20px);
   text-align: right;
   padding-right: 6px;
   color: var(--text-muted);
-  height: 20.15px;
+  height: var(--editor-line-height, 20px);
+  box-sizing: border-box;
 }
 
 .edit-line-number.has-error {
@@ -2429,13 +2623,13 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   margin: 0;
-  padding: 8px 12px;
+  padding: 8px 12px 24px 12px;
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-all;
-  overflow-x: hidden;
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
   overflow-y: auto;
   box-sizing: border-box;
   background-color: transparent !important;
@@ -2451,12 +2645,43 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 16px;
+  padding: 8px 14px;
   background-color: var(--error-bg);
   border-top: 1px solid rgba(239, 68, 68, 0.15);
   color: var(--error-text);
   font-size: 12px;
   font-weight: 500;
+}
+
+.clickable-error-banner {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+.clickable-error-banner:hover {
+  background-color: rgba(239, 68, 68, 0.16);
+}
+.clickable-error-banner:hover span {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.error-banner-hint {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background-color: rgba(239, 68, 68, 0.12);
+  color: var(--error-text);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+.clickable-error-banner:hover .error-banner-hint {
+  background-color: var(--error-text);
+  color: #fff;
+  border-color: var(--error-text);
+  text-decoration: none !important;
 }
 
 .banner-icon {

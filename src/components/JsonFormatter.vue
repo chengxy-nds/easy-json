@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, inject, provide, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, inject, provide, nextTick } from 'vue'
 import { useTabsDrag } from '../composables/useTabsDrag'
 import {
   Copy, Download, UploadCloud, Check, Trash2,
@@ -16,6 +16,7 @@ import JsonGraphView  from './JsonGraphView.vue'
 import JsonTableView  from './JsonTableView.vue'
 import ImportDropdown from './ImportDropdown.vue'
 import ImagePreviewPopover from './ImagePreviewPopover.vue'
+import MaskKeyTreePicker from './MaskKeyTreePicker.vue'
 import { extractJsonFromText, convertJsObjectToJson, safeParseJsLike, tryParseCandidate } from '../utils/jsonExtractor.js';
 import { convertJson, formatLabels, getFormatExtension } from '../utils/jsonConverter.js';
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js';
@@ -33,6 +34,21 @@ const autoExtract = inject('autoExtract', ref(true))
 const autoPaste = inject('autoPaste', ref(false))
 const incomingExtractText = inject('incomingExtractText', ref(null))
 const formatterLastPasted = ref('')
+
+const editorFontSize = inject('editorFontSize', ref(12))
+const showLineNumbers = inject('showLineNumbers', ref(true))
+
+const editorLineHeight = computed(() => {
+  const size = Number(editorFontSize.value) || 12
+  const map = { 11: 18, 12: 20, 13: 20, 14: 22, 15: 23, 16: 24, 18: 26, 20: 28 }
+  return map[size] || Math.round(size * 1.6)
+})
+
+watch(editorFontSize, () => {
+  nextTick(() => {
+    syncGutterScroll()
+  })
+})
 
 const copySuccess = ref(false)
 const gutterRef = ref(null)
@@ -203,10 +219,8 @@ const scrollToCurrentMatch = () => {
     if (inputContainer && textarea) {
       const target = inputContainer.querySelector('.search-match-current')
       if (target) {
-        const targetRect = target.getBoundingClientRect()
-        const containerRect = inputContainer.getBoundingClientRect()
-        const relativeTop = targetRect.top - containerRect.top + textarea.scrollTop
-        const relativeLeft = targetRect.left - containerRect.left + textarea.scrollLeft
+        const relativeTop = targetRect.top - containerRect.top
+        const relativeLeft = targetRect.left - containerRect.left
 
         textarea.scrollTo({
           top: Math.max(0, relativeTop - textarea.clientHeight / 2 + targetRect.height / 2),
@@ -239,6 +253,51 @@ const scrollToCurrentMatch = () => {
       const treeTarget = treeWrapperRef.value.querySelector('.search-match-current') || treeWrapperRef.value.querySelector('.search-match')
       if (treeTarget) {
         treeTarget.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    }
+  })
+}
+
+// 点击底部校验错误信息时，自动定位并滚动到错误所在行
+const scrollToErrorLine = () => {
+  const tab = activeTab.value
+  if (!tab) return
+
+  const textarea = textareaRef.value
+  if (!textarea) return
+
+  const targetLine = tab.errorLine || 1
+  const lines = (tab.inputText || '').split('\n')
+  const targetLineIdx = Math.max(0, Math.min(targetLine - 1, lines.length - 1))
+
+  // 1. 精确计算目标行在编辑区内容中的绝对像素高度（顶端 8px 内边距 + 行号 * 行高）
+  const targetTop = 8 + targetLineIdx * editorLineHeight.value
+  const targetScrollTop = Math.max(0, targetTop - textarea.clientHeight / 2 + 10)
+
+  // 2. 平滑滚动定位到错误所在行居中显示
+  textarea.scrollTo({
+    top: targetScrollTop,
+    behavior: 'smooth'
+  })
+  syncGutterScroll()
+
+  // 3. 设置光标选区并聚焦输入框（防止浏览器原生 focus 强跳）
+  let charIndex = 0
+  for (let i = 0; i < targetLineIdx; i++) {
+    charIndex += lines[i].length + 1
+  }
+  const lineLen = lines[targetLineIdx]?.length || 0
+  textarea.focus({ preventScroll: true })
+  textarea.setSelectionRange(charIndex, charIndex + lineLen)
+
+  // 4. 为错误行添加瞬时闪烁强调动画
+  nextTick(() => {
+    if (inputHighlightRef.value) {
+      const errEl = inputHighlightRef.value.querySelector('.editor-line.has-error')
+      if (errEl) {
+        errEl.classList.remove('token-highlight-blink')
+        void errEl.offsetWidth
+        errEl.classList.add('token-highlight-blink')
       }
     }
   })
@@ -306,27 +365,27 @@ watch(currentMatchIndex, () => {
 
 
 
-// 当前激活展示的路径：鼠标悬停优先，鼠标离开时回退展示光标/点击锁定的路径
+// 当前激活展示的路径：鼠标悬停优先，鼠标离开时回退展示光标/点击锁定的路径（JSON 校验失败时不展示）
 const activeDisplayPath = computed(() => {
+  if (activeTab.value?.validationError) return null
   return hoveredPath.value || selectedPath.value || null
 })
 
 // 格式化当前路径为完整的 JSON 路径字符串（支持数字下标与特殊字符）
 const hoveredPathStr = computed(() => {
+  if (activeTab.value?.validationError) return ''
   const path = activeDisplayPath.value
   if (!path || !Array.isArray(path) || path.length === 0) {
     return ''
   }
-  let res = ''
+  let res = '$'
   for (let i = 0; i < path.length; i++) {
     const segment = path[i]
     if (typeof segment === 'number' || /^\d+$/.test(String(segment))) {
       res += `[${segment}]`
     } else {
       const segStr = String(segment)
-      if (i === 0) {
-        res += segStr
-      } else if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(segStr)) {
+      if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(segStr)) {
         res += `.${segStr}`
       } else {
         res += `["${segStr.replace(/"/g, '\\"')}"]`
@@ -335,6 +394,59 @@ const hoveredPathStr = computed(() => {
   }
   return res
 })
+
+// 计算当前路径的面包屑分段列表（如：$ > resources > images > [0] > description）
+const pathBreadcrumbs = computed(() => {
+  if (activeTab.value?.validationError) return []
+  const path = activeDisplayPath.value
+  if (!path || !Array.isArray(path) || path.length === 0) {
+    return []
+  }
+  const crumbs = [{ label: '$', path: [], fullPathStr: '$', isRoot: true }]
+  let currentAccumulated = []
+  
+  for (let i = 0; i < path.length; i++) {
+    const seg = path[i]
+    currentAccumulated.push(seg)
+    const isNum = typeof seg === 'number' || /^\d+$/.test(String(seg))
+    const displayLabel = isNum ? `[${seg}]` : String(seg)
+    
+    // 计算截至当前层级的 full JSONPath 字符串 (如 $.resources.images[0].description)
+    let fullStr = '$'
+    for (let j = 0; j < currentAccumulated.length; j++) {
+      const s = currentAccumulated[j]
+      if (typeof s === 'number' || /^\d+$/.test(String(s))) {
+        fullStr += `[${s}]`
+      } else {
+        const segText = String(s)
+        if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(segText)) {
+          fullStr += `.${segText}`
+        } else {
+          fullStr += `["${segText.replace(/"/g, '\\"')}"]`
+        }
+      }
+    }
+    
+    crumbs.push({
+      label: displayLabel,
+      path: [...currentAccumulated],
+      fullPathStr: fullStr,
+      isIndex: isNum
+    })
+  }
+  return crumbs
+})
+
+const copyBreadcrumbPath = (crumb) => {
+  if (!crumb || !crumb.fullPathStr) return
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(crumb.fullPathStr).then(() => {
+      if (showToast) showToast(`已复制路径: ${crumb.fullPathStr}`)
+    }).catch(() => {
+      if (showToast) showToast('复制失败', 'error')
+    })
+  }
+}
 
 const copyHoveredPath = () => {
   if (!hoveredPathStr.value) return
@@ -349,6 +461,10 @@ const copyHoveredPath = () => {
 
 // 根据 textarea 光标位置自动锁定当前所在行的键/值路径
 const updateCursorPath = () => {
+  if (activeTab.value?.validationError) {
+    selectedPath.value = null
+    return
+  }
   const textarea = textareaRef.value
   const highlightContainer = inputHighlightRef.value
   if (!textarea || !highlightContainer) return
@@ -449,14 +565,16 @@ const handleOutputPreClick = (e) => {
   let pathAttr = null
   let targetType = null
   let rawText = null
+  let tokenEl = null
 
-  while (current && current !== outputPreRef.value) {
+  while (current && !current.classList?.contains('output-pre')) {
     if (!pathAttr) pathAttr = current.getAttribute?.('data-path')
     
     if (current.classList) {
       if (current.classList.contains('json-key')) {
         targetType = 'key'
         rawText = current.textContent
+        tokenEl = current
         break
       } else if (current.classList.contains('json-string') ||
                  current.classList.contains('json-number') ||
@@ -464,9 +582,11 @@ const handleOutputPreClick = (e) => {
                  current.classList.contains('json-null')) {
         targetType = 'val'
         rawText = current.textContent
+        tokenEl = current
         break
       } else if (current.classList.contains('json-bracket')) {
         targetType = 'bracket'
+        tokenEl = current
         break
       }
     }
@@ -490,7 +610,7 @@ const handleOutputPreClick = (e) => {
     }
   } else if (targetType === 'val' && rawText) {
     let cleanVal = rawText.trim()
-    if (current && current.classList && current.classList.contains('json-string')) {
+    if (tokenEl && tokenEl.classList && tokenEl.classList.contains('json-string')) {
       cleanVal = cleanVal.replace(/^"|"$/g, '').replace(/^\\"|\\"$/g, '')
     }
     if (navigator.clipboard) {
@@ -993,52 +1113,76 @@ const locateJsonError = (text) => {
   return null
 }
 
-// 从 JSON.parse 错误中提取行列号（兼容 Chrome/V8、Firefox 和 macOS Safari）
+// 从 JSON 错误中提取精准行列号（优先扫描原始文本定位，兼容 Chrome/V8、Firefox 和 Safari）
 // 并自动修正"缺逗号导致报错偏移一行"的常见误报
 const getErrorLineAndColumn = (error, text) => {
-  const msg = error.message
+  const rawMsg = error?.message || ''
+  const cleanMsg = rawMsg
+    .replace(/\s+in\s+JSON\s+at\s+position\s+\d+.*$/i, '')
+    .replace(/\s+\(line\s+\d+\s+column\s+\d+\).*$/i, '')
+    .replace(/\s+at\s+line\s+\d+\s+column\s+\d+.*$/i, '')
+    .replace(/\s+at\s+position\s+\d+.*$/i, '')
+    .trim() || rawMsg
 
-  // Firefox 格式: "line X column Y"
-  const lc = msg.match(/line\s+(\d+)\s+column\s+(\d+)/i)
-  let line = null, col = null
-  if (lc) {
-    line = parseInt(lc[1])
-    col  = parseInt(lc[2])
-  }
+  if (!text) return { line: null, column: null, message: cleanMsg }
 
-  // Chrome/V8 格式: "position X"（X 是 0-based 字符索引）
-  const pm = msg.match(/position\s+(\d+)/i)
-  if (!line && pm) {
-    const pos = parseInt(pm[1])
-    line = 1; col = 1
-    for (let i = 0; i < pos && i < text.length; i++) {
-      if (text[i] === '\n') { line++; col = 1 }
-      else { col++ }
-    }
-  }
+  let line = null
+  let col = null
 
-  // macOS WebKit/Safari 降级兼容：如果在 error.message 中提取不到行列号，使用纯 JS 解析器检测错误位置
-  if (!line && text) {
-    const pos = locateJsonError(text)
-    if (pos !== null) {
-      line = 1; col = 1
-      for (let i = 0; i < pos && i < text.length; i++) {
-        if (text[i] === '\n') { line++; col = 1 }
-        else { col++ }
+  // 1. 优先使用精确定位器扫描原始输入文本（最准确，不受 safeParse/BigInt 转换及各浏览器报错差异影响）
+  const precisePos = locateJsonError(text)
+  if (precisePos !== null && precisePos >= 0) {
+    line = 1
+    col = 1
+    for (let i = 0; i < precisePos && i < text.length; i++) {
+      if (text[i] === '\n') {
+        line++
+        col = 1
+      } else {
+        col++
       }
     }
   }
 
-  if (!line) return { line: null, column: null }
+  // 2. 备用：从原生 JSON.parse(text) 的 position 索引计算
+  if (!line) {
+    try {
+      JSON.parse(text)
+    } catch (nativeErr) {
+      const pm = (nativeErr?.message || '').match(/position\s+(\d+)/i)
+      if (pm) {
+        const p = parseInt(pm[1], 10)
+        line = 1
+        col = 1
+        for (let i = 0; i < p && i < text.length; i++) {
+          if (text[i] === '\n') {
+            line++
+            col = 1
+          } else {
+            col++
+          }
+        }
+      }
+    }
+  }
 
-  // ── 启发式修正：缺逗号导致报错偏移 ──
+  // 3. 备用：正则匹配 Firefox 等浏览器的 line X column Y
+  if (!line) {
+    const lc = rawMsg.match(/line\s+(\d+)(?:\s+column\s+(\d+))?/i)
+    if (lc) {
+      line = parseInt(lc[1], 10)
+      col = lc[2] ? parseInt(lc[2], 10) : 1
+    }
+  }
+
+  if (!line) return { line: null, column: null, message: cleanMsg }
+
+  // 4. 启发式修正：缺逗号导致报错偏移一行
   const lines = text.split('\n')
   if (line > 1) {
     const errLine = (lines[line - 1] || '').trim()
     const prev = (lines[line - 2] || '').trim()
-    // 1) 报错行是 key (如 "key":)，但上一行以值结尾且缺逗号
     const isKey = /^".*"\s*:/.test(errLine)
-    // 2) 或者在数组中，报错行是数组元素（如以 ", [, {, true, false, null, 数字或字母/引号开头），且上一行以值结尾且缺逗号
     const isArrayElement = /^(?:["[{]|\b(?:true|false|null)\b|\d)/.test(errLine)
     
     if (isKey || isArrayElement) {
@@ -1051,7 +1195,7 @@ const getErrorLineAndColumn = (error, text) => {
     }
   }
 
-  return { line, column: col }
+  return { line, column: col, message: cleanMsg }
 }
 
 // Recursively sort object keys alphabetically
@@ -1407,7 +1551,7 @@ const toolbarToolDefs = [
   { id: 'minify', label: '压缩', icon: Minimize2, tooltip: '压缩 JSON', minWidth: 235 },
   { id: 'escape', label: '转义', icon: Code, tooltip: '转义 JSON', minWidth: 280 },
   { id: 'unescape', label: '去转义', icon: FileCode, tooltip: '去转义 JSON', minWidth: 330 },
-  { id: 'import', label: '导入', icon: UploadCloud, tooltip: '导入数据 (文件/cURL/URL)', minWidth: 380, isImport: true },
+  { id: 'import', label: '导入', icon: UploadCloud, tooltip: '导入数据', minWidth: 380, isImport: true },
   { id: 'extract', label: '提取', icon: Wand2, tooltip: '智能提取 JSON', minWidth: 430 },
   { id: 'removeComments', label: '去注释', icon: Strikethrough, tooltip: '去除 JSON 注释', minWidth: 480 },
   { id: 'jsonpath', label: 'JSONPath', icon: Workflow, tooltip: 'JSONPath 表达式提取', minWidth: 540, active: () => showJsonPathBar.value },
@@ -1637,9 +1781,9 @@ const formatJSON = () => {
         tab.parsedObj = null
         tab.outputText = ''
         tab.extractedFormat = null
-        tab.validationError = err.message
 
-        const { line } = getErrorLineAndColumn(err, tab.inputText)
+        const { line, message } = getErrorLineAndColumn(err, tab.inputText)
+        tab.validationError = message || err.message
         tab.errorLine = line
       }
     }
@@ -1816,11 +1960,16 @@ const syncGutterScroll = () => {
     gutterRef.value.scrollTop = scrollTop
   }
 
-  // Sync highlight overlay
+  // Sync highlight overlay via GPU transform (杜绝任何滚动条截断、子像素舍入或视口高度差导致的错位)
   if (inputHighlightRef.value) {
-    inputHighlightRef.value.scrollTop = scrollTop
-    inputHighlightRef.value.scrollLeft = scrollLeft
+    inputHighlightRef.value.scrollTop = 0
+    inputHighlightRef.value.scrollLeft = 0
+    inputHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
   }
+
+  // 实时记录最新滚动位置（供 KeepAlive 切换后无缝还原）
+  savedScrollState.inputTop = scrollTop
+  savedScrollState.inputLeft = scrollLeft
 
   // Sync Output Pane (text view & tree view)
   if (activeScrollTarget.value === 'left') {
@@ -1837,6 +1986,39 @@ const syncGutterScroll = () => {
   }
 }
 
+// KeepAlive 标签页切换时保存与恢复滚动位置，杜绝 DOM 分离导致 scrollTop 归零而 transform 滞留错位
+const savedScrollState = {
+  inputTop: 0,
+  inputLeft: 0,
+  outputTop: 0,
+  outputLeft: 0,
+  treeTop: 0,
+  treeLeft: 0
+}
+
+onDeactivated(() => {
+  // 注意：DOM 分离时浏览器会将 scrollTop 重置为 0，滚动状态已在实时滚动事件中记录在 savedScrollState 中，此处无需覆盖
+})
+
+onActivated(() => {
+  nextTick(() => {
+    activeScrollTarget.value = 'left'
+    if (textareaRef.value) {
+      textareaRef.value.scrollTop = savedScrollState.inputTop
+      textareaRef.value.scrollLeft = savedScrollState.inputLeft
+    }
+    if (outputPreRef.value) {
+      outputPreRef.value.scrollTop = savedScrollState.outputTop
+      outputPreRef.value.scrollLeft = savedScrollState.outputLeft
+    }
+    if (treeWrapperRef.value) {
+      treeWrapperRef.value.scrollTop = savedScrollState.treeTop
+      treeWrapperRef.value.scrollLeft = savedScrollState.treeLeft
+    }
+    syncGutterScroll()
+  })
+})
+
 const scrollToTop = () => {
   if (textareaRef.value) {
     textareaRef.value.scrollTop = 0
@@ -1851,11 +2033,34 @@ const scrollToBottom = () => {
   }
 }
 
+const handleGutterWheel = (e) => {
+  if (textareaRef.value) {
+    textareaRef.value.scrollTop += e.deltaY
+    textareaRef.value.scrollLeft += e.deltaX
+    syncGutterScroll()
+  }
+}
+
+const handleOutputGutterWheel = (e) => {
+  if (outputPreRef.value) {
+    outputPreRef.value.scrollTop += e.deltaY
+    outputPreRef.value.scrollLeft += e.deltaX
+    handleOutputScroll()
+  }
+}
+
 const handleOutputScroll = () => {
+  const scrollTop = outputPreRef.value ? outputPreRef.value.scrollTop : 0
+  const scrollLeft = outputPreRef.value ? outputPreRef.value.scrollLeft : 0
+  
+  // 右侧自身的行号无条件与右侧内容严格同步
+  if (outputGutterRef.value) {
+    outputGutterRef.value.scrollTop = scrollTop
+  }
+
   if (activeScrollTarget.value === 'right') {
-    const scrollTop = outputPreRef.value ? outputPreRef.value.scrollTop : 0
-    const scrollLeft = outputPreRef.value ? outputPreRef.value.scrollLeft : 0
-    
+    savedScrollState.outputTop = scrollTop
+    savedScrollState.outputLeft = scrollLeft
     // Sync Input Pane
     if (textareaRef.value) {
       textareaRef.value.scrollTop = scrollTop
@@ -1867,9 +2072,11 @@ const handleOutputScroll = () => {
       gutterRef.value.scrollTop = scrollTop
     }
     
-    // Sync output gutter
-    if (outputGutterRef.value) {
-      outputGutterRef.value.scrollTop = scrollTop
+    // Sync highlight overlay via GPU transform (left)
+    if (inputHighlightRef.value) {
+      inputHighlightRef.value.scrollTop = 0
+      inputHighlightRef.value.scrollLeft = 0
+      inputHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
     }
   }
 }
@@ -1879,6 +2086,8 @@ const handleTreeScroll = () => {
   if (activeScrollTarget.value === 'right' && treeWrapperRef.value) {
     const scrollTop = treeWrapperRef.value.scrollTop
     const scrollLeft = treeWrapperRef.value.scrollLeft
+    savedScrollState.treeTop = scrollTop
+    savedScrollState.treeLeft = scrollLeft
     if (textareaRef.value) {
       textareaRef.value.scrollTop = scrollTop
       textareaRef.value.scrollLeft = scrollLeft
@@ -1887,8 +2096,9 @@ const handleTreeScroll = () => {
       gutterRef.value.scrollTop = scrollTop
     }
     if (inputHighlightRef.value) {
-      inputHighlightRef.value.scrollTop = scrollTop
-      inputHighlightRef.value.scrollLeft = scrollLeft
+      inputHighlightRef.value.scrollTop = 0
+      inputHighlightRef.value.scrollLeft = 0
+      inputHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
     }
   }
 }
@@ -2638,51 +2848,6 @@ watch(hoveredPath, (newPath) => {
   }
 })
 
-// Hover sync handlers for left-side transparent textarea
-const handleTextareaMouseMove = (e) => {
-  const textarea = e.currentTarget
-  if (!textarea) return
-  
-  const originalPointerEvents = textarea.style.pointerEvents
-  textarea.style.pointerEvents = 'none'
-  
-  let originalPreEvents = 'none'
-  if (inputHighlightRef.value) {
-    originalPreEvents = inputHighlightRef.value.style.pointerEvents
-    inputHighlightRef.value.style.pointerEvents = 'auto'
-  }
-  
-  const element = document.elementFromPoint(e.clientX, e.clientY)
-  
-  textarea.style.pointerEvents = originalPointerEvents
-  if (inputHighlightRef.value) {
-    inputHighlightRef.value.style.pointerEvents = originalPreEvents
-  }
-  
-  if (element) {
-    let current = element
-    let pathAttr = null
-    while (current && current.classList && !current.classList.contains('editor-highlight')) {
-      pathAttr = current.getAttribute('data-path')
-      if (pathAttr) break
-      current = current.parentElement
-    }
-    
-    if (pathAttr) {
-      try {
-        const path = JSON.parse(pathAttr)
-        setHoveredPath(path)
-        return
-      } catch (err) {}
-    }
-  }
-  setHoveredPath(null)
-}
-
-const handleTextareaMouseLeave = () => {
-  setHoveredPath(null)
-}
-
 
 // Handler functions for toolbar
 const handleFormatDirect = () => {
@@ -2943,6 +3108,7 @@ const maskOptions = ref({
   customKeys: []
 })
 const customKeyInput = ref('')
+const showKeyTreePicker = ref(false)
 const extractedKeysList = ref([])
 const maskPreviewText = ref('')
 const maskCountResult = ref(0)
@@ -2996,12 +3162,19 @@ const parseJsonRobust = (text) => {
   return null
 }
 
+watch(showMaskModal, (val) => {
+  if (!val) {
+    showKeyTreePicker.value = false
+  }
+})
+
 const openDataMaskModal = () => {
   const tab = activeTab.value
   if (!tab || !tab.inputText?.trim()) {
     showToast('请先输入需要脱敏的 JSON 数据', 'error')
     return
   }
+  showKeyTreePicker.value = false
   const parsed = tab.parsedObj || parseJsonRobust(tab.inputText)
   if (parsed) {
     extractedKeysList.value = extractAllKeys(parsed)
@@ -3025,6 +3198,12 @@ const addCustomKey = () => {
 
 const removeCustomKey = (key) => {
   maskOptions.value.customKeys = maskOptions.value.customKeys.filter(k => k !== key)
+  saveMaskOptions()
+  updateMaskPreview()
+}
+
+const clearAllCustomKeys = () => {
+  maskOptions.value.customKeys = []
   saveMaskOptions()
   updateMaskPreview()
 }
@@ -3430,7 +3609,7 @@ onBeforeUnmount(() => {
                       @click="handleToolAction(tool.id); showMoreToolsMenu = false"
                     >
                       <component :is="tool.icon" class="more-item-icon" />
-                      <span>{{ tool.id === 'import' ? '导入数据 (文件/cURL/URL)' : (tool.id === 'jsonpath' ? 'JSONPath 表达式提取' : (tool.id === 'extract' ? '智能提取 JSON' : (tool.id === 'removeComments' ? '去除 JSON 注释' : (tool.id === 'mask' ? '智能数据脱敏' : tool.label)))) }}</span>
+                      <span>{{ tool.id === 'import' ? '导入数据' : (tool.id === 'jsonpath' ? 'JSONPath 表达式提取' : (tool.id === 'extract' ? '智能提取 JSON' : (tool.id === 'removeComments' ? '去除 JSON 注释' : (tool.id === 'mask' ? '智能数据脱敏' : tool.label)))) }}</span>
                     </button>
                   </template>
 
@@ -3443,11 +3622,11 @@ onBeforeUnmount(() => {
                     </button>
                     <button class="more-menu-item" @click="copyToClipboard(); showMoreToolsMenu = false" :disabled="!activeTab.outputText">
                       <Copy class="more-item-icon" />
-                      <span>复制格式化结果</span>
+                      <span>复制结果</span>
                     </button>
                     <button class="more-menu-item danger-item" @click="clearInput(); showMoreToolsMenu = false" :disabled="!activeTab.inputText">
                       <Trash2 class="more-item-icon" />
-                      <span>清空输入数据</span>
+                      <span>清空</span>
                     </button>
                   </template>
                 </div>
@@ -3626,7 +3805,7 @@ onBeforeUnmount(() => {
         <div class="panel-body">
           <div class="editor-wrapper">
             <!-- Sync scroll line numbers -->
-            <div class="gutter" ref="gutterRef" v-html="inputGutterHtml" aria-hidden="true"></div>
+            <div v-show="showLineNumbers" class="gutter" ref="gutterRef" v-html="inputGutterHtml" aria-hidden="true" @wheel.prevent="handleGutterWheel"></div>
 
             <div class="textarea-overlay-container" :class="{ 'minify-wrap': isInputMinified }">
               <!-- Syntax highlight overlay (behind textarea) -->
@@ -3656,8 +3835,6 @@ onBeforeUnmount(() => {
                 @touchstart="activeScrollTarget = 'left'"
                 @focus="handleTextareaFocus(); updateCursorPath()"
                 @blur="handleTextareaBlur"
-                @mousemove="handleTextareaMouseMove"
-                @mouseleave="handleTextareaMouseLeave"
               ></textarea>
               
               <!-- Floating Scroll Buttons -->
@@ -3814,7 +3991,7 @@ onBeforeUnmount(() => {
           <Transition name="fade-slide" mode="out-in">
             <!-- 格式转换输出视图 (当开启转换时自动呈现代码视图) -->
             <div v-if="convertFormat" class="output-wrapper" key="convert">
-              <div class="gutter" ref="outputGutterRef" v-html="outputGutterHtml" aria-hidden="true"></div>
+              <div v-show="showLineNumbers" class="gutter" ref="outputGutterRef" v-html="outputGutterHtml" aria-hidden="true" @wheel.prevent="handleOutputGutterWheel"></div>
               <pre
                 class="output-pre"
                 :class="{ 'minify-wrap': isOutputMinified }"
@@ -3876,8 +4053,15 @@ onBeforeUnmount(() => {
       <!-- Left side: validation status & hovered key path -->
       <div class="status-bar-left">
         <template v-if="activeTab.validationError">
-          <AlertTriangle class="status-bar-icon error" />
-          <span class="status-bar-text error">JSON 校验失败 &nbsp;·&nbsp; {{ activeTab.validationError }} {{ activeTab.errorLine ? `(第 ${activeTab.errorLine} 行)` : '' }}</span>
+          <div
+            class="status-bar-error-action"
+            @click="scrollToErrorLine"
+            :title="activeTab.errorLine ? `点击跳转定位到错误所在行 (第 ${activeTab.errorLine} 行)` : '点击跳转定位到错误位置'"
+          >
+            <AlertTriangle class="status-bar-icon error" />
+            <span class="status-bar-text error">JSON 校验失败 &nbsp;·&nbsp; {{ activeTab.validationError }} {{ activeTab.errorLine ? `(第 ${activeTab.errorLine} 行)` : '' }}</span>
+            <span v-if="activeTab.errorLine" class="status-bar-error-hint">点击定位</span>
+          </div>
         </template>
         <template v-else-if="activeTab.extractedFormat">
           <Check class="status-bar-icon success" />
@@ -3891,17 +4075,34 @@ onBeforeUnmount(() => {
           <span class="status-bar-text muted">在左侧输入 JSON</span>
         </template>
 
-        <!-- Hovered Key Path Badge in status bar -->
+        <!-- Hovered / Active Key Path Breadcrumbs in status bar -->
         <Transition name="fade-fast">
           <div
-            v-if="hoveredPathStr"
-            class="status-path-badge"
-            @click.stop="copyHoveredPath"
-            data-tooltip="点击复制路径"
+            v-if="!activeTab.validationError && pathBreadcrumbs.length > 0"
+            class="status-path-breadcrumbs"
           >
-            <span class="status-path-label">路径:</span>
-            <span class="status-path-value">{{ hoveredPathStr }}</span>
-            <Copy class="status-path-copy-icon" />
+            <template v-for="(crumb, idx) in pathBreadcrumbs" :key="crumb.fullPathStr">
+              <span v-if="idx > 0" class="breadcrumb-separator">
+                <ChevronRight class="breadcrumb-chevron-icon" />
+              </span>
+              <button
+                type="button"
+                class="breadcrumb-node-btn"
+                :class="{ 'is-root': crumb.isRoot, 'is-index': crumb.isIndex, 'is-last': idx === pathBreadcrumbs.length - 1 }"
+                @click.stop="copyBreadcrumbPath(crumb)"
+                :title="`点击复制: ${crumb.fullPathStr}`"
+              >
+                {{ crumb.label }}
+              </button>
+            </template>
+            <button
+              type="button"
+              class="breadcrumb-copy-all-btn"
+              @click.stop="copyHoveredPath"
+              :title="`复制完整路径: ${hoveredPathStr}`"
+            >
+              <Copy class="breadcrumb-copy-icon" />
+            </button>
           </div>
         </Transition>
       </div>
@@ -3998,6 +4199,17 @@ onBeforeUnmount(() => {
                   <button class="custom-key-add-btn" @click="addCustomKey" :disabled="!customKeyInput.trim()">
                     添加
                   </button>
+                  <button
+                    type="button"
+                    class="custom-key-tree-btn"
+                    :class="{ active: showKeyTreePicker }"
+                    @click="showKeyTreePicker = !showKeyTreePicker"
+                    title="从当前 JSON 树形结构可视化选取字段"
+                  >
+                    <ListTree class="btn-icon-xs" />
+                    <span>从当前 JSON 选取</span>
+                    <ChevronDown class="tree-toggle-arrow" :class="{ 'is-open': showKeyTreePicker }" />
+                  </button>
                 </div>
 
                 <!-- 已指定的 Key 列表 -->
@@ -4006,23 +4218,19 @@ onBeforeUnmount(() => {
                     {{ k }}
                     <X class="tag-close-icon" @click="removeCustomKey(k)" />
                   </span>
+                  <button class="clear-all-keys-btn" @click="clearAllCustomKeys" title="一键清空全部已选字段">
+                    <Trash2 class="clear-keys-icon" />
+                    <span>一键清空</span>
+                  </button>
                 </div>
 
-                <!-- 从当前 JSON 提取出的 Key 快捷选择 -->
-                <div v-if="extractedKeysList.length > 0" class="extracted-keys-box">
-                  <div class="extracted-keys-label">从当前 JSON 快速选取:</div>
-                  <div class="extracted-keys-pills">
-                    <button
-                      v-for="k in extractedKeysList"
-                      :key="k"
-                      class="extracted-key-pill"
-                      :class="{ selected: maskOptions.customKeys.includes(k) }"
-                      @click="toggleKeyFromExtracted(k)"
-                    >
-                      {{ k }}
-                    </button>
-                  </div>
-                </div>
+                <!-- 树形结构选取面板 -->
+                <MaskKeyTreePicker
+                  v-if="showKeyTreePicker"
+                  :data="activeTab.parsedObj || parseJsonRobust(activeTab.inputText)"
+                  v-model="maskOptions.customKeys"
+                  @update:model-value="() => { saveMaskOptions(); updateMaskPreview(); }"
+                />
               </div>
 
               <!-- 实时预览区 -->
@@ -4035,7 +4243,7 @@ onBeforeUnmount(() => {
                   </button>
                 </div>
                 <div class="mask-preview-code-wrap">
-                  <pre class="mask-preview-pre output-pre" v-html="highlightedMaskPreview"></pre>
+                  <pre class="mask-preview-pre output-pre" @click="handleOutputPreClick" v-html="highlightedMaskPreview"></pre>
                 </div>
               </div>
             </div>
@@ -4661,15 +4869,16 @@ onBeforeUnmount(() => {
 }
 
 .gutter {
-  width: 40px;
+  min-width: 42px;
+  width: auto;
   background-color: var(--bg-panel);
   border-right: 1px solid var(--border-color);
   text-align: right;
-  padding: 8px 6px 8px 0;
+  padding: 8px 6px 60px 0;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 20.15px;  /* 与编辑器 13px*1.55 行高一致，保证对齐 */
+  font-size: 12px;
+  line-height: var(--editor-line-height, 20px);
   user-select: none;
   overflow: hidden;
   box-sizing: border-box;
@@ -4677,7 +4886,10 @@ onBeforeUnmount(() => {
 }
 
 .gutter-line {
-  line-height: 20.15px;
+  font-size: 12px;
+  line-height: var(--editor-line-height, 20px);
+  height: var(--editor-line-height, 20px);
+  box-sizing: border-box;
 }
 
 .gutter-line.has-error {
@@ -4712,10 +4924,10 @@ onBeforeUnmount(() => {
 
 .output-pre {
   margin: 0;
-  padding: 8px 12px;
+  padding: 8px 12px 24px 12px;
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
   overflow: auto;
   flex-grow: 1;
   white-space: pre;
@@ -5123,25 +5335,55 @@ onBeforeUnmount(() => {
 .status-bar-text.error { color: var(--error-text); }
 .status-bar-text.muted { color: var(--text-muted); font-weight: 400; }
 
-.status-path-badge {
+.status-bar-error-action {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-left: 10px;
+  gap: 6px;
   padding: 2px 6px;
+  margin: -2px -4px;
   border-radius: 4px;
-  background-color: transparent;
-  border: none;
-  outline: none;
-  box-shadow: none;
-  font-size: 11px;
-  line-height: 1.2;
-  color: var(--text-primary);
   cursor: pointer;
-  white-space: nowrap;
+  transition: all 0.15s ease;
   user-select: none;
-  transition: background-color 0.15s ease;
+}
+.status-bar-error-action:hover {
+  background-color: var(--error-bg, rgba(239, 68, 68, 0.1));
+}
+.status-bar-error-action:hover .status-bar-text.error {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.status-bar-error-hint {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background-color: rgba(239, 68, 68, 0.12);
+  color: var(--error-text);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  flex-shrink: 0;
+  line-height: 1.2;
+}
+.status-bar-error-action:hover .status-bar-error-hint {
+  background-color: var(--error-text);
+  color: #fff;
+  border-color: var(--error-text);
+}
+
+.status-path-breadcrumbs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  margin-left: 0.5rem;
+  padding: 0.09375rem 0.375rem;
+  font-size: 12px;
+  font-family: var(--font-mono, monospace);
+  color: var(--breadcrumb-text);
+  user-select: none;
   animation: fadeInPath 0.15s ease-out;
+  overflow-x: auto;
+  max-width: calc(100vw - 20rem);
+  transition: all 0.15s ease;
 }
 
 @keyframes fadeInPath {
@@ -5149,44 +5391,78 @@ onBeforeUnmount(() => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.status-path-badge:hover {
-  background-color: var(--bg-hover, rgba(125, 125, 125, 0.08));
-}
-
-.status-path-label {
-  font-family: var(--font-sans);
-  font-weight: 500;
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.2;
+.breadcrumb-separator {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  color: var(--breadcrumb-sep);
+  padding: 0 0.125rem;
+  opacity: 0.85;
 }
 
-.status-path-value {
-  font-family: var(--font-mono);
-  color: var(--json-key, var(--primary-color));
-  font-weight: 600;
-  font-size: 11px;
-  line-height: 1.2;
+.breadcrumb-chevron-icon {
+  width: 0.8975rem;
+  height: 0.8975rem;
+  stroke-width: 2.2;
+}
+
+.breadcrumb-node-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.0625rem 0.25rem;
+  border: none;
+  border-radius: 0.1875rem;
+  background: transparent;
+  color: var(--breadcrumb-text);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.3;
+  cursor: pointer;
+  transition: all 0.15s ease;
   white-space: nowrap;
+}
+
+.breadcrumb-node-btn:hover {
+  background: var(--breadcrumb-hover-bg);
+  color: var(--breadcrumb-hover-text);
+}
+
+.breadcrumb-node-btn.is-root {
+}
+
+.breadcrumb-node-btn.is-index {
+  color: var(--breadcrumb-index);
+}
+
+.breadcrumb-node-btn.is-last {
+  color: var(--breadcrumb-target);
+  font-weight: 500;
+}
+
+.breadcrumb-copy-all-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  padding: 0.125rem 0.1875rem;
+  margin-left: 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--breadcrumb-copy-color);
+  border-radius: 0.1875rem;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: all 0.15s ease;
 }
 
-.status-path-copy-icon {
-  width: 11px;
-  height: 11px;
-  opacity: 0.45;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  margin-top: 0.5px;
-  transition: opacity 0.15s ease, color 0.15s ease;
-}
-
-.status-path-badge:hover .status-path-copy-icon {
+.breadcrumb-copy-all-btn:hover {
   opacity: 1;
-  color: var(--json-key, var(--primary-color));
+  color: var(--breadcrumb-copy-hover);
+  background: var(--breadcrumb-copy-hover-bg);
+}
+
+.breadcrumb-copy-icon {
+  width: 0.875rem;
+  height: 0.875rem;
 }
 
 .fade-fast-enter-active,
@@ -6043,28 +6319,29 @@ body.utools-mode {
   transform: translateY(-4px);
 }
 
-/* ─── 通用模态弹窗样式 (Modal Backdrop & Dialog) ─── */
+/* ─── 通用模态弹窗样式 (rem 响应式全分辨率自适应) ─── */
 .ej-modal-backdrop {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.48);
   backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 10000;
-  padding: 20px;
+  padding: 1.25rem;
   box-sizing: border-box;
 }
 
 .ej-modal-dialog {
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2), 0 1px 3px rgba(0, 0, 0, 0.05);
+  border-radius: 0.75rem;
+  box-shadow: 0 1.25rem 3rem -0.5rem rgba(0, 0, 0, 0.22), 0 0.25rem 0.75rem -0.125rem rgba(0, 0, 0, 0.08);
   display: flex;
   flex-direction: column;
   max-width: 90vw;
@@ -6074,7 +6351,7 @@ body.utools-mode {
 }
 
 @keyframes modalPopIn {
-  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  from { opacity: 0; transform: scale(0.96) translateY(0.5rem); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
@@ -6082,22 +6359,22 @@ body.utools-mode {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: 0.875rem 1.25rem;
   border-bottom: 1px solid var(--border-color);
 }
 
 .ej-modal-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
+  gap: 0.5rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .modal-title-icon {
-  width: 18px;
-  height: 18px;
+  width: 1.125rem;
+  height: 1.125rem;
   color: var(--primary-color, #6366f1);
 }
 
@@ -6105,9 +6382,9 @@ body.utools-mode {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.375rem;
   border: none;
   background: transparent;
   color: var(--text-muted);
@@ -6121,22 +6398,22 @@ body.utools-mode {
 }
 
 .modal-close-icon {
-  width: 16px;
-  height: 16px;
+  width: 1rem;
+  height: 1rem;
 }
 
 .ej-modal-body {
-  padding: 16px 20px;
+  padding: 1rem 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0.875rem;
   overflow-y: auto;
 }
 
 .mask-preview-area {
   display: flex;
   flex-direction: column;
-  border-radius: 8px;
+  border-radius: 0.5rem;
   border: 1px solid var(--border-color);
   overflow: hidden;
   background: var(--bg-app);
@@ -6146,10 +6423,10 @@ body.utools-mode {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 0.5rem 0.75rem;
   background: var(--bg-input, rgba(0, 0, 0, 0.03));
   border-bottom: 1px solid var(--border-color);
-  font-size: 11.5px;
+  font-size: 0.71875rem;
   font-weight: 500;
   color: var(--text-muted);
 }
@@ -6161,13 +6438,13 @@ body.utools-mode {
 .preview-copy-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border-radius: 4px;
+  gap: 0.25rem;
+  padding: 0.1875rem 0.5rem;
+  border-radius: 0.25rem;
   border: 1px solid var(--border-color);
   background: var(--bg-panel);
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 0.6875rem;
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -6179,10 +6456,10 @@ body.utools-mode {
 .mask-preview-code-wrap {
   position: relative;
   background: var(--bg-app);
-  max-height: 220px;
-  min-height: 140px;
+  max-height: 13.75rem;
+  min-height: 8.75rem;
   overflow: auto;
-  padding: 10px 14px;
+  padding: 0.625rem 0.875rem;
   box-sizing: border-box;
 }
 
@@ -6190,7 +6467,7 @@ body.utools-mode {
   margin: 0;
   padding: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.55;
   color: var(--text-primary);
   white-space: pre-wrap;
@@ -6201,16 +6478,16 @@ body.utools-mode {
 .mask-preview-line {
   min-height: 1.55em;
   line-height: 1.55;
-  padding: 0 6px;
-  margin: 0 -6px;
-  border-radius: 4px;
+  padding: 0 0.375rem;
+  margin: 0 -0.375rem;
+  border-radius: 0.25rem;
   transition: background-color 0.15s ease;
 }
 
 .mask-preview-line.is-masked-line {
   background: rgba(245, 158, 11, 0.12);
   border-left: 3px solid #f59e0b;
-  padding-left: 6px;
+  padding-left: 0.375rem;
 }
 
 .dark-mode .mask-preview-line.is-masked-line {
@@ -6219,8 +6496,8 @@ body.utools-mode {
 }
 
 .rule-icon {
-  width: 14px;
-  height: 14px;
+  width: 0.875rem;
+  height: 0.875rem;
   color: var(--primary-color, #6366f1);
   flex-shrink: 0;
 }
@@ -6229,9 +6506,9 @@ body.utools-mode {
   background: rgba(245, 158, 11, 0.25);
   color: #b45309;
   font-weight: 700;
-  padding: 0 4px;
-  margin: 0 1px;
-  border-radius: 3px;
+  padding: 0 0.25rem;
+  margin: 0 0.0625rem;
+  border-radius: 0.1875rem;
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.35);
   display: inline;
 }
@@ -6246,8 +6523,8 @@ body.utools-mode {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 20px;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
   border-top: 1px solid var(--border-color);
   background: var(--bg-panel);
 }
@@ -6255,14 +6532,15 @@ body.utools-mode {
 .modal-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 6px;
-  font-size: 12px;
+  gap: 0.25rem;
+  height: 2rem;
+  padding: 0 0.875rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .modal-btn.outline {
@@ -6307,51 +6585,51 @@ body.utools-mode {
 }
 
 .btn-icon-xs {
-  width: 13px;
-  height: 13px;
+  width: 0.8125rem;
+  height: 0.8125rem;
 }
 
-/* ─── Data Masking Modal Styles ─── */
+/* ─── Data Masking Modal Styles (rem 响应式) ─── */
 .mask-modal-dialog {
-  width: 760px;
+  width: min(47.5rem, 90vw);
 }
 
 .mask-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 .mask-section-title {
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0.375rem;
 }
 
 .section-sub-tip {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 400;
   color: var(--text-muted);
 }
 
 .mask-checkbox-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px 12px;
-  padding: 10px 14px;
+  grid-template-columns: repeat(auto-fill, minmax(11.25rem, 1fr));
+  gap: 0.5rem 0.75rem;
+  padding: 0.625rem 0.875rem;
   background: var(--bg-input, rgba(0, 0, 0, 0.03));
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 0.5rem;
 }
 
 .mask-checkbox-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 0.375rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   cursor: pointer;
   user-select: none;
@@ -6365,17 +6643,17 @@ body.utools-mode {
 .custom-key-input-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 0.5rem;
 }
 
 .custom-key-input {
   flex: 1;
-  height: 32px;
-  padding: 4px 10px;
-  border-radius: 6px;
+  height: 2rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 0.375rem;
   border: 1px solid var(--border-color);
   background: var(--bg-panel);
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-primary);
   outline: none;
   font-family: var(--font-mono);
@@ -6387,16 +6665,17 @@ body.utools-mode {
 }
 
 .custom-key-add-btn {
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 6px;
+  height: 2rem;
+  padding: 0 0.875rem;
+  border-radius: 0.375rem;
   border: 1px solid var(--border-color);
   background: var(--bg-hover);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .custom-key-add-btn:hover:not(:disabled) {
@@ -6412,17 +6691,17 @@ body.utools-mode {
 .selected-keys-wrap {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 0;
+  gap: 0.375rem;
+  padding: 0.25rem 0;
 }
 
 .selected-key-tag {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11.5px;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.71875rem;
   font-family: var(--font-mono);
   background: var(--primary-light, rgba(99, 102, 241, 0.12));
   color: var(--primary-color, #6366f1);
@@ -6430,8 +6709,8 @@ body.utools-mode {
 }
 
 .tag-close-icon {
-  width: 12px;
-  height: 12px;
+  width: 0.75rem;
+  height: 0.75rem;
   cursor: pointer;
   opacity: 0.7;
   transition: opacity 0.1s ease;
@@ -6441,46 +6720,179 @@ body.utools-mode {
   opacity: 1;
 }
 
-.extracted-keys-box {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: 2px;
-}
-
-.extracted-keys-label {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.extracted-keys-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  max-height: 80px;
-  overflow-y: auto;
-}
-
-.extracted-key-pill {
-  padding: 2px 7px;
-  border-radius: 4px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-app);
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
+.clear-all-keys-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1875rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.12s ease;
+  border: 1px dashed rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  transition: all 0.15s ease;
 }
 
-.extracted-key-pill:hover {
-  border-color: var(--primary-color, #6366f1);
-  color: var(--text-primary);
-}
-
-.extracted-key-pill.selected {
-  background: var(--primary-color, #6366f1);
+.clear-all-keys-btn:hover {
+  background: #ef4444;
   color: #ffffff;
+  border-color: #ef4444;
+  border-style: solid;
+}
+
+.clear-keys-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.custom-key-tree-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.custom-key-tree-btn:hover {
   border-color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #6366f1);
+  background: var(--bg-hover);
+}
+
+.custom-key-tree-btn.active {
+  background: var(--primary-light, rgba(99, 102, 241, 0.12));
+  border-color: var(--primary-color, #6366f1);
+  color: var(--primary-color, #6366f1);
+}
+
+.tree-toggle-arrow {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  transition: transform 0.2s ease;
+}
+
+.tree-toggle-arrow.is-open {
+  transform: rotate(180deg);
+}
+
+/* ─── 模态弹窗全分辨率与响应式适配 (rem 尺寸单位) ─── */
+@media (max-width: 768px) {
+  .ej-modal-backdrop {
+    padding: 0.625rem;
+  }
+
+  .mask-modal-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 1.25rem);
+    border-radius: 0.625rem;
+  }
+
+  .ej-modal-header {
+    padding: 0.625rem 0.875rem;
+  }
+
+  .ej-modal-title {
+    font-size: 0.875rem;
+  }
+
+  .ej-modal-body {
+    padding: 0.75rem 0.875rem;
+    gap: 0.625rem;
+  }
+
+  .mask-checkbox-grid {
+    grid-template-columns: repeat(auto-fill, minmax(8.125rem, 1fr));
+    padding: 0.5rem 0.625rem;
+    gap: 0.375rem 0.5rem;
+  }
+
+  .custom-key-input-row {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+  }
+
+  .custom-key-input {
+    min-width: 100%;
+  }
+
+  .custom-key-add-btn,
+  .custom-key-tree-btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .mask-preview-code-wrap {
+    max-height: 11.25rem;
+    min-height: 6.25rem;
+    padding: 0.5rem 0.625rem;
+  }
+
+  .ej-modal-footer {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    padding: 0.625rem 0.875rem;
+  }
+
+  .modal-btn {
+    flex: 1;
+    justify-content: center;
+    height: 2.125rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .mask-checkbox-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .mask-checkbox-item {
+    font-size: 0.6875rem;
+  }
+}
+
+@media (max-height: 600px) {
+  .ej-modal-backdrop {
+    padding: 0.5rem;
+  }
+
+  .mask-modal-dialog {
+    max-height: calc(100vh - 1rem);
+  }
+
+  .ej-modal-header {
+    padding: 0.5rem 0.875rem;
+  }
+
+  .ej-modal-body {
+    padding: 0.625rem 0.875rem;
+    gap: 0.5rem;
+  }
+
+  .mask-checkbox-grid {
+    padding: 0.375rem 0.5rem;
+    gap: 0.25rem 0.375rem;
+  }
+
+  .mask-preview-code-wrap {
+    max-height: 8.125rem;
+    min-height: 5rem;
+  }
+
+  .ej-modal-footer {
+    padding: 0.5rem 0.875rem;
+  }
 }
 </style>
