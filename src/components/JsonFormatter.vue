@@ -23,6 +23,7 @@ import { safeParse, safeStringify } from '../utils/jsonBigInt.js';
 import { maskJsonData, extractAllKeys } from '../utils/dataMasker.js';
 import { queryJsonPath } from '../utils/jsonPath.js';
 import { isImageUrl } from '../utils/imageDetector.js';
+import { getJsonPathRange } from '../utils/jsonPathRange.js';
 
 const showToast = inject('showToast')
 
@@ -35,18 +36,20 @@ const autoPaste = inject('autoPaste', ref(false))
 const incomingExtractText = inject('incomingExtractText', ref(null))
 const formatterLastPasted = ref('')
 
-const editorFontSize = inject('editorFontSize', ref(12))
+const editorFontSize = inject('editorFontSize', ref(13))
 const showLineNumbers = inject('showLineNumbers', ref(true))
+const editorWordWrap = inject('editorWordWrap', ref('wrap'))
 
 const editorLineHeight = computed(() => {
-  const size = Number(editorFontSize.value) || 12
-  const map = { 11: 18, 12: 20, 13: 20, 14: 22, 15: 23, 16: 24, 18: 26, 20: 28 }
+  const size = Number(editorFontSize.value) || 13
+  const map = { 10: 16, 11: 18, 12: 20, 13: 20, 14: 22, 15: 23, 16: 24, 18: 26, 20: 28, 22: 30, 24: 32 }
   return map[size] || Math.round(size * 1.6)
 })
 
-watch(editorFontSize, () => {
+watch([editorFontSize, editorWordWrap], () => {
   nextTick(() => {
     syncGutterScroll()
+    syncGutterHeights()
   })
 })
 
@@ -436,6 +439,27 @@ const pathBreadcrumbs = computed(() => {
   }
   return crumbs
 })
+
+const handleBreadcrumbClick = (crumb) => {
+  if (!crumb) return
+  const textarea = textareaRef.value
+  const text = activeTab.value?.inputText
+  if (!textarea || !text) return
+
+  const range = getJsonPathRange(text, crumb.path)
+  if (range) {
+    textarea.focus()
+    textarea.setSelectionRange(range.start, range.end)
+
+    // 平滑滚动至选中区域
+    const textBefore = text.substring(0, range.start)
+    const lineNum = textBefore.split('\n').length
+    const lh = editorLineHeight.value || 20
+    const targetScrollTop = Math.max(0, (lineNum - 3) * lh)
+    textarea.scrollTop = targetScrollTop
+    syncGutterScroll()
+  }
+}
 
 const copyBreadcrumbPath = (crumb) => {
   if (!crumb || !crumb.fullPathStr) return
@@ -1352,6 +1376,9 @@ const updateShowOutput = () => {
       splitPercent.value = clampSplitPercent(splitPercent.value, totalWidth)
     }
   }
+  nextTick(() => {
+    syncGutterHeights()
+  })
 }
 
 const workspaceGridRef = ref(null)
@@ -1450,6 +1477,7 @@ const calculateDrag = (offsetX, totalWidth) => {
     splitPercent.value = Math.round(clamped * 10) / 10
     lastNormalSplitPercent.value = splitPercent.value
   }
+  requestSyncGutterHeights()
 }
 
 const startSplitterDrag = (e) => {
@@ -1485,6 +1513,7 @@ const startSplitterDrag = (e) => {
     try {
       localStorage.setItem('ej_fmt_split_ratio', String(splitPercent.value))
     } catch (e) {}
+    nextTick(syncGutterHeights)
   }
 
   window.addEventListener('mousemove', onMouseMove)
@@ -1522,6 +1551,7 @@ const startSplitterTouch = (e) => {
     try {
       localStorage.setItem('ej_fmt_split_ratio', String(splitPercent.value))
     } catch (e) {}
+    nextTick(syncGutterHeights)
   }
 
   window.addEventListener('touchmove', onTouchMove, { passive: true })
@@ -1628,10 +1658,14 @@ onMounted(() => {
       for (const entry of entries) {
         if (entry.contentRect) {
           leftPanelWidth.value = entry.contentRect.width
+          requestSyncGutterHeights()
         }
       }
     })
     leftResizeObserver.observe(leftPanelRef.value)
+    if (textareaRef.value) {
+      leftResizeObserver.observe(textareaRef.value)
+    }
   }
 })
 
@@ -1986,6 +2020,48 @@ const syncGutterScroll = () => {
   }
 }
 
+let gutterSyncRaf = null
+const requestSyncGutterHeights = () => {
+  if (gutterSyncRaf) cancelAnimationFrame(gutterSyncRaf)
+  gutterSyncRaf = requestAnimationFrame(() => {
+    syncGutterHeights()
+    gutterSyncRaf = null
+  })
+}
+
+const syncGutterHeights = () => {
+  if (!gutterRef.value) return
+  const gutterLines = gutterRef.value.children
+  if (!gutterLines || gutterLines.length === 0) return
+
+  const isWrap = editorWordWrap.value === 'wrap' || isInputMinified.value
+  if (!isWrap) {
+    for (let i = 0; i < gutterLines.length; i++) {
+      if (gutterLines[i].style.height) gutterLines[i].style.height = ''
+    }
+    return
+  }
+
+  if (!inputHighlightRef.value) return
+  const editorLines = inputHighlightRef.value.children
+  if (!editorLines) return
+  const len = Math.min(gutterLines.length, editorLines.length)
+  for (let i = 0; i < len; i++) {
+    const h = editorLines[i].offsetHeight
+    if (h > 0) {
+      const hStr = `${h}px`
+      if (gutterLines[i].style.height !== hStr) {
+        gutterLines[i].style.height = hStr
+      }
+    } else {
+      if (gutterLines[i].style.height) gutterLines[i].style.height = ''
+    }
+  }
+  for (let i = len; i < gutterLines.length; i++) {
+    if (gutterLines[i].style.height) gutterLines[i].style.height = ''
+  }
+}
+
 // KeepAlive 标签页切换时保存与恢复滚动位置，杜绝 DOM 分离导致 scrollTop 归零而 transform 滞留错位
 const savedScrollState = {
   inputTop: 0,
@@ -2016,6 +2092,7 @@ onActivated(() => {
       treeWrapperRef.value.scrollLeft = savedScrollState.treeLeft
     }
     syncGutterScroll()
+    syncGutterHeights()
   })
 })
 
@@ -2712,6 +2789,31 @@ const highlightedInput = computed(() => {
     }
   }
   return wrapLinesWithHighlight(html, tab.errorLine, tab.duplicateLines)
+})
+
+watch(highlightedInput, () => {
+  nextTick(() => {
+    syncGutterHeights()
+  })
+})
+
+watch(inputGutterHtml, () => {
+  nextTick(() => {
+    syncGutterHeights()
+  })
+})
+
+watch(splitPercent, () => {
+  nextTick(() => {
+    syncGutterHeights()
+  })
+})
+
+watch(activeTabId, () => {
+  nextTick(() => {
+    syncGutterScroll()
+    syncGutterHeights()
+  })
 })
 
 // Output highlight (right pane) — uses same currentMatchIndex for highlighting
@@ -4089,8 +4191,9 @@ onBeforeUnmount(() => {
                 type="button"
                 class="breadcrumb-node-btn"
                 :class="{ 'is-root': crumb.isRoot, 'is-index': crumb.isIndex, 'is-last': idx === pathBreadcrumbs.length - 1 }"
-                @click.stop="copyBreadcrumbPath(crumb)"
-                :title="`点击复制: ${crumb.fullPathStr}`"
+                @click.stop="handleBreadcrumbClick(crumb)"
+                @dblclick.stop="copyBreadcrumbPath(crumb)"
+                :title="`点击选中对应 JSON 区域 (双击复制: ${crumb.fullPathStr})`"
               >
                 {{ crumb.label }}
               </button>
@@ -4775,10 +4878,10 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  height: 40px !important;
-  min-height: 40px !important;
-  max-height: 40px !important;
-  padding: 0 10px !important;
+  height: clamp(40px, 4vw, 44px) !important;
+  min-height: clamp(40px, 4vw, 44px) !important;
+  max-height: clamp(40px, 4vw, 44px) !important;
+  padding: 0 0.5rem 0 1.5rem !important;
   border-bottom: 1px solid var(--border-color) !important;
   background-color: var(--bg-panel);
   box-sizing: border-box !important;

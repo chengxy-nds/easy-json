@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onActivated, onDeactivated, nextTick, inject } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeactivated, nextTick, inject } from 'vue'
 import {
   Split, ArrowRightLeft, RefreshCw, Copy, SlidersHorizontal,
   FileJson, Check, AlertTriangle, Plus, Minus, FileCode, X, Trash2,
@@ -21,19 +21,21 @@ const autoExtract = inject('autoExtract', ref(true))
 const incomingCompareText = inject('incomingCompareText', ref(null))
 const caseInsensitive = ref(false)
 
-const editorFontSize = inject('editorFontSize', ref(12))
+const editorFontSize = inject('editorFontSize', ref(13))
 const showLineNumbers = inject('showLineNumbers', ref(true))
+const editorWordWrap = inject('editorWordWrap', ref('wrap'))
 
 const editorLineHeight = computed(() => {
-  const size = Number(editorFontSize.value) || 12
-  const map = { 11: 18, 12: 20, 13: 20, 14: 22, 15: 23, 16: 24, 18: 26, 20: 28 }
+  const size = Number(editorFontSize.value) || 13
+  const map = { 10: 16, 11: 18, 12: 20, 13: 20, 14: 22, 15: 23, 16: 24, 18: 26, 20: 28, 22: 30, 24: 32 }
   return map[size] || Math.round(size * 1.6)
 })
 
-watch(editorFontSize, () => {
+watch([editorFontSize, editorWordWrap], () => {
   nextTick(() => {
     if (leftEditing.value) handleLeftTextareaScroll()
     if (rightEditing.value) handleRightTextareaScroll()
+    syncComparerGutterHeights()
   })
 })
 
@@ -1332,6 +1334,67 @@ const handleRightTextareaScroll = () => {
   }
 }
 
+let cmpGutterSyncRaf = null
+const requestSyncComparerGutterHeights = () => {
+  if (cmpGutterSyncRaf) cancelAnimationFrame(cmpGutterSyncRaf)
+  cmpGutterSyncRaf = requestAnimationFrame(() => {
+    syncComparerGutterHeights()
+    cmpGutterSyncRaf = null
+  })
+}
+
+const syncComparerGutterHeights = () => {
+  const isWrap = editorWordWrap.value === 'wrap'
+  
+  if (leftGutterRef.value) {
+    const lines = leftGutterRef.value.children
+    if (!isWrap && !isLeftMinified.value) {
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].style.height) lines[i].style.height = ''
+      }
+    } else if (leftHighlightRef.value) {
+      const editorLines = leftHighlightRef.value.children
+      const len = Math.min(lines.length, editorLines.length)
+      for (let i = 0; i < len; i++) {
+        const h = editorLines[i].offsetHeight
+        if (h > 0) {
+          const hStr = `${h}px`
+          if (lines[i].style.height !== hStr) lines[i].style.height = hStr
+        } else {
+          if (lines[i].style.height) lines[i].style.height = ''
+        }
+      }
+      for (let i = len; i < lines.length; i++) {
+        if (lines[i].style.height) lines[i].style.height = ''
+      }
+    }
+  }
+
+  if (rightGutterRef.value) {
+    const lines = rightGutterRef.value.children
+    if (!isWrap && !isRightMinified.value) {
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].style.height) lines[i].style.height = ''
+      }
+    } else if (rightHighlightRef.value) {
+      const editorLines = rightHighlightRef.value.children
+      const len = Math.min(lines.length, editorLines.length)
+      for (let i = 0; i < len; i++) {
+        const h = editorLines[i].offsetHeight
+        if (h > 0) {
+          const hStr = `${h}px`
+          if (lines[i].style.height !== hStr) lines[i].style.height = hStr
+        } else {
+          if (lines[i].style.height) lines[i].style.height = ''
+        }
+      }
+      for (let i = len; i < lines.length; i++) {
+        if (lines[i].style.height) lines[i].style.height = ''
+      }
+    }
+  }
+}
+
 // KeepAlive 标签页切换时保存与恢复滚动位置
 const savedComparerScrollState = {
   leftTop: 0,
@@ -1761,7 +1824,20 @@ const checkCompareOnLoad = () => {
   } catch (e) {}
 }
 
+let cmpResizeObserver = null
+
 onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined') {
+    cmpResizeObserver = new ResizeObserver(() => {
+      requestSyncComparerGutterHeights()
+    })
+    if (leftPaneRef.value) cmpResizeObserver.observe(leftPaneRef.value)
+    if (rightPaneRef.value) cmpResizeObserver.observe(rightPaneRef.value)
+    if (leftTextareaRef.value) cmpResizeObserver.observe(leftTextareaRef.value)
+    if (rightTextareaRef.value) cmpResizeObserver.observe(rightTextareaRef.value)
+  }
+  window.addEventListener('resize', requestSyncComparerGutterHeights)
+
   // Restore persisted tabs from localStorage
   try {
     const savedTabs = localStorage.getItem('ej_cmp_tabs')
@@ -1786,6 +1862,7 @@ onMounted(() => {
           activeTabId.value = savedActive ? Number(savedActive) : tabs.value[0].id
           canSave = true
           scrollTabsToActive()
+          nextTick(syncComparerGutterHeights)
           return
         }
       }
@@ -1793,6 +1870,15 @@ onMounted(() => {
   } catch (e) {}
   canSave = true
   checkCompareOnLoad()
+  nextTick(syncComparerGutterHeights)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', requestSyncComparerGutterHeights)
+  if (cmpResizeObserver) {
+    cmpResizeObserver.disconnect()
+    cmpResizeObserver = null
+  }
 })
 </script>
 
@@ -2484,10 +2570,10 @@ onMounted(() => {
 .panel-header {
   display: flex;
   align-items: center;
-  height: clamp(40px, 4vw, 40px) !important;
-  min-height: clamp(40px, 4vw, 40px) !important;
-  max-height: clamp(40px, 4vw, 40px) !important;
-  padding: 0 10px !important;
+  height: clamp(40px, 4vw, 44px) !important;
+  min-height: clamp(40px, 4vw, 44px) !important;
+  max-height: clamp(40px, 4vw, 44px) !important;
+  padding: 0 1rem !important;
   border-bottom: 1px solid var(--border-color) !important;
   background-color: var(--bg-panel);
   user-select: none;

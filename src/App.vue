@@ -8,7 +8,7 @@ const HomeView = defineAsyncComponent(() => import('./components/HomeView.vue'))
 const TestView = defineAsyncComponent(() => import('./components/TestView.vue'))
 const CommentView = defineAsyncComponent(() => import('./components/Comment.vue'))
 const ChangelogView = defineAsyncComponent(() => import('./components/ChangelogView.vue'))
-import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check, Settings } from 'lucide-vue-next'
+import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check, Settings, ChevronDown } from 'lucide-vue-next'
 import { useUpdateCheck } from './composables/useUpdateCheck.js'
 import { useInstallCheck } from './composables/useInstallCheck.js'
 
@@ -208,7 +208,7 @@ watch(autoPaste, (newVal) => {
   localStorage.setItem('ej_auto_paste', newVal ? '1' : '0')
 })
 
-// ── 编辑器偏好设置：字号与行号 ──
+// ── 编辑器偏好设置：字号、行号与展示方式 (换行/平铺) ──
 const getSavedFontSize = () => {
   try {
     const saved = localStorage.getItem('ej_editor_font_size')
@@ -228,8 +228,35 @@ const getSavedShowLineNumbers = () => {
   return true // 默认显示行号
 }
 
+const fontOptions = [
+  { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
+  { label: 'JetBrains Mono', value: "'JetBrains Mono', Consolas, ui-monospace, monospace" },
+  { label: 'Fira Code', value: "'Fira Code', Consolas, monospace" },
+  { label: 'Cascadia Code', value: "'Cascadia Code', Consolas, monospace" },
+  { label: 'Source Code Pro', value: "'Source Code Pro', Consolas, monospace" },
+  { label: '系统等宽', value: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }
+]
+
+const getSavedFontFamily = () => {
+  try {
+    const saved = localStorage.getItem('ej_editor_font_family')
+    if (saved) return saved
+  } catch (e) {}
+  return 'Consolas, "Courier New", monospace'
+}
+
+const getSavedWordWrap = () => {
+  try {
+    const saved = localStorage.getItem('ej_editor_word_wrap')
+    if (saved === 'wrap' || saved === 'nowrap') return saved
+  } catch (e) {}
+  return 'wrap' // 默认换行
+}
+
 const editorFontSize = ref(getSavedFontSize())
 const showLineNumbers = ref(getSavedShowLineNumbers())
+const editorWordWrap = ref(getSavedWordWrap())
+const editorFontFamily = ref(getSavedFontFamily())
 const isSettingsOpen = ref(false)
 
 const stepFontSize = (delta) => {
@@ -261,6 +288,9 @@ const applyEditorStyles = () => {
   const lh = getEditorLineHeight(size)
   document.documentElement.style.setProperty('--editor-font-size', `${size}px`)
   document.documentElement.style.setProperty('--editor-line-height', `${lh}px`)
+  document.documentElement.style.setProperty('--font-mono', editorFontFamily.value)
+  document.documentElement.classList.toggle('editor-wrap-mode', editorWordWrap.value === 'wrap')
+  document.documentElement.classList.toggle('editor-nowrap-mode', editorWordWrap.value === 'nowrap')
 }
 
 watch(editorFontSize, (val) => {
@@ -276,8 +306,24 @@ watch(showLineNumbers, (val) => {
   } catch (e) {}
 })
 
+watch(editorWordWrap, (val) => {
+  try {
+    localStorage.setItem('ej_editor_word_wrap', val)
+  } catch (e) {}
+  applyEditorStyles()
+}, { immediate: true })
+
+watch(editorFontFamily, (val) => {
+  try {
+    localStorage.setItem('ej_editor_font_family', val)
+  } catch (e) {}
+  applyEditorStyles()
+}, { immediate: true })
+
 provide('editorFontSize', editorFontSize)
 provide('showLineNumbers', showLineNumbers)
+provide('editorWordWrap', editorWordWrap)
+provide('editorFontFamily', editorFontFamily)
 
 const toggleSettings = () => {
   isSettingsOpen.value = !isSettingsOpen.value
@@ -840,6 +886,21 @@ onBeforeUnmount(() => {
 
           <div class="settings-divider"></div>
 
+          <!-- Font Family Setting Row -->
+          <div class="settings-row">
+            <span class="settings-label">字体选择</span>
+            <div class="settings-select-wrapper">
+              <select v-model="editorFontFamily" class="settings-select">
+                <option v-for="font in fontOptions" :key="font.label" :value="font.value">
+                  {{ font.label }}
+                </option>
+              </select>
+              <ChevronDown class="settings-select-icon" />
+            </div>
+          </div>
+
+          <div class="settings-divider"></div>
+
           <!-- Show Line Numbers Setting Row -->
           <div class="settings-row">
             <span class="settings-label">显示行号</span>
@@ -850,6 +911,31 @@ onBeforeUnmount(() => {
               />
               <span class="switch-slider"></span>
             </label>
+          </div>
+
+          <div class="settings-divider"></div>
+
+          <!-- Display Mode Setting Row (换行 vs 平铺) -->
+          <div class="settings-row">
+            <span class="settings-label">行内展示</span>
+            <div class="settings-segmented">
+              <button
+                type="button"
+                class="segmented-btn"
+                :class="{ active: editorWordWrap === 'wrap' }"
+                @click="editorWordWrap = 'wrap'"
+              >
+                换行
+              </button>
+              <button
+                type="button"
+                class="segmented-btn"
+                :class="{ active: editorWordWrap === 'nowrap' }"
+                @click="editorWordWrap = 'nowrap'"
+              >
+                平铺
+              </button>
+            </div>
           </div>
         </div>
       </Transition>
@@ -1352,6 +1438,58 @@ onBeforeUnmount(() => {
   margin: 1px 0;
 }
 
+/* Custom Select for Font Family */
+.settings-select-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.settings-select {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 24px;
+  padding: 0 20px 0 8px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-family: inherit;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-width: 104px;
+  max-width: 118px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-select:hover {
+  border-color: var(--border-color-active, #6366f1);
+}
+
+.settings-select:focus {
+  border-color: var(--primary-color, #2563eb);
+  box-shadow: 0 0 0 1px var(--primary-color, #2563eb);
+}
+
+.settings-select-icon {
+  position: absolute;
+  right: 6px;
+  width: 11px;
+  height: 11px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.settings-select option {
+  background: var(--bg-panel);
+  color: var(--text-primary);
+  padding: 4px 6px;
+}
+
 /* Refined Sleek Switch */
 .settings-switch {
   position: relative;
@@ -1395,6 +1533,52 @@ onBeforeUnmount(() => {
 
 .settings-switch input:checked + .switch-slider:before {
   transform: translateX(12px);
+}
+
+/* Segmented Control for Display Mode (换行 / 平铺) */
+.settings-segmented {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.segmented-btn {
+  height: 100%;
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.segmented-btn:hover {
+  color: var(--text-primary);
+}
+
+.segmented-btn.active {
+  background: var(--bg-panel);
+  color: var(--primary-color);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+:global(.dark-mode) .segmented-btn.active {
+  background: #28282e;
+  color: #38bdf8;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
 }
 
 /* Transitions */

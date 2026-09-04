@@ -264,8 +264,8 @@ const handleCopyValue = (e) => {
 <style scoped>
 .tree-node {
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--editor-font-size, 13px);
+  line-height: var(--editor-line-height, 20px);
   text-align: left;
   white-space: nowrap;
 }
@@ -281,7 +281,7 @@ const handleCopyValue = (e) => {
   padding-left: 4px;
   white-space: nowrap;
   width: max-content;
-  min-height: 20px;
+  min-height: var(--editor-line-height, 20px);
 }
 
 .node-header {
@@ -292,7 +292,7 @@ const handleCopyValue = (e) => {
   padding: 0 4px;
   user-select: none;
   width: fit-content;
-  min-height: 20px;
+  min-height: var(--editor-line-height, 20px);
 }
 
 .node-header:hover {
@@ -321,7 +321,6 @@ const handleCopyValue = (e) => {
 
 .node-key {
   color: var(--json-key);
-  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -339,7 +338,6 @@ const handleCopyValue = (e) => {
 
 .node-bracket {
   color: var(--json-bracket);
-  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
 }

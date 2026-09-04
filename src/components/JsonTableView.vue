@@ -782,7 +782,7 @@ const rootEntries = computed(() => {
   color: var(--table-subkey-fg, #991b1b);
   font-family: var(--font-mono);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   padding: 7px 12px;
   border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);

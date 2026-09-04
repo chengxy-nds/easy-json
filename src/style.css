@@ -14,7 +14,7 @@
   --text-secondary: #64748b;
   --text-muted: #9ca3af;
 
-  --primary-color: #2563eb;
+  --primary-color: #1f6ca9;
   --primary-light: rgba(37, 99, 235, 0.08);
   --primary-hover: #1d4ed8;
 
@@ -57,8 +57,8 @@
   --graph-node-border: #d2d2d2;
 
   --font-sans: "Inter Display SemiBold", "Inter Display SemiBold Placeholder", sans-serif;
-  --font-mono: 'JetBrains Mono', Consolas, ui-monospace, 'Cascadia Code', 'Fira Code',
-    Menlo, Monaco, 'Courier New', monospace;
+  --font-mono: Consolas, "Courier New", 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code',
+    Menlo, Monaco, monospace;
 
   /* Table view colors */
   --table-root-bg: rgba(0, 0, 0, 0.05);
@@ -915,7 +915,9 @@ body.vscode-mode .sr-action-btn:hover {
   color: var(--text-primary);
   background-color: transparent;
   text-align: left;
-  will-change: transform;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
 }
 
 .editor-line {
@@ -1002,6 +1004,9 @@ html.popup-mode .editor-line {
   outline: none;
   resize: none;
   text-align: left;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: subpixel-antialiased;
+  -moz-osx-font-smoothing: auto;
 }
 
 /* ── Textarea Transparent Selection (杜绝双层叠加重影) ── */
@@ -1038,6 +1043,72 @@ html.popup-mode .editor-line {
   min-width: 100% !important;
 }
 
+/* ── Editor Wrap Mode (换行展示方式 - 左侧编辑区与右侧树形/代码同步) ── */
+.editor-wrap-mode .editor-highlight,
+.editor-wrap-mode .editor-textarea,
+.editor-wrap-mode .edit-textarea,
+.editor-wrap-mode .editor-line,
+.editor-wrap-mode .output-pre,
+.editor-wrap-mode .diff-lines-wrapper,
+.editor-wrap-mode .diff-raw-pre,
+.editor-wrap-mode .line-code {
+  white-space: pre-wrap !important;
+  word-break: break-all !important;
+}
+
+.editor-wrap-mode .editor-line {
+  width: 100% !important;
+  min-width: 100% !important;
+  height: auto !important;
+  min-height: var(--editor-line-height, 20px) !important;
+}
+
+.editor-wrap-mode .tree-wrapper .tree-node {
+  white-space: normal !important;
+}
+
+.editor-wrap-mode .tree-wrapper .node-row.primitive {
+  white-space: normal !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  flex-wrap: wrap !important;
+  align-items: baseline !important;
+}
+
+.editor-wrap-mode .tree-wrapper .tree-string,
+.editor-wrap-mode .tree-wrapper .copyable-value {
+  white-space: pre-wrap !important;
+  word-break: break-all !important;
+}
+
+/* ── Editor Nowrap Mode (平铺展示方式 - 横向滚动) ── */
+.editor-nowrap-mode:not(.minify-wrap) .editor-highlight,
+.editor-nowrap-mode:not(.minify-wrap) .editor-textarea,
+.editor-nowrap-mode:not(.minify-wrap) .edit-textarea,
+.editor-nowrap-mode:not(.minify-wrap) .editor-line,
+.editor-nowrap-mode:not(.minify-wrap) .output-pre,
+.editor-nowrap-mode:not(.minify-wrap) .diff-lines-wrapper,
+.editor-nowrap-mode:not(.minify-wrap) .diff-raw-pre,
+.editor-nowrap-mode:not(.minify-wrap) .line-code {
+  white-space: pre !important;
+  word-break: normal !important;
+}
+
+.editor-nowrap-mode:not(.minify-wrap) .editor-line {
+  width: max-content !important;
+  min-width: 100% !important;
+  height: var(--editor-line-height, 20px) !important;
+}
+
+.editor-nowrap-mode .tree-wrapper .tree-node,
+.editor-nowrap-mode .tree-wrapper .node-row.primitive,
+.editor-nowrap-mode .tree-wrapper .tree-string,
+.editor-nowrap-mode .tree-wrapper .copyable-value {
+  white-space: nowrap !important;
+  word-break: normal !important;
+  width: max-content !important;
+}
+
 /* ── Premium JSON Syntax Colors (Light/Dark matching Tree View) ── */
 /* Light mode — warm, readable */
 .editor-highlight .json-key,
@@ -1045,6 +1116,7 @@ html.popup-mode .editor-line {
 .mask-preview-pre .json-key,
 .node-key {
   color: #A31515;
+  font-weight: 500;
 }
 
 /* warm VSCode red */
@@ -1079,81 +1151,81 @@ html.popup-mode .editor-line {
   color: #64748b;
 }
 
-/* slate gray */
+/* grass green */
+.editor-highlight .json-bracket,
 .output-pre .json-bracket,
 .mask-preview-pre .json-bracket,
 .node-bracket {
   color: #16a34a;
-  font-weight: 600;
+  font-weight: 500;
 }
 
-.editor-highlight .json-bracket {
-  color: #16a34a;
-  font-weight: normal;
-}
-
-/* grass green */
+/* colon & separators */
 .editor-highlight .json-colon,
 .output-pre .json-colon,
 .mask-preview-pre .json-colon,
-.node-colon {
-  color: var(--text-muted);
+.node-colon,
+.node-comma {
+  color: var(--text-secondary);
 }
 
-/* Dark mode — Premium palette (Brightened + One Dark / Modern IDE style) */
+/* Dark mode — Premium palette (VSCode Dark+ Classic Crystal Clear) */
 .dark-mode .editor-highlight .json-key,
 .dark-mode .output-pre .json-key,
 .dark-mode .mask-preview-pre .json-key,
 .dark-mode .node-key {
-  color: #79c0ff;
+  color: #9cdcfe;
+  font-weight: 500;
 }
 
-/* bright sky cyan */
+/* VSCode bright sky cyan */
 .dark-mode .editor-highlight .json-string,
 .dark-mode .output-pre .json-string,
 .dark-mode .mask-preview-pre .json-string,
 .dark-mode .tree-string {
-  color: #cbd5e1;
+  color: #ce9178;
 }
 
-/* bright slate silver */
+/* VSCode warm terracotta orange */
 .dark-mode .editor-highlight .json-number,
 .dark-mode .output-pre .json-number,
 .dark-mode .mask-preview-pre .json-number,
 .dark-mode .tree-number {
-  color: #e5c07b;
+  color: #b5cea8;
 }
 
-/* bright warm gold-amber */
+/* VSCode mint green */
 .dark-mode .editor-highlight .json-boolean,
 .dark-mode .output-pre .json-boolean,
 .dark-mode .mask-preview-pre .json-boolean,
 .dark-mode .tree-boolean {
-  color: #d2a8ff;
+  color: #569cd6;
 }
 
-/* bright luminous lilac */
+/* VSCode keyword blue */
 .dark-mode .editor-highlight .json-null,
 .dark-mode .output-pre .json-null,
 .dark-mode .mask-preview-pre .json-null,
 .dark-mode .tree-null {
-  color: #94a3b8;
+  color: #569cd6;
 }
 
-/* slate gray */
+/* VSCode keyword blue */
 .dark-mode .editor-highlight .json-bracket,
 .dark-mode .output-pre .json-bracket,
 .dark-mode .mask-preview-pre .json-bracket,
 .dark-mode .node-bracket {
-  color: #cbd5e1;
+  color: #ffd700;
+  font-weight: 500;
 }
 
 /* silver bracket */
 .dark-mode .editor-highlight .json-colon,
 .dark-mode .output-pre .json-colon,
 .dark-mode .mask-preview-pre .json-colon,
-.dark-mode .node-colon {
-  color: var(--text-muted);
+.dark-mode .node-colon,
+.dark-mode .node-comma {
+  color: var(--text-secondary);
 }
 
 /* Dark mode — convert highlighting */
@@ -1390,13 +1462,13 @@ html.popup-mode .editor-line {
 }
 
 .dark-mode {
-  --json-key: #79c0ff;
-  --json-string: #cbd5e1;
-  --json-number: #e5c07b;
-  --json-boolean: #d2a8ff;
-  --json-null: #94a3b8;
-  --json-bracket: #cbd5e1;
-  --json-hover-bg: rgba(121, 192, 255, 0.16);
+  --json-key: #9cdcfe;
+  --json-string: #ce9178;
+  --json-number: #b5cea8;
+  --json-boolean: #569cd6;
+  --json-null: #569cd6;
+  --json-bracket: #ffd700;
+  --json-hover-bg: rgba(156, 220, 254, 0.16);
 }
 
 .one-dark-syntax {
@@ -1522,7 +1594,7 @@ mark.search-match-current {
   background-color: var(--bg-app);
   border: none;
   border-right: 1px solid var(--border-color);
-  border-bottom: 1px solid var(--border-color);
+  /* border-bottom: 1px solid var(--border-color); */
   cursor: pointer;
   font-size: clamp(10px, 0.75vw, 12px);
   color: var(--text-secondary);
@@ -1544,7 +1616,7 @@ mark.search-match-current {
   background-color: var(--bg-panel);
   border-bottom: 1px solid var(--bg-panel);
   border-top: 2px solid var(--primary-color);
-  font-weight: 500;
+  font-weight: 600;
   z-index: 2;
   height: calc(100% + 1px);
 }
