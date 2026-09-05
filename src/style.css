@@ -39,14 +39,16 @@
   --btn-primary-text: #ffffff;
   --btn-primary-hover: #27272a;
 
-  /* Diff colors */
-  --diff-added-bg: #dcfce7;
-  --diff-added-word-bg: #86efac;
-  --diff-added-border: #4ade80;
-  --diff-removed-bg: #fee2e2;
-  --diff-removed-word-bg: #fca5a5;
-  --diff-removed-border: #f87171;
-  --diff-modified-bg: #fef9c3;
+  /* Diff colors (High-contrast, vibrant, professional GitHub/VSCode palette) */
+  --diff-added-bg: rgba(46, 160, 67, 0.15);
+  --diff-added-word-bg: #abf2bc;
+  --diff-added-word-text: #0d5322;
+  --diff-added-border: #3fb950;
+  --diff-removed-bg: rgba(248, 81, 73, 0.15);
+  --diff-removed-word-bg: #ffc1c0;
+  --diff-removed-word-text: #7d0b14;
+  --diff-removed-border: #f85149;
+  --diff-modified-bg: rgba(234, 179, 8, 0.12);
 
   --error-bg: #fff1f2;
   --error-text: #dc2626;
@@ -57,7 +59,7 @@
   --graph-node-border: #d2d2d2;
 
   --font-sans: "Inter Display SemiBold", "Inter Display SemiBold Placeholder", sans-serif;
-  --font-mono: Consolas, "Courier New", 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code',
+  --font-mono: 'JetBrains Mono', Consolas, "Courier New", ui-monospace, 'Cascadia Code', 'Fira Code',
     Menlo, Monaco, monospace;
 
   /* Table view colors */
@@ -113,14 +115,16 @@
   --breadcrumb-copy-hover: #38bdf8;
   --breadcrumb-copy-hover-bg: rgba(56, 189, 248, 0.16);
 
-  /* Diff colors (VSCode dark style) */
-  --diff-added-bg: rgba(35, 134, 54, 0.22);
-  --diff-added-word-bg: rgba(35, 134, 54, 0.50);
-  --diff-added-border: rgba(35, 134, 54, 0.40);
-  --diff-removed-bg: rgba(200, 40, 40, 0.22);
-  --diff-removed-word-bg: rgba(200, 40, 40, 0.50);
-  --diff-removed-border: rgba(200, 40, 40, 0.40);
-  --diff-modified-bg: rgba(200, 150, 0, 0.12);
+  /* Diff colors (Luminous, crisp high-contrast dark palette) */
+  --diff-added-bg: rgba(46, 160, 67, 0.22);
+  --diff-added-word-bg: rgba(46, 160, 67, 0.55);
+  --diff-added-word-text: #ffffff;
+  --diff-added-border: #3fb950;
+  --diff-removed-bg: rgba(248, 81, 73, 0.22);
+  --diff-removed-word-bg: rgba(248, 81, 73, 0.55);
+  --diff-removed-word-text: #ffffff;
+  --diff-removed-border: #f85149;
+  --diff-modified-bg: rgba(234, 179, 8, 0.16);
 
   --error-bg: rgba(220, 38, 38, 0.22);
   --error-text: #f48771;
@@ -222,7 +226,8 @@ body {
   color: #b55717;
 }
 
-.json-bool {
+.json-bool,
+.json-boolean {
   color: #0066cc;
 }
 
@@ -230,8 +235,43 @@ body {
   color: #808080;
 }
 
+.json-bracket {
+  color: #16a34a;
+}
+
+.json-colon,
 .json-punct {
-  color: #4a5568;
+  color: var(--text-secondary);
+}
+
+.dark-mode .json-key {
+  color: #9cdcfe;
+}
+
+.dark-mode .json-string {
+  color: #ce9178;
+}
+
+.dark-mode .json-number {
+  color: #b5cea8;
+}
+
+.dark-mode .json-bool,
+.dark-mode .json-boolean {
+  color: #569cd6;
+}
+
+.dark-mode .json-null {
+  color: #569cd6;
+}
+
+.dark-mode .json-bracket {
+  color: #ffd700;
+}
+
+.dark-mode .json-colon,
+.dark-mode .json-punct {
+  color: var(--text-secondary);
 }
 
 /* Convert output syntax highlight — aligned with premium palette */
@@ -1059,7 +1099,7 @@ html.popup-mode .editor-line {
 .editor-wrap-mode .editor-line {
   width: 100% !important;
   min-width: 100% !important;
-  height: auto !important;
+  height: auto;
   min-height: var(--editor-line-height, 20px) !important;
 }
 
@@ -1109,11 +1149,14 @@ html.popup-mode .editor-line {
   width: max-content !important;
 }
 
-/* ── Premium JSON Syntax Colors (Light/Dark matching Tree View) ── */
+/* ── Premium JSON Syntax Colors (Light/Dark matching Tree View & Diff View) ── */
 /* Light mode — warm, readable */
 .editor-highlight .json-key,
 .output-pre .json-key,
 .mask-preview-pre .json-key,
+.line-code .json-key,
+.diff-line-row .json-key,
+.diff-lines-wrapper .json-key,
 .node-key {
   color: #A31515;
   font-weight: 500;
@@ -1123,6 +1166,9 @@ html.popup-mode .editor-line {
 .editor-highlight .json-string,
 .output-pre .json-string,
 .mask-preview-pre .json-string,
+.line-code .json-string,
+.diff-line-row .json-string,
+.diff-lines-wrapper .json-string,
 .tree-string {
   color: #0451A5;
 }
@@ -1131,6 +1177,9 @@ html.popup-mode .editor-line {
 .editor-highlight .json-number,
 .output-pre .json-number,
 .mask-preview-pre .json-number,
+.line-code .json-number,
+.diff-line-row .json-number,
+.diff-lines-wrapper .json-number,
 .tree-number {
   color: #0451a5;
 }
@@ -1139,6 +1188,9 @@ html.popup-mode .editor-line {
 .editor-highlight .json-boolean,
 .output-pre .json-boolean,
 .mask-preview-pre .json-boolean,
+.line-code .json-boolean,
+.diff-line-row .json-boolean,
+.diff-lines-wrapper .json-boolean,
 .tree-boolean {
   color: #0451a5;
 }
@@ -1147,6 +1199,9 @@ html.popup-mode .editor-line {
 .editor-highlight .json-null,
 .output-pre .json-null,
 .mask-preview-pre .json-null,
+.line-code .json-null,
+.diff-line-row .json-null,
+.diff-lines-wrapper .json-null,
 .tree-null {
   color: #64748b;
 }
@@ -1155,6 +1210,9 @@ html.popup-mode .editor-line {
 .editor-highlight .json-bracket,
 .output-pre .json-bracket,
 .mask-preview-pre .json-bracket,
+.line-code .json-bracket,
+.diff-line-row .json-bracket,
+.diff-lines-wrapper .json-bracket,
 .node-bracket {
   color: #16a34a;
   font-weight: 500;
@@ -1164,6 +1222,9 @@ html.popup-mode .editor-line {
 .editor-highlight .json-colon,
 .output-pre .json-colon,
 .mask-preview-pre .json-colon,
+.line-code .json-colon,
+.diff-line-row .json-colon,
+.diff-lines-wrapper .json-colon,
 .node-colon,
 .node-comma {
   color: var(--text-secondary);
@@ -1173,6 +1234,9 @@ html.popup-mode .editor-line {
 .dark-mode .editor-highlight .json-key,
 .dark-mode .output-pre .json-key,
 .dark-mode .mask-preview-pre .json-key,
+.dark-mode .line-code .json-key,
+.dark-mode .diff-line-row .json-key,
+.dark-mode .diff-lines-wrapper .json-key,
 .dark-mode .node-key {
   color: #9cdcfe;
   font-weight: 500;
@@ -1182,6 +1246,9 @@ html.popup-mode .editor-line {
 .dark-mode .editor-highlight .json-string,
 .dark-mode .output-pre .json-string,
 .dark-mode .mask-preview-pre .json-string,
+.dark-mode .line-code .json-string,
+.dark-mode .diff-line-row .json-string,
+.dark-mode .diff-lines-wrapper .json-string,
 .dark-mode .tree-string {
   color: #ce9178;
 }
@@ -1190,6 +1257,9 @@ html.popup-mode .editor-line {
 .dark-mode .editor-highlight .json-number,
 .dark-mode .output-pre .json-number,
 .dark-mode .mask-preview-pre .json-number,
+.dark-mode .line-code .json-number,
+.dark-mode .diff-line-row .json-number,
+.dark-mode .diff-lines-wrapper .json-number,
 .dark-mode .tree-number {
   color: #b5cea8;
 }
@@ -1198,6 +1268,9 @@ html.popup-mode .editor-line {
 .dark-mode .editor-highlight .json-boolean,
 .dark-mode .output-pre .json-boolean,
 .dark-mode .mask-preview-pre .json-boolean,
+.dark-mode .line-code .json-boolean,
+.dark-mode .diff-line-row .json-boolean,
+.dark-mode .diff-lines-wrapper .json-boolean,
 .dark-mode .tree-boolean {
   color: #569cd6;
 }
@@ -1206,6 +1279,9 @@ html.popup-mode .editor-line {
 .dark-mode .editor-highlight .json-null,
 .dark-mode .output-pre .json-null,
 .dark-mode .mask-preview-pre .json-null,
+.dark-mode .line-code .json-null,
+.dark-mode .diff-line-row .json-null,
+.dark-mode .diff-lines-wrapper .json-null,
 .dark-mode .tree-null {
   color: #569cd6;
 }
@@ -1214,6 +1290,9 @@ html.popup-mode .editor-line {
 .dark-mode .editor-highlight .json-bracket,
 .dark-mode .output-pre .json-bracket,
 .dark-mode .mask-preview-pre .json-bracket,
+.dark-mode .line-code .json-bracket,
+.dark-mode .diff-line-row .json-bracket,
+.dark-mode .diff-lines-wrapper .json-bracket,
 .dark-mode .node-bracket {
   color: #ffd700;
   font-weight: 500;
@@ -1223,6 +1302,9 @@ html.popup-mode .editor-line {
 .dark-mode .editor-highlight .json-colon,
 .dark-mode .output-pre .json-colon,
 .dark-mode .mask-preview-pre .json-colon,
+.dark-mode .line-code .json-colon,
+.dark-mode .diff-line-row .json-colon,
+.dark-mode .diff-lines-wrapper .json-colon,
 .dark-mode .node-colon,
 .dark-mode .node-comma {
   color: var(--text-secondary);
@@ -1273,6 +1355,9 @@ html.popup-mode .editor-line {
 .one-dark-syntax .editor-highlight .json-key,
 .one-dark-syntax .output-pre .json-key,
 .one-dark-syntax .mask-preview-pre .json-key,
+.one-dark-syntax .line-code .json-key,
+.one-dark-syntax .diff-line-row .json-key,
+.one-dark-syntax .diff-lines-wrapper .json-key,
 .one-dark-syntax .node-key {
   color: #7c3aed !important;
 }
@@ -1281,6 +1366,9 @@ html.popup-mode .editor-line {
 .one-dark-syntax .editor-highlight .json-string,
 .one-dark-syntax .output-pre .json-string,
 .one-dark-syntax .mask-preview-pre .json-string,
+.one-dark-syntax .line-code .json-string,
+.one-dark-syntax .diff-line-row .json-string,
+.one-dark-syntax .diff-lines-wrapper .json-string,
 .one-dark-syntax .tree-string {
   color: #047857 !important;
 }
@@ -1289,6 +1377,9 @@ html.popup-mode .editor-line {
 .one-dark-syntax .editor-highlight .json-number,
 .one-dark-syntax .output-pre .json-number,
 .one-dark-syntax .mask-preview-pre .json-number,
+.one-dark-syntax .line-code .json-number,
+.one-dark-syntax .diff-line-row .json-number,
+.one-dark-syntax .diff-lines-wrapper .json-number,
 .one-dark-syntax .tree-number {
   color: #b45309 !important;
 }
@@ -1297,6 +1388,9 @@ html.popup-mode .editor-line {
 .one-dark-syntax .editor-highlight .json-boolean,
 .one-dark-syntax .output-pre .json-boolean,
 .one-dark-syntax .mask-preview-pre .json-boolean,
+.one-dark-syntax .line-code .json-boolean,
+.one-dark-syntax .diff-line-row .json-boolean,
+.one-dark-syntax .diff-lines-wrapper .json-boolean,
 .one-dark-syntax .tree-boolean {
   color: #0369a1 !important;
 }
@@ -1305,6 +1399,9 @@ html.popup-mode .editor-line {
 .one-dark-syntax .editor-highlight .json-null,
 .one-dark-syntax .output-pre .json-null,
 .one-dark-syntax .mask-preview-pre .json-null,
+.one-dark-syntax .line-code .json-null,
+.one-dark-syntax .diff-line-row .json-null,
+.one-dark-syntax .diff-lines-wrapper .json-null,
 .one-dark-syntax .tree-null {
   color: #9ca3af !important;
 }
@@ -1313,6 +1410,9 @@ html.popup-mode .editor-line {
 .one-dark-syntax .editor-highlight .json-bracket,
 .one-dark-syntax .output-pre .json-bracket,
 .one-dark-syntax .mask-preview-pre .json-bracket,
+.one-dark-syntax .line-code .json-bracket,
+.one-dark-syntax .diff-line-row .json-bracket,
+.one-dark-syntax .diff-lines-wrapper .json-bracket,
 .one-dark-syntax .node-bracket {
   color: #374151 !important;
   font-weight: 500 !important;
@@ -1324,6 +1424,9 @@ html.popup-mode .editor-line {
 .dark-mode.one-dark-syntax .editor-highlight .json-key,
 .dark-mode.one-dark-syntax .output-pre .json-key,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-key,
+.dark-mode.one-dark-syntax .line-code .json-key,
+.dark-mode.one-dark-syntax .diff-line-row .json-key,
+.dark-mode.one-dark-syntax .diff-lines-wrapper .json-key,
 .dark-mode.one-dark-syntax .node-key {
   color: #d2a8ff !important;
   font-weight: 400 !important;
@@ -1333,6 +1436,9 @@ html.popup-mode .editor-line {
 .dark-mode.one-dark-syntax .editor-highlight .json-string,
 .dark-mode.one-dark-syntax .output-pre .json-string,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-string,
+.dark-mode.one-dark-syntax .line-code .json-string,
+.dark-mode.one-dark-syntax .diff-line-row .json-string,
+.dark-mode.one-dark-syntax .diff-lines-wrapper .json-string,
 .dark-mode.one-dark-syntax .tree-string {
   color: #a8d989 !important;
 }
@@ -1341,6 +1447,9 @@ html.popup-mode .editor-line {
 .dark-mode.one-dark-syntax .editor-highlight .json-number,
 .dark-mode.one-dark-syntax .output-pre .json-number,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-number,
+.dark-mode.one-dark-syntax .line-code .json-number,
+.dark-mode.one-dark-syntax .diff-line-row .json-number,
+.dark-mode.one-dark-syntax .diff-lines-wrapper .json-number,
 .dark-mode.one-dark-syntax .tree-number {
   color: #e5c07b !important;
 }
@@ -1349,6 +1458,9 @@ html.popup-mode .editor-line {
 .dark-mode.one-dark-syntax .editor-highlight .json-boolean,
 .dark-mode.one-dark-syntax .output-pre .json-boolean,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-boolean,
+.dark-mode.one-dark-syntax .line-code .json-boolean,
+.dark-mode.one-dark-syntax .diff-line-row .json-boolean,
+.dark-mode.one-dark-syntax .diff-lines-wrapper .json-boolean,
 .dark-mode.one-dark-syntax .tree-boolean {
   color: #70d5e2 !important;
 }
@@ -1357,6 +1469,9 @@ html.popup-mode .editor-line {
 .dark-mode.one-dark-syntax .editor-highlight .json-null,
 .dark-mode.one-dark-syntax .output-pre .json-null,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-null,
+.dark-mode.one-dark-syntax .line-code .json-null,
+.dark-mode.one-dark-syntax .diff-line-row .json-null,
+.dark-mode.one-dark-syntax .diff-lines-wrapper .json-null,
 .dark-mode.one-dark-syntax .tree-null {
   color: #7a889b !important;
 }
@@ -1365,6 +1480,9 @@ html.popup-mode .editor-line {
 .dark-mode.one-dark-syntax .editor-highlight .json-bracket,
 .dark-mode.one-dark-syntax .output-pre .json-bracket,
 .dark-mode.one-dark-syntax .mask-preview-pre .json-bracket,
+.dark-mode.one-dark-syntax .line-code .json-bracket,
+.dark-mode.one-dark-syntax .diff-line-row .json-bracket,
+.dark-mode.one-dark-syntax .diff-lines-wrapper .json-bracket,
 .dark-mode.one-dark-syntax .node-bracket {
   color: #cbd5e1 !important;
 }

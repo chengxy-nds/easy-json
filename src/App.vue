@@ -229,8 +229,8 @@ const getSavedShowLineNumbers = () => {
 }
 
 const fontOptions = [
-  { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
   { label: 'JetBrains Mono', value: "'JetBrains Mono', Consolas, ui-monospace, monospace" },
+  { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
   { label: 'Fira Code', value: "'Fira Code', Consolas, monospace" },
   { label: 'Cascadia Code', value: "'Cascadia Code', Consolas, monospace" },
   { label: 'Source Code Pro', value: "'Source Code Pro', Consolas, monospace" },
@@ -242,7 +242,7 @@ const getSavedFontFamily = () => {
     const saved = localStorage.getItem('ej_editor_font_family')
     if (saved) return saved
   } catch (e) {}
-  return 'Consolas, "Courier New", monospace'
+  return "'JetBrains Mono', Consolas, ui-monospace, monospace"
 }
 
 const getSavedWordWrap = () => {

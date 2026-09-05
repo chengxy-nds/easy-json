@@ -3,7 +3,8 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, onActivated, onDeacti
 import {
   Split, ArrowRightLeft, RefreshCw, Copy, SlidersHorizontal,
   FileJson, Check, AlertTriangle, Plus, Minus, FileCode, X, Trash2,
-  Pencil, ArrowLeft, ArrowRight, Wand2, Braces, ChevronUp, ChevronDown
+  Pencil, ArrowLeft, ArrowRight, Wand2, Braces, ChevronUp, ChevronDown,
+  Eye, Columns2
 } from 'lucide-vue-next'
 import * as diff from 'diff'
 import { useTabsDrag } from '../composables/useTabsDrag'
@@ -12,7 +13,7 @@ import { safeParse, safeStringify } from '../utils/jsonBigInt.js'
 
 const showToast = inject('showToast')
 
-const sortKeys = inject('sortKeys', ref(false))
+const sortKeys = inject('sortKeys', ref(0))
 const ignoreWhitespace = inject('ignoreWhitespace', ref(false))
 const autoFormat = inject('autoFormat', ref(false))
 const autoCopy = inject('autoCopy', ref(false))
@@ -31,13 +32,6 @@ const editorLineHeight = computed(() => {
   return map[size] || Math.round(size * 1.6)
 })
 
-watch([editorFontSize, editorWordWrap], () => {
-  nextTick(() => {
-    if (leftEditing.value) handleLeftTextareaScroll()
-    if (rightEditing.value) handleRightTextareaScroll()
-    syncComparerGutterHeights()
-  })
-})
 
 const copySuccessLeft = ref(false)
 const copySuccessRight = ref(false)
@@ -48,11 +42,13 @@ const leftTextareaRef = ref(null)
 const rightTextareaRef = ref(null)
 const leftGutterRef = ref(null)
 const rightGutterRef = ref(null)
+const leftGutterInnerRef = ref(null)
+const rightGutterInnerRef = ref(null)
 const leftHighlightRef = ref(null)
 const rightHighlightRef = ref(null)
 
-const leftEditing = ref(true)
-const rightEditing = ref(true)
+const leftEditing = ref(false)
+const rightEditing = ref(false)
 const leftFocused = ref(false)
 const rightFocused = ref(false)
 
@@ -479,41 +475,78 @@ watch(() => activeTab.value?.rightText, () => {
 
 watch(activeTabId, () => {
   saveComparerState()
+  updateEditingModeForTab()
 })
 
 watch(() => tabs.value.length, () => {
   saveComparerState()
 })
 
-const autoCopyResult = (text, isLeft) => {
-  if (!autoCopy.value || !text) return
+const writeToClipboard = async (text) => {
+  if (!text) return false
   
+  // 1. uTools environment
   if (window.utools && typeof window.utools.copyText === 'function') {
-    window.utools.copyText(text)
-    return
+    try {
+      window.utools.copyText(text)
+      return true
+    } catch (_) {}
   }
   
-  navigator.clipboard.writeText(text).catch(() => {
-    if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
-      import('@tauri-apps/api/core').then(({ invoke }) => {
-        invoke('write_clipboard', { text }).catch(err => {
-          console.error('Tauri clipboard write failed:', err)
-        })
-      })
-    }
-  })
+  // 2. Tauri environment
+  if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      await invoke('write_clipboard', { text })
+      return true
+    } catch (_) {}
+  }
+  
+  // 3. Modern Navigator Clipboard API
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch (_) {}
+  }
+  
+  // 4. Fallback: document.execCommand('copy')
+  try {
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    textArea.style.position = 'fixed'
+    textArea.style.top = '-9999px'
+    textArea.style.left = '-9999px'
+    textArea.style.opacity = '0'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    const successful = document.execCommand('copy')
+    document.body.removeChild(textArea)
+    if (successful) return true
+  } catch (_) {}
+  
+  return false
+}
+
+const autoCopyResult = (text, isLeft) => {
+  if (!autoCopy.value || !text) return
+  writeToClipboard(text)
 }
 
 // Debounced auto-format and key-sorting on text changes in active textareas
 let leftFormatTimer = null
 watch(() => activeTab.value?.leftText, (newVal) => {
-  if (!autoFormat.value || !newVal) return
+  if ((!autoFormat.value && !sortKeys.value) || !newVal) return
   clearTimeout(leftFormatTimer)
   leftFormatTimer = setTimeout(() => {
     const tab = activeTab.value
     if (!tab) return
     try {
       const parsed = safeParse(newVal)
+      if (sortKeys.value && !tab._unsortedLeftText) {
+        tab._unsortedLeftText = newVal
+      }
       const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
       if (newVal.trim() !== formatted.trim()) {
         const el = leftTextareaRef.value
@@ -536,13 +569,16 @@ watch(() => activeTab.value?.leftText, (newVal) => {
 
 let rightFormatTimer = null
 watch(() => activeTab.value?.rightText, (newVal) => {
-  if (!autoFormat.value || !newVal) return
+  if ((!autoFormat.value && !sortKeys.value) || !newVal) return
   clearTimeout(rightFormatTimer)
   rightFormatTimer = setTimeout(() => {
     const tab = activeTab.value
     if (!tab) return
     try {
       const parsed = safeParse(newVal)
+      if (sortKeys.value && !tab._unsortedRightText) {
+        tab._unsortedRightText = newVal
+      }
       const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
       if (newVal.trim() !== formatted.trim()) {
         const el = rightTextareaRef.value
@@ -564,8 +600,49 @@ watch(() => activeTab.value?.rightText, (newVal) => {
 })
 
 // Automatically re-format and sort textareas when key sorting settings change
-watch(sortKeys, () => {
-  formatInputs()
+watch(sortKeys, (newVal) => {
+  const tab = activeTab.value
+  if (!tab) return
+  
+  if (tab.leftText && tab.leftText.trim()) {
+    try {
+      let parsed = safeParse(tab.leftText)
+      if (newVal) {
+        if (!tab._unsortedLeftText) {
+          tab._unsortedLeftText = tab.leftText
+        }
+        parsed = sortJSONKeys(parsed, newVal === 2)
+        tab.leftText = safeStringify(parsed, null, 2)
+      } else {
+        if (tab._unsortedLeftText) {
+          tab.leftText = tab._unsortedLeftText
+          tab._unsortedLeftText = null
+        }
+      }
+      tab.leftError = null
+      tab.leftErrorLine = null
+    } catch (_) {}
+  }
+  
+  if (tab.rightText && tab.rightText.trim()) {
+    try {
+      let parsed = safeParse(tab.rightText)
+      if (newVal) {
+        if (!tab._unsortedRightText) {
+          tab._unsortedRightText = tab.rightText
+        }
+        parsed = sortJSONKeys(parsed, newVal === 2)
+        tab.rightText = safeStringify(parsed, null, 2)
+      } else {
+        if (tab._unsortedRightText) {
+          tab.rightText = tab._unsortedRightText
+          tab._unsortedRightText = null
+        }
+      }
+      tab.rightError = null
+      tab.rightErrorLine = null
+    } catch (_) {}
+  }
 })
 
 // Helper to check and format JSON strings
@@ -679,7 +756,16 @@ const formatInputs = () => {
     try {
       let parsed = safeParse(tab.leftText)
       if (sortKeys.value) {
+        if (!tab._unsortedLeftText) {
+          tab._unsortedLeftText = tab.leftText
+        }
         parsed = sortJSONKeys(parsed, sortKeys.value === 2)
+      } else {
+        if (tab._unsortedLeftText) {
+          tab.leftText = tab._unsortedLeftText
+          tab._unsortedLeftText = null
+          parsed = safeParse(tab.leftText)
+        }
       }
       const formatted = safeStringify(parsed, null, 2)
       tab.leftText = formatted
@@ -697,7 +783,16 @@ const formatInputs = () => {
     try {
       let parsed = safeParse(tab.rightText)
       if (sortKeys.value) {
+        if (!tab._unsortedRightText) {
+          tab._unsortedRightText = tab.rightText
+        }
         parsed = sortJSONKeys(parsed, sortKeys.value === 2)
+      } else {
+        if (tab._unsortedRightText) {
+          tab.rightText = tab._unsortedRightText
+          tab._unsortedRightText = null
+          parsed = safeParse(tab.rightText)
+        }
       }
       const formatted = safeStringify(parsed, null, 2)
       tab.rightText = formatted
@@ -764,7 +859,7 @@ const handleLeftScroll = () => {
         rightTextareaRef.value.scrollLeft = scrollLeft
         savedComparerScrollState.rightTop = scrollTop
         savedComparerScrollState.rightLeft = scrollLeft
-        if (rightGutterRef.value) rightGutterRef.value.scrollTop = scrollTop
+        applyGutterAndHighlightScroll(false, scrollTop, scrollLeft)
       } else if (rightPaneRef.value) {
         rightPaneRef.value.scrollTop = scrollTop
         rightPaneRef.value.scrollLeft = scrollLeft
@@ -788,7 +883,7 @@ const handleRightScroll = () => {
         leftTextareaRef.value.scrollLeft = scrollLeft
         savedComparerScrollState.leftTop = scrollTop
         savedComparerScrollState.leftLeft = scrollLeft
-        if (leftGutterRef.value) leftGutterRef.value.scrollTop = scrollTop
+        applyGutterAndHighlightScroll(true, scrollTop, scrollLeft)
       } else if (leftPaneRef.value) {
         leftPaneRef.value.scrollTop = scrollTop
         leftPaneRef.value.scrollLeft = scrollLeft
@@ -844,6 +939,148 @@ const applyJsonHighlight = (text) => {
   })
 }
 
+const escapeHtml = (str) => {
+  if (!str) return ''
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+}
+
+// Token-aware JSON line diff highlighter to preserve string grammar and prevent broken number highlights
+const highlightJsonDiffLine = (lLine, rLine, options) => {
+  // Pattern for JSON Key-Value line: indentation, "key", colon, and value
+  const kvRegex = /^(\s*)"((?:[^"\\]|\\.)*)"(\s*:\s*)(.*)$/
+  const lMatch = lLine.match(kvRegex)
+  const rMatch = rLine.match(kvRegex)
+
+  if (lMatch && rMatch) {
+    const lIndent = lMatch[1]
+    const lKey = lMatch[2]
+    const lColon = lMatch[3]
+    const lVal = lMatch[4]
+
+    const rIndent = rMatch[1]
+    const rKey = rMatch[2]
+    const rColon = rMatch[3]
+    const rVal = rMatch[4]
+
+    // 1. Process Key Diff
+    let leftKeyHtml = ''
+    let rightKeyHtml = ''
+
+    if (lKey === rKey) {
+      leftKeyHtml = `${escapeHtml(lIndent)}<span class="json-key">"${escapeHtml(lKey)}"</span><span class="json-colon">${escapeHtml(lColon)}</span>`
+      rightKeyHtml = `${escapeHtml(rIndent)}<span class="json-key">"${escapeHtml(rKey)}"</span><span class="json-colon">${escapeHtml(rColon)}</span>`
+    } else {
+      const kDiff = diff.diffChars(lKey, rKey, options)
+      const lKeyInner = kDiff
+        .filter(d => !d.added)
+        .map(d => d.removed ? `<span class="word-removed">${escapeHtml(d.value)}</span>` : escapeHtml(d.value))
+        .join('')
+      const rKeyInner = kDiff
+        .filter(d => !d.removed)
+        .map(d => d.added ? `<span class="word-added">${escapeHtml(d.value)}</span>` : escapeHtml(d.value))
+        .join('')
+
+      leftKeyHtml = `${escapeHtml(lIndent)}<span class="json-key">"${lKeyInner}"</span><span class="json-colon">${escapeHtml(lColon)}</span>`
+      rightKeyHtml = `${escapeHtml(rIndent)}<span class="json-key">"${rKeyInner}"</span><span class="json-colon">${escapeHtml(rColon)}</span>`
+    }
+
+    // 2. Process Value Diff
+    let leftValHtml = ''
+    let rightValHtml = ''
+
+    if (lVal === rVal) {
+      leftValHtml = applyJsonHighlight(lVal)
+      rightValHtml = applyJsonHighlight(rVal)
+    } else {
+      // Check if both values are string literals: "..." or "...",
+      const strRegex = /^"((?:[^"\\]|\\.)*)"(,?)$/
+      const lStrMatch = lVal.match(strRegex)
+      const rStrMatch = rVal.match(strRegex)
+
+      if (lStrMatch && rStrMatch) {
+        const lStrContent = lStrMatch[1]
+        const lComma = lStrMatch[2]
+        const rStrContent = rStrMatch[1]
+        const rComma = rStrMatch[2]
+
+        const vDiff = diff.diffChars(lStrContent, rStrContent, options)
+        const lValInner = vDiff
+          .filter(d => !d.added)
+          .map(d => d.removed ? `<span class="word-removed">${escapeHtml(d.value)}</span>` : escapeHtml(d.value))
+          .join('')
+        const rValInner = vDiff
+          .filter(d => !d.removed)
+          .map(d => d.added ? `<span class="word-added">${escapeHtml(d.value)}</span>` : escapeHtml(d.value))
+          .join('')
+
+        leftValHtml = `<span class="json-string">"${lValInner}"</span>${escapeHtml(lComma)}`
+        rightValHtml = `<span class="json-string">"${rValInner}"</span>${escapeHtml(rComma)}`
+      } else {
+        // Fallback for non-string / mixed values
+        const vDiff = diff.diffChars(lVal, rVal, options)
+        leftValHtml = vDiff
+          .filter(d => !d.added)
+          .map(d => d.removed ? `<span class="word-removed">${escapeHtml(d.value)}</span>` : applyJsonHighlight(d.value))
+          .join('')
+        rightValHtml = vDiff
+          .filter(d => !d.removed)
+          .map(d => d.added ? `<span class="word-added">${escapeHtml(d.value)}</span>` : applyJsonHighlight(d.value))
+          .join('')
+      }
+    }
+
+    return {
+      leftHtml: leftKeyHtml + leftValHtml,
+      rightHtml: rightKeyHtml + rightValHtml
+    }
+  }
+
+  // Fallback for string array items: e.g. "item",
+  const arrStrRegex = /^(\s*)"((?:[^"\\]|\\.)*)"(,?)$/
+  const lArrStrMatch = lLine.match(arrStrRegex)
+  const rArrStrMatch = rLine.match(arrStrRegex)
+
+  if (lArrStrMatch && rArrStrMatch) {
+    const lIndent = lArrStrMatch[1]
+    const lStr = lArrStrMatch[2]
+    const lComma = lArrStrMatch[3]
+    const rIndent = rArrStrMatch[1]
+    const rStr = rArrStrMatch[2]
+    const rComma = rArrStrMatch[3]
+
+    const strDiff = diff.diffChars(lStr, rStr, options)
+    const lInner = strDiff
+      .filter(d => !d.added)
+      .map(d => d.removed ? `<span class="word-removed">${escapeHtml(d.value)}</span>` : escapeHtml(d.value))
+      .join('')
+    const rInner = strDiff
+      .filter(d => !d.removed)
+      .map(d => d.added ? `<span class="word-added">${escapeHtml(d.value)}</span>` : escapeHtml(d.value))
+      .join('')
+
+    return {
+      leftHtml: `${escapeHtml(lIndent)}<span class="json-string">"${lInner}"</span>${escapeHtml(lComma)}`,
+      rightHtml: `${escapeHtml(rIndent)}<span class="json-string">"${rInner}"</span>${escapeHtml(rComma)}`
+    }
+  }
+
+  // Generic fallback
+  const charDiffs = diff.diffChars(lLine, rLine, options)
+  const leftHtml = charDiffs
+    .filter(d => !d.added)
+    .map(d => d.removed ? `<span class="word-removed">${escapeHtml(d.value)}</span>` : escapeHtml(d.value))
+    .join('')
+  const rightHtml = charDiffs
+    .filter(d => !d.removed)
+    .map(d => d.added ? `<span class="word-added">${escapeHtml(d.value)}</span>` : escapeHtml(d.value))
+    .join('')
+
+  return { leftHtml, rightHtml }
+}
+
 const wrapLinesWithHighlight = (html, errorLine, lineClasses = []) => {
   if (!html) return ''
   const lines = html.replace(/\r/g, '').split('\n')
@@ -856,6 +1093,33 @@ const wrapLinesWithHighlight = (html, errorLine, lineClasses = []) => {
     return `<div class="${cls}">${line || ' '}</div>`
   })
   return mapped.join('')
+}
+
+// 计算两行文本的相似度（0 ~ 1），避免不相关的两行被强行碎片化 Diff
+const calculateLineSimilarity = (a, b) => {
+  if (!a && !b) return 1
+  if (!a || !b) return 0
+  const tA = a.trim()
+  const tB = b.trim()
+  if (tA === tB) return 1
+
+  const maxLen = Math.max(tA.length, tB.length)
+  if (maxLen === 0) return 1
+
+  try {
+    const charDiffs = diff.diffChars(tA, tB)
+    let commonChars = 0
+    for (const d of charDiffs) {
+      if (!d.added && !d.removed) {
+        const significant = d.value.replace(/[\s,:,"'{}[\]]/g, '').length
+        commonChars += significant * 1.5 + (d.value.length - significant) * 0.5
+      }
+    }
+    const score = commonChars / maxLen
+    return Math.min(1, Math.max(0, score))
+  } catch (e) {
+    return 0
+  }
 }
 
 const diffAnalysis = computed(() => {
@@ -903,11 +1167,24 @@ const diffAnalysis = computed(() => {
           const minLines = Math.min(count, nextCount)
           
           for (let k = 0; k < minLines; k++) {
-            if (leftIdx + k < left.length) {
-              left[leftIdx + k] = { type: 'modified', partnerIdx: rightIdx + k }
-            }
-            if (rightIdx + k < right.length) {
-              right[rightIdx + k] = { type: 'modified', partnerIdx: leftIdx + k }
+            const lText = leftLines[leftIdx + k] || ''
+            const rText = rightLines[rightIdx + k] || ''
+            const sim = calculateLineSimilarity(lText, rText)
+
+            if (sim >= 0.4) {
+              if (leftIdx + k < left.length) {
+                left[leftIdx + k] = { type: 'modified', partnerIdx: rightIdx + k }
+              }
+              if (rightIdx + k < right.length) {
+                right[rightIdx + k] = { type: 'modified', partnerIdx: leftIdx + k }
+              }
+            } else {
+              if (leftIdx + k < left.length) {
+                left[leftIdx + k] = { type: 'removed', partnerIdx: null }
+              }
+              if (rightIdx + k < right.length) {
+                right[rightIdx + k] = { type: 'added', partnerIdx: null }
+              }
             }
           }
           for (let k = minLines; k < count; k++) {
@@ -982,18 +1259,12 @@ const highlightedLeft = computed(() => {
       return applyJsonHighlight(lineText)
     } else if (analysis.type === 'modified') {
       const partnerText = rightLines[analysis.partnerIdx] || ''
-      const charDiffs = diff.diffChars(lineText, partnerText, options)
-      let htmlLine = ''
-      for (const d of charDiffs) {
-        if (d.added) continue
-        const escaped = d.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        if (d.removed) {
-          htmlLine += `<span class="word-removed">${escaped}</span>`
-        } else {
-          htmlLine += escaped
-        }
+      const sim = calculateLineSimilarity(lineText, partnerText)
+      if (sim < 0.4) {
+        return applyJsonHighlight(lineText)
       }
-      return htmlLine
+      const { leftHtml } = highlightJsonDiffLine(lineText, partnerText, options)
+      return leftHtml
     }
     return ''
   })
@@ -1022,18 +1293,12 @@ const highlightedRight = computed(() => {
       return applyJsonHighlight(lineText)
     } else if (analysis.type === 'modified') {
       const partnerText = leftLines[analysis.partnerIdx] || ''
-      const charDiffs = diff.diffChars(partnerText, lineText, options)
-      let htmlLine = ''
-      for (const d of charDiffs) {
-        if (d.removed) continue
-        const escaped = d.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        if (d.added) {
-          htmlLine += `<span class="word-added">${escaped}</span>`
-        } else {
-          htmlLine += escaped
-        }
+      const sim = calculateLineSimilarity(partnerText, lineText)
+      if (sim < 0.4) {
+        return applyJsonHighlight(lineText)
       }
-      return htmlLine
+      const { rightHtml } = highlightJsonDiffLine(partnerText, lineText, options)
+      return rightHtml
     }
     return ''
   })
@@ -1062,7 +1327,11 @@ const applyAutoExtract = (isLeft) => {
   // If already valid JSON, format if enabled
   try {
     const parsed = safeParse(text)
-    if (autoFormat.value) {
+    if (autoFormat.value || sortKeys.value) {
+      if (sortKeys.value && (isLeft ? !tab._unsortedLeftText : !tab._unsortedRightText)) {
+        if (isLeft) tab._unsortedLeftText = text
+        else tab._unsortedRightText = text
+      }
       const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
       if (text.trim() !== formatted.trim()) {
         if (isLeft) tab.leftText = formatted
@@ -1092,9 +1361,13 @@ const applyAutoExtract = (isLeft) => {
         showToast(result.format !== 'JSON' ? `已从 ${result.format} 提取 JSON` : '已自动提取 JSON')
       }
       
-      if (autoFormat.value) {
+      if (autoFormat.value || sortKeys.value) {
         try {
           const obj = safeParse(result.json)
+          if (sortKeys.value && (isLeft ? !tab._unsortedLeftText : !tab._unsortedRightText)) {
+            if (isLeft) tab._unsortedLeftText = result.json
+            else tab._unsortedRightText = result.json
+          }
           const formatted = safeStringify(sortKeys.value ? sortJSONKeys(obj, sortKeys.value === 2) : obj, null, 2)
           if (isLeft) tab.leftText = formatted
           else tab.rightText = formatted
@@ -1151,6 +1424,9 @@ const handleFormatLeft = () => {
   if (!tab || !tab.leftText) return
   try {
     const parsed = safeParse(tab.leftText)
+    if (sortKeys.value && !tab._unsortedLeftText) {
+      tab._unsortedLeftText = tab.leftText
+    }
     const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
     tab.leftText = formatted
     tab.leftError = null
@@ -1167,6 +1443,9 @@ const handleFormatRight = () => {
   if (!tab || !tab.rightText) return
   try {
     const parsed = safeParse(tab.rightText)
+    if (sortKeys.value && !tab._unsortedRightText) {
+      tab._unsortedRightText = tab.rightText
+    }
     const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
     tab.rightText = formatted
     tab.rightError = null
@@ -1179,84 +1458,76 @@ const handleFormatRight = () => {
 }
 
 const handlePasteLeft = () => {
-  if (autoFormat.value) {
-    setTimeout(() => {
-      const tab = activeTab.value
-      if (tab && tab.leftText) {
-        try {
-          const parsed = safeParse(tab.leftText)
-          const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
-          tab.leftText = formatted
-          tab.leftError = null
-          tab.leftErrorLine = null
-          autoCopyResult(formatted, true)
-        } catch (_) {}
-      }
-    }, 50)
+  const tab = activeTab.value
+  if (tab) {
+    tab._unsortedLeftText = null
   }
+  setTimeout(() => {
+    applyAutoExtract(true)
+  }, 50)
 }
 
 const handlePasteRight = () => {
-  if (autoFormat.value) {
-    setTimeout(() => {
-      const tab = activeTab.value
-      if (tab && tab.rightText) {
-        try {
-          const parsed = safeParse(tab.rightText)
-          const formatted = safeStringify(sortKeys.value ? sortJSONKeys(parsed, sortKeys.value === 2) : parsed, null, 2)
-          tab.rightText = formatted
-          tab.rightError = null
-          tab.rightErrorLine = null
-          autoCopyResult(formatted, false)
-        } catch (_) {}
-      }
-    }, 50)
+  const tab = activeTab.value
+  if (tab) {
+    tab._unsortedRightText = null
   }
+  setTimeout(() => {
+    applyAutoExtract(false)
+  }, 50)
 }
 
-const copySelectedText = (text) => {
-  if (!text) return
-  
-  if (window.utools && typeof window.utools.copyText === 'function') {
-    window.utools.copyText(text)
-    if (showToast) showToast('已自动复制双击内容')
-    return
-  }
-  
-  navigator.clipboard.writeText(text).then(() => {
-    if (showToast) showToast('已自动复制双击内容')
-  }).catch(() => {
-    if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
-      import('@tauri-apps/api/core').then(({ invoke }) => {
-        invoke('write_clipboard', { text }).then(() => {
-          if (showToast) showToast('已自动复制双击内容')
-        }).catch(err => {
-          console.error('Tauri clipboard write failed:', err)
-        })
-      })
+const handleDiffPanePaste = (e, isLeft) => {
+  const tab = activeTab.value
+  if (!tab) return
+  const pastedText = e.clipboardData?.getData('text')
+  if (pastedText) {
+    e.preventDefault()
+    if (isLeft) {
+      tab.leftText = pastedText
+      tab._unsortedLeftText = null
+      tab.leftError = null
+      tab.leftErrorLine = null
+    } else {
+      tab.rightText = pastedText
+      tab._unsortedRightText = null
+      tab.rightError = null
+      tab.rightErrorLine = null
     }
-  })
-}
-
-const handleDblClickLeft = (e) => {
-  const el = e.target
-  if (el && el.selectionStart !== el.selectionEnd) {
-    const text = el.value.substring(el.selectionStart, el.selectionEnd)
-    copySelectedText(text)
+    applyAutoExtract(isLeft)
+    if (showToast) {
+      showToast(isLeft ? '已粘贴至左侧' : '已粘贴至右侧')
+    }
   }
 }
 
-const handleDblClickRight = (e) => {
-  const el = e.target
-  if (el && el.selectionStart !== el.selectionEnd) {
-    const text = el.value.substring(el.selectionStart, el.selectionEnd)
-    copySelectedText(text)
-  }
-}
+
 
 // Focus helper (auto-paste removed for Comparison Page in Option 2)
 const handleFocus = (isLeft) => {
   activeScrollTarget.value = isLeft ? 'left' : 'right'
+}
+
+const applyGutterAndHighlightScroll = (isLeft, scrollTop, scrollLeft) => {
+  if (isLeft) {
+    if (leftGutterInnerRef.value) {
+      leftGutterInnerRef.value.style.transform = `translate3d(0, -${scrollTop}px, 0)`
+    }
+    if (leftHighlightRef.value) {
+      leftHighlightRef.value.scrollTop = 0
+      leftHighlightRef.value.scrollLeft = 0
+      leftHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
+    }
+  } else {
+    if (rightGutterInnerRef.value) {
+      rightGutterInnerRef.value.style.transform = `translate3d(0, -${scrollTop}px, 0)`
+    }
+    if (rightHighlightRef.value) {
+      rightHighlightRef.value.scrollTop = 0
+      rightHighlightRef.value.scrollLeft = 0
+      rightHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
+    }
+  }
 }
 
 // Synchronized scrolling logic for gutters inside textareas
@@ -1266,14 +1537,8 @@ const handleLeftTextareaScroll = () => {
     const scrollLeft = leftTextareaRef.value.scrollLeft
     savedComparerScrollState.leftTop = scrollTop
     savedComparerScrollState.leftLeft = scrollLeft
-    if (leftGutterRef.value) {
-      leftGutterRef.value.scrollTop = scrollTop
-    }
-    if (leftHighlightRef.value) {
-      leftHighlightRef.value.scrollTop = 0
-      leftHighlightRef.value.scrollLeft = 0
-      leftHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
-    }
+    applyGutterAndHighlightScroll(true, scrollTop, scrollLeft)
+
     // Also scroll sync right diff pane or right textarea if left is active scroll target
     if (activeScrollTarget.value === 'left') {
       if (rightEditing.value && rightTextareaRef.value) {
@@ -1281,12 +1546,7 @@ const handleLeftTextareaScroll = () => {
         rightTextareaRef.value.scrollLeft = scrollLeft
         savedComparerScrollState.rightTop = scrollTop
         savedComparerScrollState.rightLeft = scrollLeft
-        if (rightGutterRef.value) rightGutterRef.value.scrollTop = scrollTop
-        if (rightHighlightRef.value) {
-          rightHighlightRef.value.scrollTop = 0
-          rightHighlightRef.value.scrollLeft = 0
-          rightHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
-        }
+        applyGutterAndHighlightScroll(false, scrollTop, scrollLeft)
       } else if (rightPaneRef.value) {
         rightPaneRef.value.scrollTop = scrollTop
         rightPaneRef.value.scrollLeft = scrollLeft
@@ -1303,14 +1563,8 @@ const handleRightTextareaScroll = () => {
     const scrollLeft = rightTextareaRef.value.scrollLeft
     savedComparerScrollState.rightTop = scrollTop
     savedComparerScrollState.rightLeft = scrollLeft
-    if (rightGutterRef.value) {
-      rightGutterRef.value.scrollTop = scrollTop
-    }
-    if (rightHighlightRef.value) {
-      rightHighlightRef.value.scrollTop = 0
-      rightHighlightRef.value.scrollLeft = 0
-      rightHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
-    }
+    applyGutterAndHighlightScroll(false, scrollTop, scrollLeft)
+
     // Also scroll sync left diff pane or left textarea if right is active scroll target
     if (activeScrollTarget.value === 'right') {
       if (leftEditing.value && leftTextareaRef.value) {
@@ -1318,12 +1572,7 @@ const handleRightTextareaScroll = () => {
         leftTextareaRef.value.scrollLeft = scrollLeft
         savedComparerScrollState.leftTop = scrollTop
         savedComparerScrollState.leftLeft = scrollLeft
-        if (leftGutterRef.value) leftGutterRef.value.scrollTop = scrollTop
-        if (leftHighlightRef.value) {
-          leftHighlightRef.value.scrollTop = 0
-          leftHighlightRef.value.scrollLeft = 0
-          leftHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
-        }
+        applyGutterAndHighlightScroll(true, scrollTop, scrollLeft)
       } else if (leftPaneRef.value) {
         leftPaneRef.value.scrollTop = scrollTop
         leftPaneRef.value.scrollLeft = scrollLeft
@@ -1339,6 +1588,12 @@ const requestSyncComparerGutterHeights = () => {
   if (cmpGutterSyncRaf) cancelAnimationFrame(cmpGutterSyncRaf)
   cmpGutterSyncRaf = requestAnimationFrame(() => {
     syncComparerGutterHeights()
+    if (leftEditing.value && leftTextareaRef.value) {
+      applyGutterAndHighlightScroll(true, leftTextareaRef.value.scrollTop, leftTextareaRef.value.scrollLeft)
+    }
+    if (rightEditing.value && rightTextareaRef.value) {
+      applyGutterAndHighlightScroll(false, rightTextareaRef.value.scrollTop, rightTextareaRef.value.scrollLeft)
+    }
     cmpGutterSyncRaf = null
   })
 }
@@ -1346,54 +1601,121 @@ const requestSyncComparerGutterHeights = () => {
 const syncComparerGutterHeights = () => {
   const isWrap = editorWordWrap.value === 'wrap'
   
-  if (leftGutterRef.value) {
-    const lines = leftGutterRef.value.children
-    if (!isWrap && !isLeftMinified.value) {
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].style.height) lines[i].style.height = ''
-      }
-    } else if (leftHighlightRef.value) {
-      const editorLines = leftHighlightRef.value.children
-      const len = Math.min(lines.length, editorLines.length)
-      for (let i = 0; i < len; i++) {
-        const h = editorLines[i].offsetHeight
-        if (h > 0) {
-          const hStr = `${h}px`
-          if (lines[i].style.height !== hStr) lines[i].style.height = hStr
-        } else {
-          if (lines[i].style.height) lines[i].style.height = ''
+  // 1. 同步双栏编辑模式（Edit Mode）下的左右行高与行号高度
+  const leftHighlight = leftHighlightRef.value
+  const rightHighlight = rightHighlightRef.value
+  const leftGutter = leftGutterInnerRef.value
+  const rightGutter = rightGutterInnerRef.value
+
+  const leftHLines = leftHighlight ? Array.from(leftHighlight.children) : []
+  const rightHLines = rightHighlight ? Array.from(rightHighlight.children) : []
+  const leftGLines = leftGutter ? Array.from(leftGutter.children) : []
+  const rightGLines = rightGutter ? Array.from(rightGutter.children) : []
+
+  const maxLines = Math.max(leftHLines.length, rightHLines.length, leftGLines.length, rightGLines.length)
+
+  if (!isWrap && !isLeftMinified.value && !isRightMinified.value) {
+    // 平铺模式（Nowrap）恢复默认单行高度
+    for (let i = 0; i < leftHLines.length; i++) {
+      if (leftHLines[i].style.height) leftHLines[i].style.height = ''
+    }
+    for (let i = 0; i < leftGLines.length; i++) {
+      if (leftGLines[i].style.height) leftGLines[i].style.height = ''
+    }
+    for (let i = 0; i < rightHLines.length; i++) {
+      if (rightHLines[i].style.height) rightHLines[i].style.height = ''
+    }
+    for (let i = 0; i < rightGLines.length; i++) {
+      if (rightGLines[i].style.height) rightGLines[i].style.height = ''
+    }
+  } else if (maxLines > 0) {
+    // 换行模式（Wrap）：
+    // Step 1: 必须先清空之前设置的固定高度，让左右两边根据自然折行计算真实 DOM 高度
+    for (let i = 0; i < leftHLines.length; i++) {
+      if (leftHLines[i].style.height) leftHLines[i].style.height = ''
+    }
+    for (let i = 0; i < rightHLines.length; i++) {
+      if (rightHLines[i].style.height) rightHLines[i].style.height = ''
+    }
+
+    // Step 2: 逐行计算左右两边的最大行高，并同步赋予左右对应行及行号
+    for (let i = 0; i < maxLines; i++) {
+      const lh = (leftHLines[i] && leftHLines[i].offsetHeight) || 0
+      const rh = (rightHLines[i] && rightHLines[i].offsetHeight) || 0
+      const targetH = Math.max(lh, rh)
+
+      if (targetH > 0) {
+        const hStr = `${targetH}px`
+        if (leftHLines[i] && leftHLines[i].style.height !== hStr) {
+          leftHLines[i].style.height = hStr
         }
-      }
-      for (let i = len; i < lines.length; i++) {
-        if (lines[i].style.height) lines[i].style.height = ''
+        if (leftGLines[i] && leftGLines[i].style.height !== hStr) {
+          leftGLines[i].style.height = hStr
+        }
+        if (rightHLines[i] && rightHLines[i].style.height !== hStr) {
+          rightHLines[i].style.height = hStr
+        }
+        if (rightGLines[i] && rightGLines[i].style.height !== hStr) {
+          rightGLines[i].style.height = hStr
+        }
+      } else {
+        if (leftHLines[i] && leftHLines[i].style.height) leftHLines[i].style.height = ''
+        if (leftGLines[i] && leftGLines[i].style.height) leftGLines[i].style.height = ''
+        if (rightHLines[i] && rightHLines[i].style.height) rightHLines[i].style.height = ''
+        if (rightGLines[i] && rightGLines[i].style.height) rightGLines[i].style.height = ''
       }
     }
   }
 
-  if (rightGutterRef.value) {
-    const lines = rightGutterRef.value.children
-    if (!isWrap && !isRightMinified.value) {
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].style.height) lines[i].style.height = ''
-      }
-    } else if (rightHighlightRef.value) {
-      const editorLines = rightHighlightRef.value.children
-      const len = Math.min(lines.length, editorLines.length)
-      for (let i = 0; i < len; i++) {
-        const h = editorLines[i].offsetHeight
-        if (h > 0) {
-          const hStr = `${h}px`
-          if (lines[i].style.height !== hStr) lines[i].style.height = hStr
-        } else {
-          if (lines[i].style.height) lines[i].style.height = ''
+  // 2. 同步只读对齐对比模式（Aligned Diff View Mode）下的行高
+  if (!leftEditing.value || !rightEditing.value) {
+    const leftPane = leftPaneRef.value
+    const rightPane = rightPaneRef.value
+    if (leftPane && rightPane) {
+      const leftRows = leftPane.querySelectorAll('.diff-line-row')
+      const rightRows = rightPane.querySelectorAll('.diff-line-row')
+      const rowLen = Math.min(leftRows.length, rightRows.length)
+
+      if (!isWrap) {
+        for (let i = 0; i < rowLen; i++) {
+          if (leftRows[i].style.height) leftRows[i].style.height = ''
+          if (rightRows[i].style.height) rightRows[i].style.height = ''
         }
-      }
-      for (let i = len; i < lines.length; i++) {
-        if (lines[i].style.height) lines[i].style.height = ''
+      } else {
+        for (let i = 0; i < rowLen; i++) {
+          if (leftRows[i].style.height) leftRows[i].style.height = ''
+          if (rightRows[i].style.height) rightRows[i].style.height = ''
+        }
+        for (let i = 0; i < rowLen; i++) {
+          const lh = leftRows[i].offsetHeight || 0
+          const rh = rightRows[i].offsetHeight || 0
+          const targetH = Math.max(lh, rh)
+          if (targetH > 0) {
+            const hStr = `${targetH}px`
+            if (leftRows[i].style.height !== hStr) leftRows[i].style.height = hStr
+            if (rightRows[i].style.height !== hStr) rightRows[i].style.height = hStr
+          }
+        }
       }
     }
   }
 }
+
+watch([
+  editorFontSize,
+  editorWordWrap,
+  () => activeTab.value?.leftText,
+  () => activeTab.value?.rightText,
+  activeTabId,
+  leftEditing,
+  rightEditing
+], () => {
+  nextTick(() => {
+    requestSyncComparerGutterHeights()
+    if (leftEditing.value) handleLeftTextareaScroll()
+    if (rightEditing.value) handleRightTextareaScroll()
+  })
+})
 
 // KeepAlive 标签页切换时保存与恢复滚动位置
 const savedComparerScrollState = {
@@ -1421,10 +1743,12 @@ onActivated(() => {
     }
     if (leftEditing.value) handleLeftTextareaScroll()
     if (rightEditing.value) handleRightTextareaScroll()
+    requestSyncComparerGutterHeights()
   })
 })
 
 const handleLeftGutterWheel = (e) => {
+  activeScrollTarget.value = 'left'
   if (leftTextareaRef.value) {
     leftTextareaRef.value.scrollTop += e.deltaY
     leftTextareaRef.value.scrollLeft += e.deltaX
@@ -1433,6 +1757,7 @@ const handleLeftGutterWheel = (e) => {
 }
 
 const handleRightGutterWheel = (e) => {
+  activeScrollTarget.value = 'right'
   if (rightTextareaRef.value) {
     rightTextareaRef.value.scrollTop += e.deltaY
     rightTextareaRef.value.scrollLeft += e.deltaX
@@ -1441,6 +1766,7 @@ const handleRightGutterWheel = (e) => {
 }
 
 const scrollLeftToTop = () => {
+  activeScrollTarget.value = 'left'
   if (leftTextareaRef.value) {
     leftTextareaRef.value.scrollTop = 0
     handleLeftTextareaScroll()
@@ -1448,6 +1774,7 @@ const scrollLeftToTop = () => {
 }
 
 const scrollLeftToBottom = () => {
+  activeScrollTarget.value = 'left'
   if (leftTextareaRef.value) {
     leftTextareaRef.value.scrollTop = leftTextareaRef.value.scrollHeight
     handleLeftTextareaScroll()
@@ -1455,6 +1782,7 @@ const scrollLeftToBottom = () => {
 }
 
 const scrollRightToTop = () => {
+  activeScrollTarget.value = 'right'
   if (rightTextareaRef.value) {
     rightTextareaRef.value.scrollTop = 0
     handleRightTextareaScroll()
@@ -1462,43 +1790,284 @@ const scrollRightToTop = () => {
 }
 
 const scrollRightToBottom = () => {
+  activeScrollTarget.value = 'right'
   if (rightTextareaRef.value) {
     rightTextareaRef.value.scrollTop = rightTextareaRef.value.scrollHeight
     handleRightTextareaScroll()
   }
 }
 
-// Transition functions for editing state with scroll preservation
-const startEditingLeft = () => {
-  if (leftEditing.value) return
+const isSplitEditLocked = ref(false)
+let blurExitTimer = null
+
+const checkAutoExitEditMode = () => {
+  if (isSplitEditLocked.value) return
+  clearTimeout(blurExitTimer)
+  blurExitTimer = setTimeout(() => {
+    const activeEl = document.activeElement
+    const isLeftActive = activeEl === leftTextareaRef.value
+    const isRightActive = activeEl === rightTextareaRef.value
+    if (!isLeftActive && !isRightActive) {
+      const tab = activeTab.value
+      if (tab && tab.leftText && tab.rightText) {
+        leftEditing.value = false
+        rightEditing.value = false
+        stopEditingLeft()
+        stopEditingRight()
+      }
+    }
+  }, 200)
+}
+
+const handleLeftBlur = () => {
+  leftFocused.value = false
+  stopEditingLeft()
+  checkAutoExitEditMode()
+}
+
+const handleRightBlur = () => {
+  rightFocused.value = false
+  stopEditingRight()
+  checkAutoExitEditMode()
+}
+
+// Helper for calculating exact character index range of a line
+const getLinePosInfo = (text, targetLineNum) => {
+  if (!text) return { start: 0, end: 0, lineText: '', lineIdx: 0 }
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  const lineIdx = Math.max(0, Math.min((targetLineNum || 1) - 1, lines.length - 1))
+  let start = 0
+  for (let i = 0; i < lineIdx; i++) {
+    start += lines[i].length + 1
+  }
+  const lineText = lines[lineIdx] || ''
+  const end = start + lineText.length
+  return { start, end, lineText, lineIdx }
+}
+
+// Calculate character offset inside .line-code DOM elements
+const getOffsetInLineCode = (event, lineCodeEl) => {
+  if (!event || !lineCodeEl) return null
+  try {
+    const target = event.target
+    if (!target || target === lineCodeEl) return null
+    let offset = 0
+    const walker = document.createTreeWalker(lineCodeEl, NodeFilter.SHOW_TEXT, null, false)
+    let currentNode
+    while ((currentNode = walker.nextNode())) {
+      if (currentNode === target || currentNode.parentNode === target) {
+        const sel = window.getSelection ? window.getSelection() : null
+        const anchorOffset = (sel && sel.anchorNode === currentNode) ? sel.anchorOffset : 0
+        return offset + anchorOffset
+      }
+      offset += currentNode.textContent ? currentNode.textContent.length : 0
+    }
+  } catch (e) {}
+  return null
+}
+
+// Resolve target cursor range (defaulting to end-of-line on row click, or selected word)
+const resolveTargetCursor = (text, targetLineNum, event) => {
+  if (!text) return { start: 0, end: 0 }
+  const lineInfo = getLinePosInfo(text, targetLineNum)
+  
+  // Default: very end of that line (after all characters, quotes, commas, brackets)
+  let targetStart = lineInfo.end
+  let targetEnd = lineInfo.end
+
+  if (event && event.target) {
+    const rowEl = event.target.closest ? event.target.closest('.diff-line-row') : null
+    const lineCodeEl = rowEl ? rowEl.querySelector('.line-code') : null
+    if (lineCodeEl && lineCodeEl.contains(event.target) && event.target !== lineCodeEl) {
+      const sel = window.getSelection ? window.getSelection() : null
+      const selectedStr = sel ? sel.toString().trim() : ''
+      if (selectedStr && lineInfo.lineText.includes(selectedStr)) {
+        const charOffset = getOffsetInLineCode(event, lineCodeEl)
+        if (charOffset !== null && charOffset >= 0 && charOffset <= lineInfo.lineText.length) {
+          targetStart = lineInfo.start + charOffset
+          targetEnd = targetStart + selectedStr.length
+          return { start: targetStart, end: targetEnd }
+        }
+      }
+    }
+  }
+
+  return { start: targetStart, end: targetEnd }
+}
+
+// Transition functions for editing state with scroll preservation and row-accurate cursor placement
+const startEditingLeftRow = (event, lineNum, rowIdx) => {
+  if (event && event.preventDefault) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  clearTimeout(blurExitTimer)
+  
+  const tab = activeTab.value
+  const leftText = tab ? (tab.leftText || '') : ''
+  
+  let resolvedLineNum = lineNum
+  if (!resolvedLineNum && rowIdx !== undefined && alignedDiff.value) {
+    for (let i = rowIdx - 1; i >= 0; i--) {
+      if (alignedDiff.value[i]?.left?.lineNum) {
+        resolvedLineNum = alignedDiff.value[i].left.lineNum
+        break
+      }
+    }
+    if (!resolvedLineNum) {
+      for (let i = rowIdx + 1; i < alignedDiff.value.length; i++) {
+        if (alignedDiff.value[i]?.left?.lineNum) {
+          resolvedLineNum = alignedDiff.value[i].left.lineNum
+          break
+        }
+      }
+    }
+  }
+
+  const { start: cursorStart, end: cursorEnd } = resolveTargetCursor(leftText, resolvedLineNum, event)
+  
   const scrollTop = leftPaneRef.value ? leftPaneRef.value.scrollTop : 0
   const scrollLeft = leftPaneRef.value ? leftPaneRef.value.scrollLeft : 0
   
   leftEditing.value = true
   activeScrollTarget.value = 'left'
+  
   nextTick(() => {
     if (leftTextareaRef.value) {
       leftTextareaRef.value.scrollTop = scrollTop
       leftTextareaRef.value.scrollLeft = scrollLeft
-      leftTextareaRef.value.focus()
+      handleLeftTextareaScroll()
+      leftTextareaRef.value.focus({ preventScroll: true })
+      leftTextareaRef.value.setSelectionRange(cursorStart, cursorEnd)
     }
+    requestSyncComparerGutterHeights()
+    
+    setTimeout(() => {
+      if (leftTextareaRef.value) {
+        leftTextareaRef.value.setSelectionRange(cursorStart, cursorEnd)
+      }
+    }, 25)
   })
 }
 
-const startEditingRight = () => {
-  if (rightEditing.value) return
+const startEditingLeft = (event) => {
+  if (leftEditing.value) return
+  const tab = activeTab.value
+  const leftText = tab ? (tab.leftText || '') : ''
+  const lines = leftText.split('\n')
+  startEditingLeftRow(event, lines.length)
+}
+
+const startEditingRightRow = (event, lineNum, rowIdx) => {
+  if (event && event.preventDefault) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+  clearTimeout(blurExitTimer)
+  
+  const tab = activeTab.value
+  const rightText = tab ? (tab.rightText || '') : ''
+  
+  let resolvedLineNum = lineNum
+  if (!resolvedLineNum && rowIdx !== undefined && alignedDiff.value) {
+    for (let i = rowIdx - 1; i >= 0; i--) {
+      if (alignedDiff.value[i]?.right?.lineNum) {
+        resolvedLineNum = alignedDiff.value[i].right.lineNum
+        break
+      }
+    }
+    if (!resolvedLineNum) {
+      for (let i = rowIdx + 1; i < alignedDiff.value.length; i++) {
+        if (alignedDiff.value[i]?.right?.lineNum) {
+          resolvedLineNum = alignedDiff.value[i].right.lineNum
+          break
+        }
+      }
+    }
+  }
+
+  const { start: cursorStart, end: cursorEnd } = resolveTargetCursor(rightText, resolvedLineNum, event)
+  
   const scrollTop = rightPaneRef.value ? rightPaneRef.value.scrollTop : 0
   const scrollLeft = rightPaneRef.value ? rightPaneRef.value.scrollLeft : 0
   
   rightEditing.value = true
   activeScrollTarget.value = 'right'
+  
   nextTick(() => {
     if (rightTextareaRef.value) {
       rightTextareaRef.value.scrollTop = scrollTop
       rightTextareaRef.value.scrollLeft = scrollLeft
-      rightTextareaRef.value.focus()
+      handleRightTextareaScroll()
+      rightTextareaRef.value.focus({ preventScroll: true })
+      rightTextareaRef.value.setSelectionRange(cursorStart, cursorEnd)
     }
+    requestSyncComparerGutterHeights()
+    
+    setTimeout(() => {
+      if (rightTextareaRef.value) {
+        rightTextareaRef.value.setSelectionRange(cursorStart, cursorEnd)
+      }
+    }, 25)
   })
+}
+
+const startEditingRight = (event) => {
+  if (rightEditing.value) return
+  const tab = activeTab.value
+  const rightText = tab ? (tab.rightText || '') : ''
+  const lines = rightText.split('\n')
+  startEditingRightRow(event, lines.length)
+}
+
+const toggleDiffMode = (enableDiff) => {
+  clearTimeout(blurExitTimer)
+  if (enableDiff) {
+    isSplitEditLocked.value = false
+    leftEditing.value = false
+    rightEditing.value = false
+    stopEditingLeft()
+    stopEditingRight()
+  } else {
+    isSplitEditLocked.value = true
+    leftEditing.value = true
+    rightEditing.value = true
+    nextTick(() => {
+      requestSyncComparerGutterHeights()
+    })
+  }
+}
+
+const toggleLeftEdit = () => {
+  clearTimeout(blurExitTimer)
+  if (leftEditing.value) {
+    leftEditing.value = false
+    stopEditingLeft()
+  } else {
+    startEditingLeft()
+  }
+}
+
+const toggleRightEdit = () => {
+  clearTimeout(blurExitTimer)
+  if (rightEditing.value) {
+    rightEditing.value = false
+    stopEditingRight()
+  } else {
+    startEditingRight()
+  }
+}
+
+const updateEditingModeForTab = () => {
+  const tab = activeTab.value
+  if (!tab) return
+  if (tab.leftText && tab.rightText) {
+    leftEditing.value = isSplitEditLocked.value
+    rightEditing.value = isSplitEditLocked.value
+  } else {
+    leftEditing.value = !tab.leftText
+    rightEditing.value = !tab.rightText
+  }
 }
 
 // 错误定位锚点滚动
@@ -1569,10 +2138,13 @@ const scrollToRightErrorLine = () => {
 const stopEditingLeft = () => {
   const tab = activeTab.value
   if (!tab || !tab.leftText) return
-  if (autoFormat.value) {
+  if (autoFormat.value || sortKeys.value) {
     try {
       let parsed = safeParse(tab.leftText)
       if (sortKeys.value) {
+        if (!tab._unsortedLeftText) {
+          tab._unsortedLeftText = tab.leftText
+        }
         parsed = sortJSONKeys(parsed, sortKeys.value === 2)
       }
       const formatted = safeStringify(parsed, null, 2)
@@ -1591,10 +2163,13 @@ const stopEditingLeft = () => {
 const stopEditingRight = () => {
   const tab = activeTab.value
   if (!tab || !tab.rightText) return
-  if (autoFormat.value) {
+  if (autoFormat.value || sortKeys.value) {
     try {
       let parsed = safeParse(tab.rightText)
       if (sortKeys.value) {
+        if (!tab._unsortedRightText) {
+          tab._unsortedRightText = tab.rightText
+        }
         parsed = sortJSONKeys(parsed, sortKeys.value === 2)
       }
       const formatted = safeStringify(parsed, null, 2)
@@ -1652,41 +2227,72 @@ const alignedDiff = computed(() => {
       if (nextChunk && nextChunk.added) {
         const leftLines = chunk.value.replace(/\n$/, '').split('\n')
         const rightLines = nextChunk.value.replace(/\n$/, '').split('\n')
-        const minLines = Math.min(leftLines.length, rightLines.length)
         
-        for (let j = 0; j < minLines; j++) {
-          const lLine = leftLines[j]
-          const rLine = rightLines[j]
-          const charDiffs = diff.diffChars(lLine, rLine, options)
+        let jL = 0
+        let jR = 0
+        
+        while (jL < leftLines.length && jR < rightLines.length) {
+          const lLine = leftLines[jL]
+          const rLine = rightLines[jR]
+          const sim = calculateLineSimilarity(lLine, rLine)
           
-          const leftParts = charDiffs
-            .filter(d => !d.added)
-            .map(d => ({ text: d.value, highlight: !!d.removed }))
+          if (sim >= 0.4) {
+            const { leftHtml, rightHtml } = highlightJsonDiffLine(lLine, rLine, options)
             
-          const rightParts = charDiffs
-            .filter(d => !d.removed)
-            .map(d => ({ text: d.value, highlight: !!d.added }))
+            rows.push({
+              left: { lineNum: leftLineNum++, text: lLine, type: 'modified', html: leftHtml },
+              right: { lineNum: rightLineNum++, text: rLine, type: 'modified', html: rightHtml }
+            })
+            jL++
+            jR++
+          } else {
+            // Find lookahead match for nearest similar pair
+            let nextMatchL = -1
+            let nextMatchR = -1
             
-          rows.push({
-            left: { lineNum: leftLineNum++, text: lLine, type: 'modified', parts: leftParts },
-            right: { lineNum: rightLineNum++, text: rLine, type: 'modified', parts: rightParts }
-          })
+            outerLookahead:
+            for (let d = 1; d <= 4; d++) {
+              for (let dl = 0; dl <= d; dl++) {
+                const dr = d - dl
+                if (jL + dl < leftLines.length && jR + dr < rightLines.length) {
+                  if (calculateLineSimilarity(leftLines[jL + dl], rightLines[jR + dr]) >= 0.4) {
+                    nextMatchL = jL + dl
+                    nextMatchR = jR + dr
+                    break outerLookahead
+                  }
+                }
+              }
+            }
+            
+            const endL = nextMatchL !== -1 ? nextMatchL : leftLines.length
+            const endR = nextMatchR !== -1 ? nextMatchR : rightLines.length
+            
+            for (; jL < endL; jL++) {
+              rows.push({
+                left: { lineNum: leftLineNum++, text: leftLines[jL], type: 'removed' },
+                right: { lineNum: '', text: '', type: 'empty' }
+              })
+            }
+            for (; jR < endR; jR++) {
+              rows.push({
+                left: { lineNum: '', text: '', type: 'empty' },
+                right: { lineNum: rightLineNum++, text: rightLines[jR], type: 'added' }
+              })
+            }
+          }
         }
         
-        if (leftLines.length > rightLines.length) {
-          for (let j = minLines; j < leftLines.length; j++) {
-            rows.push({
-              left: { lineNum: leftLineNum++, text: leftLines[j], type: 'removed' },
-              right: { lineNum: '', text: '', type: 'empty' }
-            })
-          }
-        } else if (rightLines.length > leftLines.length) {
-          for (let j = minLines; j < rightLines.length; j++) {
-            rows.push({
-              left: { lineNum: '', text: '', type: 'empty' },
-              right: { lineNum: rightLineNum++, text: rightLines[j], type: 'added' }
-            })
-          }
+        while (jL < leftLines.length) {
+          rows.push({
+            left: { lineNum: leftLineNum++, text: leftLines[jL++], type: 'removed' },
+            right: { lineNum: '', text: '', type: 'empty' }
+          })
+        }
+        while (jR < rightLines.length) {
+          rows.push({
+            left: { lineNum: '', text: '', type: 'empty' },
+            right: { lineNum: rightLineNum++, text: rightLines[jR++], type: 'added' }
+          })
         }
         i++
       } else {
@@ -1729,8 +2335,18 @@ const stats = computed(() => {
 const loadDemo = () => {
   const tab = activeTab.value
   if (!tab) return
-  tab.leftText = DEMO_LEFT
-  tab.rightText = DEMO_RIGHT
+  let left = DEMO_LEFT
+  let right = DEMO_RIGHT
+  tab._unsortedLeftText = DEMO_LEFT
+  tab._unsortedRightText = DEMO_RIGHT
+  if (sortKeys.value) {
+    try {
+      left = safeStringify(sortJSONKeys(safeParse(left), sortKeys.value === 2), null, 2)
+      right = safeStringify(sortJSONKeys(safeParse(right), sortKeys.value === 2), null, 2)
+    } catch (_) {}
+  }
+  tab.leftText = left
+  tab.rightText = right
   if (showToast) {
     showToast('示例加载成功')
   }
@@ -1775,24 +2391,30 @@ const swapInputs = () => {
   }
 }
 
-const copyLeftText = () => {
+const copyLeftText = async () => {
   const tab = activeTab.value
   if (!tab || !tab.leftText) return
-  navigator.clipboard.writeText(tab.leftText).then(() => {
+  const ok = await writeToClipboard(tab.leftText)
+  if (ok) {
     copySuccessLeft.value = true
     if (showToast) showToast('原始 JSON 已复制到剪贴板')
     setTimeout(() => { copySuccessLeft.value = false }, 2000)
-  })
+  } else {
+    if (showToast) showToast('复制失败', 'error')
+  }
 }
 
-const copyRightText = () => {
+const copyRightText = async () => {
   const tab = activeTab.value
   if (!tab || !tab.rightText) return
-  navigator.clipboard.writeText(tab.rightText).then(() => {
+  const ok = await writeToClipboard(tab.rightText)
+  if (ok) {
     copySuccessRight.value = true
-    // if (showToast) showToast('对比 JSON 已复制到剪贴板')
+    if (showToast) showToast('对比 JSON 已复制到剪贴板')
     setTimeout(() => { copySuccessRight.value = false }, 2000)
-  })
+  } else {
+    if (showToast) showToast('复制失败', 'error')
+  }
 }
 
 // 冷启动：从扩展的右键"直接对比"进入（首次打开无标签页时）
@@ -1862,6 +2484,7 @@ onMounted(() => {
           activeTabId.value = savedActive ? Number(savedActive) : tabs.value[0].id
           canSave = true
           scrollTabsToActive()
+          updateEditingModeForTab()
           nextTick(syncComparerGutterHeights)
           return
         }
@@ -1870,6 +2493,7 @@ onMounted(() => {
   } catch (e) {}
   canSave = true
   checkCompareOnLoad()
+  updateEditingModeForTab()
   nextTick(syncComparerGutterHeights)
 })
 
@@ -1958,6 +2582,15 @@ onBeforeUnmount(() => {
                 <span>原始 JSON</span>
               </div>
               <div class="header-actions-group" style="margin-left: auto; display: flex; gap: 6px; align-items: center;">
+                <button 
+                  class="action-btn outline icon-only" 
+                  @click.stop="toggleLeftEdit" 
+                  :data-tooltip-bottom="leftEditing ? '查看对齐对比' : '编辑左侧 JSON'"
+                  style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
+                >
+                  <Eye v-if="leftEditing" class="btn-icon" />
+                  <Pencil v-else class="btn-icon" />
+                </button>
                 <!-- Left Extract Button -->
                 <button 
                   v-if="activeTab.leftText" 
@@ -2003,7 +2636,9 @@ onBeforeUnmount(() => {
             <!-- Edit Mode -->
             <div v-if="leftEditing" class="edit-pane-container">
               <div v-show="showLineNumbers" class="edit-gutter" ref="leftGutterRef" @wheel.prevent="handleLeftGutterWheel">
-                <div v-for="n in leftLinesCount" :key="n" class="edit-line-number" :class="{ 'has-error': activeTab.leftErrorLine === n, 'diff-removed-line-number': leftLineClasses[n - 1] === 'diff-removed-line', 'diff-modified-line-number': leftLineClasses[n - 1] === 'diff-modified-line' }">{{ n }}</div>
+                <div class="edit-gutter-inner" ref="leftGutterInnerRef">
+                  <div v-for="n in leftLinesCount" :key="n" class="edit-line-number" :class="{ 'has-error': activeTab.leftErrorLine === n, 'diff-removed-line-number': leftLineClasses[n - 1] === 'diff-removed-line', 'diff-modified-line-number': leftLineClasses[n - 1] === 'diff-modified-line' }">{{ n }}</div>
+                </div>
               </div>
               <div class="textarea-overlay-container" :class="{ 'minify-wrap': isLeftMinified }">
                 <div
@@ -2020,9 +2655,11 @@ onBeforeUnmount(() => {
                   @mouseenter="activeScrollTarget = 'left'"
                   @touchstart="activeScrollTarget = 'left'"
                   @focus="leftFocused = true; handleFocus(true)"
-                  @blur="leftFocused = false; stopEditingLeft()"
+                  @blur="handleLeftBlur"
                   @paste="handlePasteLeft"
-                  @dblclick="handleDblClickLeft"
+                  @keydown.esc.prevent="toggleDiffMode(true)"
+                  @keydown.enter.ctrl.prevent="toggleDiffMode(true)"
+                  @keydown.enter.meta.prevent="toggleDiffMode(true)"
                   placeholder=""
                   spellcheck="false"
                 ></textarea>
@@ -2044,13 +2681,15 @@ onBeforeUnmount(() => {
               v-else 
               class="panel-body scroll-container clickable-pane" 
               ref="leftPaneRef" 
+              tabindex="0"
               @scroll="handleLeftScroll"
               @mouseenter="activeScrollTarget = 'left'"
               @touchstart="activeScrollTarget = 'left'"
-              @click="startEditingLeft"
+              @dblclick="startEditingLeft"
+              @paste="handleDiffPanePaste($event, true)"
             >
               <!-- Empty state -->
-              <div v-if="!activeTab.leftText" class="empty-placeholder">
+              <div v-if="!activeTab.leftText" class="empty-placeholder" @click="startEditingLeft">
                 <div class="placeholder-content">
                   <FileJson class="placeholder-icon" />
                   <span>点击此处输入/粘贴左侧 JSON</span>
@@ -2059,22 +2698,27 @@ onBeforeUnmount(() => {
 
               <!-- Lines wrapper -->
               <div v-else class="diff-lines-wrapper" :class="{ 'minify-wrap': isLeftMinified }">
-                <div v-for="(row, idx) in alignedDiff" :key="'l-' + idx" class="diff-line-row" :class="row.left.type">
-                  <div class="line-number">{{ row.left.lineNum }}</div>
-                  <div class="line-marker">
-                    <span v-if="row.left.type === 'removed'">-</span>
-                    <span v-else-if="row.left.type === 'modified'">~</span>
+                <div 
+                  v-for="(row, idx) in alignedDiff" 
+                  :key="'l-' + idx" 
+                  class="diff-line-row" 
+                  :class="row.left.type"
+                  @dblclick.stop="startEditingLeftRow($event, row.left.lineNum, idx)"
+                >
+                  <div class="line-number">
+                    <span v-if="row.left.type === 'removed'" class="line-marker-inline">-</span>
+                    <span v-else-if="row.left.type === 'modified'" class="line-marker-inline">~</span>
+                    <span class="line-num-val">{{ row.left.lineNum }}</span>
                   </div>
                   <div class="line-code">
-                    <template v-if="row.left.parts">
-                      <span 
-                        v-for="(part, pidx) in row.left.parts" 
-                        :key="pidx" 
-                        :class="{ 'word-removed': part.highlight }"
-                      >{{ part.text }}</span>
+                    <template v-if="row.left.type === 'empty'">
+                      &nbsp;
+                    </template>
+                    <template v-else-if="row.left.html">
+                      <span v-html="row.left.html"></span>
                     </template>
                     <template v-else>
-                      {{ row.left.text }}
+                      <span v-html="applyJsonHighlight(row.left.text)"></span>
                     </template>
                   </div>
                 </div>
@@ -2105,6 +2749,15 @@ onBeforeUnmount(() => {
                 <span>对比 JSON</span>
               </div>
               <div class="header-actions-group" style="margin-left: auto; display: flex; gap: 6px; align-items: center;">
+                <button 
+                  class="action-btn outline icon-only" 
+                  @click.stop="toggleRightEdit" 
+                  :data-tooltip-bottom="rightEditing ? '查看对齐对比' : '编辑右侧 JSON'"
+                  style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
+                >
+                  <Eye v-if="rightEditing" class="btn-icon" />
+                  <Pencil v-else class="btn-icon" />
+                </button>
                 <button 
                   class="action-btn outline icon-only" 
                   @click.stop="swapInputs" 
@@ -2158,7 +2811,9 @@ onBeforeUnmount(() => {
             <!-- Edit Mode -->
             <div v-if="rightEditing" class="edit-pane-container">
               <div v-show="showLineNumbers" class="edit-gutter" ref="rightGutterRef" @wheel.prevent="handleRightGutterWheel">
-                <div v-for="n in rightLinesCount" :key="n" class="edit-line-number" :class="{ 'has-error': activeTab.rightErrorLine === n, 'diff-added-line-number': rightLineClasses[n - 1] === 'diff-added-line', 'diff-modified-line-number': rightLineClasses[n - 1] === 'diff-modified-line' }">{{ n }}</div>
+                <div class="edit-gutter-inner" ref="rightGutterInnerRef">
+                  <div v-for="n in rightLinesCount" :key="n" class="edit-line-number" :class="{ 'has-error': activeTab.rightErrorLine === n, 'diff-added-line-number': rightLineClasses[n - 1] === 'diff-added-line', 'diff-modified-line-number': rightLineClasses[n - 1] === 'diff-modified-line' }">{{ n }}</div>
+                </div>
               </div>
               <div class="textarea-overlay-container" :class="{ 'minify-wrap': isRightMinified }">
                 <div
@@ -2175,9 +2830,11 @@ onBeforeUnmount(() => {
                   @mouseenter="activeScrollTarget = 'right'"
                   @touchstart="activeScrollTarget = 'right'"
                   @focus="rightFocused = true; handleFocus(false)"
-                  @blur="rightFocused = false; stopEditingRight()"
+                  @blur="handleRightBlur"
                   @paste="handlePasteRight"
-                  @dblclick="handleDblClickRight"
+                  @keydown.esc.prevent="toggleDiffMode(true)"
+                  @keydown.enter.ctrl.prevent="toggleDiffMode(true)"
+                  @keydown.enter.meta.prevent="toggleDiffMode(true)"
                   placeholder=""
                   spellcheck="false"
                 ></textarea>
@@ -2199,13 +2856,15 @@ onBeforeUnmount(() => {
               v-else 
               class="panel-body scroll-container clickable-pane" 
               ref="rightPaneRef" 
+              tabindex="0"
               @scroll="handleRightScroll"
               @mouseenter="activeScrollTarget = 'right'"
               @touchstart="activeScrollTarget = 'right'"
-              @click="startEditingRight"
+              @dblclick="startEditingRight"
+              @paste="handleDiffPanePaste($event, false)"
             >
               <!-- Empty state -->
-              <div v-if="!activeTab.rightText" class="empty-placeholder">
+              <div v-if="!activeTab.rightText" class="empty-placeholder" @click="startEditingRight">
                 <div class="placeholder-content">
                   <FileJson class="placeholder-icon" />
                   <span>点击此处输入/粘贴右侧 JSON</span>
@@ -2214,22 +2873,27 @@ onBeforeUnmount(() => {
 
               <!-- Lines wrapper -->
               <div v-else class="diff-lines-wrapper" :class="{ 'minify-wrap': isRightMinified }">
-                <div v-for="(row, idx) in alignedDiff" :key="'r-' + idx" class="diff-line-row" :class="row.right.type">
-                  <div class="line-number">{{ row.right.lineNum }}</div>
-                  <div class="line-marker">
-                    <span v-if="row.right.type === 'added'">+</span>
-                    <span v-else-if="row.right.type === 'modified'">~</span>
+                <div 
+                  v-for="(row, idx) in alignedDiff" 
+                  :key="'r-' + idx" 
+                  class="diff-line-row" 
+                  :class="row.right.type"
+                  @dblclick.stop="startEditingRightRow($event, row.right.lineNum, idx)"
+                >
+                  <div class="line-number">
+                    <span v-if="row.right.type === 'added'" class="line-marker-inline">+</span>
+                    <span v-else-if="row.right.type === 'modified'" class="line-marker-inline">~</span>
+                    <span class="line-num-val">{{ row.right.lineNum }}</span>
                   </div>
                   <div class="line-code">
-                    <template v-if="row.right.parts">
-                      <span 
-                        v-for="(part, pidx) in row.right.parts" 
-                        :key="pidx" 
-                        :class="{ 'word-added': part.highlight }"
-                      >{{ part.text }}</span>
+                    <template v-if="row.right.type === 'empty'">
+                      &nbsp;
+                    </template>
+                    <template v-else-if="row.right.html">
+                      <span v-html="row.right.html"></span>
                     </template>
                     <template v-else>
-                      {{ row.right.text }}
+                      <span v-html="applyJsonHighlight(row.right.text)"></span>
                     </template>
                   </div>
                 </div>
@@ -2265,6 +2929,27 @@ onBeforeUnmount(() => {
           <RefreshCw class="stat-icon" /> {{ stats.modifications }} 修改
         </span>
       </div>
+
+      <div class="comparer-mode-switch">
+        <button 
+          class="mode-toggle-btn" 
+          :class="{ active: !leftEditing && !rightEditing }" 
+          @click="toggleDiffMode(true)"
+          data-tooltip-top="对齐对比视图（带空行对齐与词级高亮）"
+        >
+          <Columns2 class="mode-btn-icon" />
+          <span>对齐对比</span>
+        </button>
+        <button 
+          class="mode-toggle-btn" 
+          :class="{ active: leftEditing || rightEditing }" 
+          @click="toggleDiffMode(false)"
+          data-tooltip-top="分栏编辑模式（直接编辑左右两侧 JSON）"
+        >
+          <Pencil class="mode-btn-icon" />
+          <span>分栏编辑</span>
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -2290,16 +2975,74 @@ onBeforeUnmount(() => {
 .comparer-status-bar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   background-color: var(--bg-panel);
   border-top: 1px solid var(--border-color);
   padding: 0 16px;
   height: 28px;
   flex-shrink: 0;
+  position: relative;
+}
+
+.diff-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 1;
 }
 
 .comparer-status-bar .stat-badge {
   font-size: 11px;
   padding: 1px 6px;
+}
+
+.comparer-mode-switch {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+}
+
+.mode-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-panel);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mode-toggle-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+  background-color: var(--bg-hover);
+}
+
+.mode-toggle-btn.active {
+  color: var(--primary-color, #2563eb);
+  border-color: var(--primary-color, #2563eb);
+  background-color: rgba(37, 99, 235, 0.08);
+  font-weight: 600;
+}
+
+:global(.dark-mode) .mode-toggle-btn.active {
+  color: #38bdf8;
+  border-color: #38bdf8;
+  background-color: rgba(56, 189, 248, 0.12);
+}
+
+.mode-btn-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .settings-group {
@@ -2677,15 +3420,26 @@ onBeforeUnmount(() => {
   width: auto;
   background-color: var(--bg-panel);
   border-right: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  padding: 8px 0 24px 0;
+  position: relative;
   overflow: hidden;
   user-select: none;
   flex-shrink: 0;
+  box-sizing: border-box;
+  height: 100%;
+}
+
+.edit-gutter-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 8px 0 24px 0;
+  box-sizing: border-box;
+  will-change: transform;
 }
 
 .edit-line-number {
+  display: block;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: var(--editor-line-height, 20px);
@@ -2694,6 +3448,7 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   height: var(--editor-line-height, 20px);
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .edit-line-number.has-error {
@@ -2805,48 +3560,68 @@ onBeforeUnmount(() => {
   flex-grow: 1;
   background-color: var(--bg-input);
 }
+.scroll-container:focus {
+  outline: none;
+}
 
 .diff-lines-wrapper {
   display: flex;
   flex-direction: column;
   width: 100%;
-  padding: 8px 0;
+  padding: 8px 0 24px 0;
+  box-sizing: border-box;
 }
 
-/* Aligned Diff line row styling */
+/* Aligned Diff line row styling - 100% pixel-perfect match with editor mode */
 .diff-line-row {
   display: flex;
   font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.55;
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
+  min-height: var(--editor-line-height, 20px);
   width: 100%;
+  box-sizing: border-box;
+  position: relative;
 }
 
-.line-number {
-  width: 40px;
+.diff-line-row .line-number {
+  min-width: 42px;
+  width: 42px;
   text-align: right;
   padding-right: 6px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: var(--editor-line-height, 20px);
   user-select: none;
   border-right: 1px solid var(--border-color);
-  margin-right: 8px;
+  background-color: var(--bg-panel);
   flex-shrink: 0;
+  box-sizing: border-box;
+  position: relative;
+  height: auto;
+  min-height: var(--editor-line-height, 20px);
 }
 
-.line-marker {
-  width: 12px;
-  text-align: center;
-  font-weight: 600;
+.line-marker-inline {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: var(--editor-line-height, 20px);
   user-select: none;
-  margin-right: 6px;
-  flex-shrink: 0;
 }
 
-.line-code {
+.diff-line-row .line-code {
   flex-grow: 1;
   white-space: pre;
-  padding-right: 16px;
+  padding: 0 12px 0 12px;
+  font-family: var(--font-mono);
+  font-size: var(--editor-font-size, 12px);
+  line-height: var(--editor-line-height, 20px);
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 /* Diff Types Styling */
@@ -2854,9 +3629,11 @@ onBeforeUnmount(() => {
   background-color: var(--diff-added-bg);
 }
 .diff-line-row.added .line-number {
-  background-color: rgba(34, 197, 94, 0.05);
+  background-color: rgba(34, 197, 94, 0.08);
+  color: var(--success-text);
+  font-weight: 600;
 }
-.diff-line-row.added .line-marker {
+.diff-line-row.added .line-marker-inline {
   color: var(--success-text);
 }
 
@@ -2864,89 +3641,137 @@ onBeforeUnmount(() => {
   background-color: var(--diff-removed-bg);
 }
 .diff-line-row.removed .line-number {
-  background-color: rgba(239, 68, 68, 0.05);
+  background-color: rgba(239, 68, 68, 0.08);
+  color: var(--error-text);
+  font-weight: 600;
 }
-.diff-line-row.removed .line-marker {
+.diff-line-row.removed .line-marker-inline {
   color: var(--error-text);
 }
 
+/* Split Diff - Modified rows use unified warm amber background on both left and right panes */
 .diff-line-row.modified {
   background-color: var(--diff-modified-bg);
 }
-.diff-line-row.modified .line-marker {
+.diff-line-row.modified .line-number {
+  background-color: rgba(234, 179, 8, 0.10);
+  color: #d97706;
+  font-weight: 600;
+}
+.diff-line-row.modified .line-marker-inline {
   color: #d97706;
 }
-.dark-mode .diff-line-row.modified .line-marker {
+
+:global(.dark-mode) .diff-line-row.modified .line-number,
+.dark-mode .diff-line-row.modified .line-number {
+  background-color: rgba(234, 179, 8, 0.14);
+  color: #fbbf24;
+}
+:global(.dark-mode) .diff-line-row.modified .line-marker-inline,
+.dark-mode .diff-line-row.modified .line-marker-inline {
   color: #fbbf24;
 }
 
-/* Empty spacer line - Stripe pattern */
+/* Empty spacer line - Crisp stripe pattern */
 .diff-line-row.empty {
   background: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 8px,
-    var(--border-color) 8px,
-    var(--border-color) 16px
+    -45deg,
+    rgba(148, 163, 184, 0.15),
+    rgba(148, 163, 184, 0.15) 6px,
+    transparent 6px,
+    transparent 12px
   );
-  opacity: 0.2;
-  height: 19.375px; /* 12.5px × 1.55 */
+  background-color: rgba(241, 245, 249, 0.6);
+  min-height: var(--editor-line-height, 20px);
+  height: var(--editor-line-height, 20px);
+  user-select: none;
+  box-sizing: border-box;
+}
+:global(.dark-mode) .diff-line-row.empty,
+.dark-mode .diff-line-row.empty {
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(255, 255, 255, 0.04),
+    rgba(255, 255, 255, 0.04) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+  background-color: rgba(0, 0, 0, 0.22);
 }
 .diff-line-row.empty .line-number {
   border-right: 1px solid var(--border-color);
   background-color: transparent;
 }
 
-/* Character level word highlighting (Zero Layout Shift) */
+/* Character level word highlighting (VSCode / GitHub standard inline diff - 0 width expansion) */
 :deep(.word-added), .word-added {
   background-color: var(--diff-added-word-bg);
+  color: var(--diff-added-word-text) !important;
+  border: none !important;
   border-radius: 2px;
   padding: 0 !important;
   margin: 0 !important;
   font-weight: inherit !important;
-  box-shadow: 0 0 0 1px var(--diff-added-border);
+  box-sizing: border-box;
+  display: inline;
 }
 
 :deep(.word-removed), .word-removed {
   background-color: var(--diff-removed-word-bg);
+  color: var(--diff-removed-word-text) !important;
+  border: none !important;
   border-radius: 2px;
   padding: 0 !important;
   margin: 0 !important;
   font-weight: inherit !important;
   text-decoration: none !important;
-  box-shadow: 0 0 0 1px var(--diff-removed-border);
+  box-sizing: border-box;
+  display: inline;
+}
+
+:global(.dark-mode) :deep(.word-added),
+:global(.dark-mode) .word-added,
+.dark-mode :deep(.word-added),
+.dark-mode .word-added {
+  box-shadow: none;
+}
+
+:global(.dark-mode) :deep(.word-removed),
+:global(.dark-mode) .word-removed,
+.dark-mode :deep(.word-removed),
+.dark-mode .word-removed {
+  box-shadow: none;
 }
 
 /* Real-time Diff Highlight in Editor Mode */
 :deep(.editor-line.diff-removed-line) {
   background-color: var(--diff-removed-bg);
-  box-shadow: inset 2px 0 0 var(--error-text);
 }
 :deep(.editor-line.diff-added-line) {
   background-color: var(--diff-added-bg);
-  box-shadow: inset 2px 0 0 var(--success-text);
 }
 :deep(.editor-line.diff-modified-line) {
   background-color: var(--diff-modified-bg);
-  box-shadow: inset 2px 0 0 #d97706;
 }
-:deep(.dark-mode) .editor-line.diff-modified-line {
-  box-shadow: inset 2px 0 0 #fbbf24;
-}
+
 .edit-line-number.diff-removed-line-number {
-  background-color: rgba(239, 68, 68, 0.05);
+  background-color: rgba(239, 68, 68, 0.08);
   color: var(--error-text);
+  font-weight: 600;
 }
 .edit-line-number.diff-added-line-number {
-  background-color: rgba(34, 197, 94, 0.05);
+  background-color: rgba(34, 197, 94, 0.08);
   color: var(--success-text);
+  font-weight: 600;
 }
 .edit-line-number.diff-modified-line-number {
-  background-color: rgba(217, 119, 6, 0.05);
+  background-color: rgba(234, 179, 8, 0.10);
   color: #d97706;
+  font-weight: 600;
 }
+:global(.dark-mode) .edit-line-number.diff-modified-line-number,
 .dark-mode .edit-line-number.diff-modified-line-number {
-  background-color: rgba(251, 191, 36, 0.05);
+  background-color: rgba(234, 179, 8, 0.14);
   color: #fbbf24;
 }
 

@@ -2300,13 +2300,17 @@ const onDrop = (e) => {
 // Copy to Clipboard
 const copyToClipboard = () => {
   const tab = activeTab.value
-  if (!tab.outputText) return
-  navigator.clipboard.writeText(tab.outputText).then(() => {
+  if (!tab) return
+  const textToCopy = tab.outputText || tab.inputText
+  if (!textToCopy) return
+  navigator.clipboard.writeText(textToCopy).then(() => {
     copySuccess.value = true
-    showToast('复制成功')
+    showToast(tab.outputText ? '复制成功' : '已复制输入内容')
     setTimeout(() => {
       copySuccess.value = false
     }, 2000)
+  }).catch(() => {
+    showToast('复制失败', 'error')
   })
 }
 
@@ -2499,7 +2503,8 @@ const onConvertMenuClickOutside = (e) => {
 // Download file（支持转换后的格式）
 const downloadFile = () => {
   const tab = activeTab.value
-  const content = convertFormat.value ? convertedOutput.value : tab.outputText
+  if (!tab) return
+  const content = convertFormat.value ? convertedOutput.value : (tab.outputText || tab.inputText)
   if (!content) return
   const ext = convertFormat.value ? getFormatExtension(convertFormat.value) : 'json'
   const mime = convertFormat.value ? 'text/plain' : 'application/json'
@@ -3722,9 +3727,9 @@ onBeforeUnmount(() => {
                       <Search class="more-item-icon" />
                       <span>{{ searchExpanded ? '关闭搜索 / 替换' : '搜索 / 替换' }}</span>
                     </button>
-                    <button class="more-menu-item" @click="copyToClipboard(); showMoreToolsMenu = false" :disabled="!activeTab.outputText">
+                    <button class="more-menu-item" @click="copyToClipboard(); showMoreToolsMenu = false" :disabled="!activeTab.outputText && !activeTab.inputText">
                       <Copy class="more-item-icon" />
-                      <span>复制结果</span>
+                      <span>{{ activeTab.outputText ? '复制结果' : '复制输入' }}</span>
                     </button>
                     <button class="more-menu-item danger-item" @click="clearInput(); showMoreToolsMenu = false" :disabled="!activeTab.inputText">
                       <Trash2 class="more-item-icon" />
@@ -3752,8 +3757,8 @@ onBeforeUnmount(() => {
                 class="action-btn outline icon-only copy-btn"
                 :class="{ 'copy-success-ring': copySuccess }"
                 @click.stop="copyToClipboard"
-                :disabled="!activeTab.outputText"
-                :data-tooltip-bottom="copySuccess ? '已复制' : '复制结果'"
+                :disabled="!activeTab.outputText && !activeTab.inputText"
+                :data-tooltip-bottom="copySuccess ? '已复制' : (activeTab.outputText ? '复制结果' : '复制输入')"
                 style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
               >
                 <Check v-if="copySuccess" class="btn-icon success-color" />
@@ -4083,7 +4088,7 @@ onBeforeUnmount(() => {
               <Copy v-else class="btn-icon" />
             </button>
 
-            <button class="action-btn outline icon-only" @click="downloadFile" :disabled="!activeTab.outputText" :data-tooltip-bottom-right="convertFormat ? `下载 ${formatLabels[convertFormat]} 文件` : '下载文件'">
+            <button class="action-btn outline icon-only" @click="downloadFile" :disabled="!activeTab.outputText && !activeTab.inputText" :data-tooltip-bottom-right="convertFormat ? `下载 ${formatLabels[convertFormat]} 文件` : '下载文件'">
               <Download class="btn-icon" />
             </button>
           </div>
