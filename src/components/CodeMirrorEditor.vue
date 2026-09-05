@@ -19,7 +19,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch, inject } from 'vue'
 import { Copy, Check } from 'lucide-vue-next'
 import {
   EditorView,
@@ -40,6 +40,13 @@ import {
   syntaxHighlighting,
   foldGutter,
   foldKeymap,
+  foldService,
+  codeFolding,
+  foldEffect,
+  unfoldEffect,
+  foldAll,
+  unfoldAll,
+  foldedRanges,
   bracketMatching,
   indentOnInput,
   syntaxTree
@@ -159,10 +166,12 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'cursor-change', 'copy-selection', 'focus', 'blur', 'paste', 'scroll'])
+const emit = defineEmits(['update:modelValue', 'cursor-change', 'copy-selection', 'focus', 'blur', 'paste', 'scroll', 'toggle-fold'])
 
+const treeExpanded = inject('treeExpanded', ref(true))
 const editorContainerRef = ref(null)
 let editorView = null
+let isInternalFoldSync = false
 
 // Floating copy selection pill state
 const floatingCopyVisible = ref(false)
@@ -393,24 +402,46 @@ const clampLineSelectionFilter = EditorState.transactionFilter.of((tr) => {
   return tr
 })
 
+// Focus tracking state field and effect
+const setFocusEffect = StateEffect.define()
+
+const focusField = StateField.define({
+  create() {
+    return false
+  },
+  update(focused, tr) {
+    for (const e of tr.effects) {
+      if (e.is(setFocusEffect)) {
+        return e.value
+      }
+    }
+    return focused
+  }
+})
+
 // Line decorations for Error line and Duplicate lines
 const setLineDecorationsEffect = StateEffect.define()
 
-// Intelligent Active Line: only highlights when there is no text selection (matching VSCode behavior)
+// Intelligent Active Line: only highlights when focused (or empty document) and no range selection (matching VSCode)
 const customActiveLineField = StateField.define({
   create(state) {
-    if (!state.selection.main.empty) return Decoration.none
+    const isFocused = state.field(focusField, false)
+    const isEmpty = state.doc.length === 0
+    if ((!isFocused && !isEmpty) || !state.selection.main.empty) return Decoration.none
     const line = state.doc.lineAt(state.selection.main.head)
     return Decoration.set([
       Decoration.line({ attributes: { class: 'cm-activeLine' } }).range(line.from)
     ])
   },
   update(decorations, tr) {
-    if (!tr.docChanged && !tr.selection) return decorations
+    const isFocused = tr.state.field(focusField, false)
+    const isEmpty = tr.state.doc.length === 0
     const sel = tr.state.selection.main
-    if (!sel.empty) {
+
+    if ((!isFocused && !isEmpty) || !sel.empty) {
       return Decoration.none
     }
+
     const line = tr.state.doc.lineAt(sel.head)
     return Decoration.set([
       Decoration.line({ attributes: { class: 'cm-activeLine' } }).range(line.from)
@@ -419,13 +450,15 @@ const customActiveLineField = StateField.define({
   provide: (f) => EditorView.decorations.from(f)
 })
 
-// Intelligent Active Line Gutter Marker: only active when there is no text selection
+// Intelligent Active Line Gutter Marker: only active when focused (or empty document) and no text selection
 const activeLineGutterMarker = new class extends GutterMarker {
   elementClass = 'cm-activeLineGutter'
 }
 
-const customActiveLineGutter = lineNumberMarkers.compute(['selection', 'doc'], (state) => {
-  if (!state.selection.main.empty) return RangeSet.empty
+const customActiveLineGutter = lineNumberMarkers.compute(['selection', 'doc', focusField], (state) => {
+  const isFocused = state.field(focusField, false)
+  const isEmpty = state.doc.length === 0
+  if ((!isFocused && !isEmpty) || !state.selection.main.empty) return RangeSet.empty
   const builder = new RangeSetBuilder()
   const line = state.doc.lineAt(state.selection.main.head)
   builder.add(line.from, line.from, activeLineGutterMarker)
@@ -505,7 +538,11 @@ const createBaseTheme = () => {
       padding: '4px 0 24px 0'
     },
     '.cm-line': {
-      padding: '0 12px 0 12px'
+      padding: '0 12px 0 12px',
+      transition: 'background-color 0.1s ease'
+    },
+    '.cm-line:hover': {
+      backgroundColor: 'var(--bg-hover, rgba(255, 255, 255, 0.03))'
     },
     '.cm-gutters': {
       position: 'sticky',
@@ -514,16 +551,50 @@ const createBaseTheme = () => {
       overflow: 'hidden',
       willChange: 'transform'
     },
+    '.cm-lineNumbers': {
+      minWidth: '28px'
+    },
     '.cm-lineNumbers .cm-gutterElement': {
       fontSize: '0.88em',
-      letterSpacing: '-0.2px'
+      letterSpacing: '-0.2px',
+      minWidth: '20px',
+      textAlign: 'right',
+      padding: '0 5px 0 3px',
+      boxSizing: 'border-box',
+      transition: 'color 0.12s ease'
+    },
+    '.cm-lineNumbers .cm-gutterElement.cm-activeLineGutter': {
+      fontSize: '1.05em',
+      fontWeight: '600'
     },
     '.cm-foldGutter': {
+      width: '14px',
       backgroundColor: 'transparent'
     },
     '.cm-foldGutter .cm-gutterElement': {
-      fontSize: '0.85em',
-      backgroundColor: 'transparent'
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '0',
+      cursor: 'pointer',
+      color: 'var(--text-muted, #94a3b8)',
+      transition: 'color 0.15s ease'
+    },
+    '.cm-foldGutter .cm-gutterElement:hover': {
+      color: 'var(--text-primary, #0f172a)'
+    },
+    '.cm-custom-fold-marker': {
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '11px',
+      height: '11px',
+      lineHeight: '1'
+    },
+    '.cm-custom-fold-marker svg': {
+      width: '11px',
+      height: '11px',
+      display: 'block'
     },
     // Error line decoration: flush with left edge (0px from gutter), prominent red bar
     '.cm-error-line': {
@@ -535,14 +606,22 @@ const createBaseTheme = () => {
       backgroundColor: props.darkMode ? 'rgba(234, 179, 8, 0.12) !important' : 'rgba(234, 179, 8, 0.08) !important',
       boxShadow: 'inset 3px 0 0 #d97706 !important'
     },
-    // Fold widget
+    // Fold placeholder widget ({...})
     '.cm-foldPlaceholder': {
-      backgroundColor: 'var(--tag-bg, rgba(99, 102, 241, 0.12))',
-      border: '1px solid var(--border-color, rgba(99, 102, 241, 0.3))',
-      color: 'var(--primary-color, #6366f1)',
+      backgroundColor: 'rgba(0, 0, 0, 0.05)',
+      border: 'none',
+      color: 'var(--text-muted, #94a3b8)',
       borderRadius: '3px',
+      margin: '0 2px',
       padding: '0 4px',
-      margin: '0 2px'
+      cursor: 'pointer',
+      fontSize: '0.85em',
+      userSelect: 'none',
+      transition: 'all 0.15s ease'
+    },
+    '.cm-foldPlaceholder:hover': {
+      backgroundColor: 'rgba(0, 0, 0, 0.1)',
+      color: 'var(--text-primary, #0f172a)'
     },
     // Search match highlights (identical to tree view search match background)
     '.cm-searchMatch': {
@@ -631,7 +710,8 @@ const lightTheme = EditorView.theme({
   '.cm-activeLineGutter': {
     backgroundColor: 'transparent',
     color: '#ea580c',
-    fontWeight: '600'
+    fontWeight: '600',
+    fontSize: '1.05em'
   }
 }, { dark: false })
 
@@ -660,7 +740,8 @@ const darkTheme = EditorView.theme({
   '.cm-activeLineGutter': {
     backgroundColor: 'transparent',
     color: '#38bdf8',
-    fontWeight: '600'
+    fontWeight: '600',
+    fontSize: '1.05em'
   },
   '.cm-searchMatch': {
     backgroundColor: 'rgba(250, 204, 21, 0.35) !important',
@@ -683,12 +764,21 @@ const getThemeExtensions = (isDark, isPremium = true) => {
   return [theme, syntaxHighlighting(highlightStyle)]
 }
 
+const createFoldMarker = (open) => {
+  const span = document.createElement('span')
+  span.className = 'cm-custom-fold-marker'
+  span.innerHTML = open
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>`
+  return span
+}
+
 const getGutterExtensions = (show) => {
   if (!show) return []
   return [
     lineNumbers(),
     customActiveLineGutter,
-    foldGutter()
+    foldGutter({ markerDOM: createFoldMarker })
   ]
 }
 
@@ -705,7 +795,11 @@ const initCodeMirror = () => {
   const startState = EditorState.create({
     doc: props.modelValue || '',
     extensions: [
+      focusField,
       gutterCompartment.of(getGutterExtensions(props.showLineNumbers)),
+      codeFolding({
+        placeholderText: '...'
+      }),
       customActiveLineField,
       clampLineSelectionFilter,
       drawSelection(),
@@ -749,10 +843,44 @@ const initCodeMirror = () => {
             type
           })
         }
+        if (update.transactions) {
+          for (const tr of update.transactions) {
+            for (const effect of tr.effects) {
+              if (effect.is(foldEffect)) {
+                if (!isInternalFoldSync) {
+                  const { path } = getJsonPathAtPos(update.state, effect.value.from)
+                  emit('toggle-fold', { path: path || [], isFolded: true })
+                }
+              } else if (effect.is(unfoldEffect)) {
+                if (!isInternalFoldSync) {
+                  const { path } = getJsonPathAtPos(update.state, effect.value.from)
+                  if (!path || path.length === 0) {
+                    setTimeout(() => {
+                      if (!editorView) return
+                      isInternalFoldSync = true
+                      try {
+                        unfoldAll(editorView)
+                      } finally {
+                        setTimeout(() => { isInternalFoldSync = false }, 50)
+                      }
+                    }, 0)
+                  }
+                  emit('toggle-fold', { path: path || [], isFolded: false })
+                }
+              }
+            }
+          }
+        }
       }),
       EditorView.domEventHandlers({
-        focus: (event) => emit('focus', event),
-        blur: (event) => emit('blur', event),
+        focus: (event, view) => {
+          view.dispatch({ effects: setFocusEffect.of(true) })
+          emit('focus', event)
+        },
+        blur: (event, view) => {
+          view.dispatch({ effects: setFocusEffect.of(false) })
+          emit('blur', event)
+        },
         paste: (event) => emit('paste', event)
       })
     ]
@@ -937,13 +1065,19 @@ const scrollToLine = (lineNumber) => {
   const line = editorView.state.doc.line(target)
   editorView.dispatch({
     selection: { anchor: line.from },
-    effects: EditorView.scrollIntoView(line.from, { y: 'center' })
+    effects: [
+      EditorView.scrollIntoView(line.from, { y: 'center' }),
+      setFocusEffect.of(true)
+    ]
   })
   editorView.focus()
 }
 
 const focus = () => {
-  if (editorView) editorView.focus()
+  if (editorView) {
+    editorView.dispatch({ effects: setFocusEffect.of(true) })
+    editorView.focus()
+  }
 }
 
 const getSelectionRange = () => {
@@ -959,7 +1093,10 @@ const setSelectionRange = (start, end, options = { showCopyPill: true }) => {
   const to = Math.max(from, Math.min(end, len))
   editorView.dispatch({
     selection: { anchor: from, head: to },
-    effects: EditorView.scrollIntoView(from, { y: 'center' })
+    effects: [
+      EditorView.scrollIntoView(from, { y: 'center' }),
+      setFocusEffect.of(true)
+    ]
   })
   editorView.focus()
 
@@ -994,6 +1131,209 @@ const setScrollLeft = (left) => {
   }
 }
 
+const findRangeForJsonPath = (state, path) => {
+  try {
+    const tree = syntaxTree(state)
+    let curr = tree.topNode
+    let root = null
+    let c = curr.firstChild
+    while (c) {
+      if (c.name === 'Object' || c.name === 'Array') {
+        root = c
+        break
+      }
+      c = c.nextSibling
+    }
+    if (!root) return null
+
+    if (!path || path.length === 0) {
+      return { from: root.from + 1, to: root.to - 1 }
+    }
+
+    let target = root
+    for (let i = 0; i < path.length; i++) {
+      const seg = path[i]
+      if (typeof seg === 'string') {
+        let found = null
+        let child = target.firstChild
+        while (child) {
+          if (child.name === 'Property') {
+            const propName = child.getChild('PropertyName')
+            if (propName) {
+              let rawKey = state.doc.sliceString(propName.from, propName.to)
+              if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
+                rawKey = rawKey.slice(1, -1)
+              }
+              if (rawKey === seg) {
+                let valNode = propName.nextSibling
+                while (valNode && (valNode.name === ':' || valNode.name === ',')) {
+                  valNode = valNode.nextSibling
+                }
+                found = valNode
+                break
+              }
+            }
+          }
+          child = child.nextSibling
+        }
+        if (!found) return null
+        target = found
+      } else if (typeof seg === 'number') {
+        let idx = 0
+        let found = null
+        let child = target.firstChild
+        while (child) {
+          if (child.name !== '[' && child.name !== ']' && child.name !== ',') {
+            if (idx === seg) {
+              found = child
+              break
+            }
+            idx++
+          }
+          child = child.nextSibling
+        }
+        if (!found) return null
+        target = found
+      }
+    }
+
+    if (target && (target.name === 'Object' || target.name === 'Array')) {
+      return { from: target.from + 1, to: target.to - 1 }
+    }
+    return null
+  } catch (e) {
+    return null
+  }
+}
+
+const foldPath = (path, isFolded) => {
+  if (!editorView) return
+  const isRoot = !path || path.length === 0
+  if (isRoot) {
+    isInternalFoldSync = true
+    try {
+      if (isFolded) {
+        foldAll(editorView)
+      } else {
+        unfoldAll(editorView)
+      }
+    } finally {
+      setTimeout(() => {
+        isInternalFoldSync = false
+      }, 50)
+    }
+    return
+  }
+
+  const range = findRangeForJsonPath(editorView.state, path)
+  if (!range) return
+  isInternalFoldSync = true
+  try {
+    if (isFolded) {
+      editorView.dispatch({
+        effects: foldEffect.of(range)
+      })
+    } else {
+      editorView.dispatch({
+        effects: unfoldEffect.of(range)
+      })
+    }
+  } finally {
+    setTimeout(() => {
+      isInternalFoldSync = false
+    }, 50)
+  }
+}
+
+const foldAllNodes = () => {
+  if (!editorView) return
+  isInternalFoldSync = true
+  try {
+    unfoldAll(editorView)
+
+    const state = editorView.state
+    const tree = syntaxTree(state)
+    let root = null
+    let c = tree.topNode.firstChild
+    while (c) {
+      if (c.name === 'Object' || c.name === 'Array') {
+        root = c
+        break
+      }
+      c = c.nextSibling
+    }
+
+    if (!root) {
+      foldAll(editorView)
+      return
+    }
+
+    const effects = []
+
+    const collectFoldableRanges = (node, depth = 0) => {
+      let child = node.firstChild
+      while (child) {
+        if (child.name === 'Property') {
+          let valNode = child.getChild('PropertyName')?.nextSibling
+          while (valNode && (valNode.name === ':' || valNode.name === ',')) {
+            valNode = valNode.nextSibling
+          }
+          if (valNode && (valNode.name === 'Object' || valNode.name === 'Array')) {
+            const startLine = state.doc.lineAt(valNode.from)
+            const endLine = state.doc.lineAt(valNode.to)
+            if (endLine.number > startLine.number) {
+              effects.push(foldEffect.of({ from: valNode.from + 1, to: valNode.to - 1 }))
+              collectFoldableRanges(valNode, depth + 1)
+            }
+          }
+        } else if (child.name === 'Object' || child.name === 'Array') {
+          if (depth > 0 || node === root) {
+            const startLine = state.doc.lineAt(child.from)
+            const endLine = state.doc.lineAt(child.to)
+            if (endLine.number > startLine.number) {
+              effects.push(foldEffect.of({ from: child.from + 1, to: child.to - 1 }))
+            }
+          }
+          collectFoldableRanges(child, depth + 1)
+        }
+        child = child.nextSibling
+      }
+    }
+
+    collectFoldableRanges(root, 0)
+
+    if (effects.length > 0) {
+      editorView.dispatch({ effects })
+    }
+  } catch (e) {
+    console.warn('foldAllNodes error:', e)
+  } finally {
+    setTimeout(() => {
+      isInternalFoldSync = false
+    }, 50)
+  }
+}
+
+const unfoldAllNodes = () => {
+  if (!editorView) return
+  isInternalFoldSync = true
+  try {
+    unfoldAll(editorView)
+  } finally {
+    setTimeout(() => {
+      isInternalFoldSync = false
+    }, 50)
+  }
+}
+
+watch(treeExpanded, (val) => {
+  if (val) {
+    unfoldAllNodes()
+  } else {
+    foldAllNodes()
+  }
+})
+
 defineExpose({
   scrollToLine,
   scrollToTop,
@@ -1011,6 +1351,9 @@ defineExpose({
   replaceAll: doReplaceAll,
   goToMatch,
   syncSearchQuery,
+  foldPath,
+  foldAll: foldAllNodes,
+  unfoldAll: unfoldAllNodes,
   getEditorView: () => editorView,
   getScrollDOM: () => editorView?.scrollDOM
 })
@@ -1045,6 +1388,90 @@ onBeforeUnmount(() => {
 :deep(.cm-editor) {
   height: 100%;
   outline: none !important;
+}
+
+:deep(.cm-line:hover) {
+  background-color: var(--bg-hover, rgba(255, 255, 255, 0.03));
+}
+
+:deep(.cm-lineNumbers) {
+  min-width: 28px !important;
+}
+
+:deep(.cm-lineNumbers .cm-gutterElement) {
+  min-width: 20px !important;
+  text-align: right !important;
+  padding: 0 5px 0 3px !important;
+  box-sizing: border-box !important;
+  transition: color 0.12s ease !important;
+}
+
+:deep(.cm-lineNumbers .cm-gutterElement.cm-activeLineGutter) {
+  font-size: 1.05em !important;
+  font-weight: 600 !important;
+}
+
+:deep(.cm-foldGutter) {
+  width: 14px !important;
+}
+
+:deep(.cm-foldGutter .cm-gutterElement) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
+  cursor: pointer !important;
+  color: var(--text-muted, #94a3b8) !important;
+  transition: color 0.15s ease !important;
+}
+
+:deep(.cm-foldGutter .cm-gutterElement:hover) {
+  color: var(--text-primary, #0f172a) !important;
+}
+
+:deep(.cm-custom-fold-marker) {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 11px !important;
+  height: 11px !important;
+}
+
+:deep(.cm-custom-fold-marker svg) {
+  width: 11px !important;
+  height: 11px !important;
+  display: block !important;
+}
+
+:deep(.cm-foldPlaceholder) {
+  background-color: rgba(0, 0, 0, 0.05) !important;
+  border: none !important;
+  color: var(--text-muted, #94a3b8) !important;
+  border-radius: 3px !important;
+  margin: 0 2px !important;
+  padding: 0 4px !important;
+  cursor: pointer !important;
+  font-size: 0.85em !important;
+  user-select: none !important;
+  transition: all 0.15s ease !important;
+}
+
+:deep(.cm-foldPlaceholder:hover) {
+  background-color: rgba(0, 0, 0, 0.1) !important;
+  color: var(--text-primary, #0f172a) !important;
+}
+
+:global(.dark-mode) :deep(.cm-foldPlaceholder),
+:deep(.dark-mode .cm-foldPlaceholder) {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  border: none !important;
+  color: var(--text-muted, #94a3b8) !important;
+}
+
+:global(.dark-mode) :deep(.cm-foldPlaceholder:hover),
+:deep(.dark-mode .cm-foldPlaceholder:hover) {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  color: #e2e8f0 !important;
 }
 
 /* Floating Copy Selection Pill */

@@ -1,9 +1,12 @@
 /**
  * jsonPathRange.js - 快速精确计算指定 JSON 路径在原始文本中的字符起止偏移量 [start, end]
- * 用于点击路径面包屑时自动在编辑器中选中整个对应的 JSON 区域
+ * 支持指定目标类型 (type: 'key' | 'value' | 'all')：
+ * - 'key': 仅选中键名（例如 `"primaryColor"`）
+ * - 'value': 仅选中键值（例如 `"#6366f1"` 或 `{ ... }` / `[ ... ]`）
+ * - 'all': 选中整个键值对（例如 `"primaryColor": "#6366f1"`）或对象/数组
  */
 
-export function getJsonPathRange(text, targetPath) {
+export function getJsonPathRange(text, targetPath, type = 'all') {
   if (!text || typeof text !== 'string') return null
   if (!targetPath || !Array.isArray(targetPath) || targetPath.length === 0) {
     return { start: 0, end: text.length }
@@ -101,7 +104,13 @@ export function getJsonPathRange(text, targetPath) {
         const propEnd = valInfo ? valInfo.end : i
 
         if (isTarget) {
-          matchedResult = { start: propStart, end: propEnd }
+          if (type === 'key') {
+            matchedResult = { start: keyInfo.start, end: keyInfo.end }
+          } else if (type === 'value') {
+            matchedResult = valInfo ? { start: valInfo.start, end: valInfo.end } : { start: propStart, end: propEnd }
+          } else {
+            matchedResult = { start: propStart, end: propEnd }
+          }
         } else if (valInfo && valInfo.isMatch) {
           matchedResult = valInfo
         }
@@ -144,7 +153,13 @@ export function getJsonPathRange(text, targetPath) {
         const elemEnd = valInfo ? valInfo.end : i
 
         if (isTarget) {
-          matchedResult = { start: elemStart, end: elemEnd }
+          if (type === 'key') {
+            matchedResult = { start: elemStart, end: elemEnd }
+          } else if (type === 'value') {
+            matchedResult = valInfo ? { start: valInfo.start, end: valInfo.end } : { start: elemStart, end: elemEnd }
+          } else {
+            matchedResult = { start: elemStart, end: elemEnd }
+          }
         } else if (valInfo && valInfo.isMatch) {
           matchedResult = valInfo
         }

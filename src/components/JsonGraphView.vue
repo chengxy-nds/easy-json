@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch, inject } from 'vue'
 import { ExternalLink, Image as ImageIcon, Table, GitFork, Copy, ArrowLeft, Minus, Plus, Map as MapIcon } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
-import { isImageUrl, isHttpUrl, openExternalUrl } from '../utils/imageDetector.js'
+import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
 
 const searchQuery = inject('searchQuery', ref(''))
 const imagePreview = inject('imagePreview', null)
@@ -48,8 +48,9 @@ const handleCopyColumn = (arr, colKey) => {
   })
 }
 
-const isImg = (v) => typeof v === 'string' && isImageUrl(v)
-const isHttpLink = (v) => typeof v === 'string' && !isImg(v) && isHttpUrl(v)
+const isColor = (v) => typeof v === 'string' && isColorValue(v)
+const isImg = (v) => typeof v === 'string' && !isColor(v) && isImageUrl(v)
+const isHttpLink = (v) => typeof v === 'string' && !isColor(v) && !isImg(v) && isHttpUrl(v)
 
 const handleOpenUrl = (url) => {
   openExternalUrl(url)
@@ -87,8 +88,8 @@ const props = defineProps({
 
 const emit = defineEmits(['hover-path', 'click-path'])
 
-const emitClick = (path) => {
-  emit('click-path', path)
+const emitClick = (path, type = 'all') => {
+  emit('click-path', path, type)
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -215,7 +216,7 @@ const layout = computed(() => {
             if (prev.length > maxLen) maxLen = prev.length
           }
         })
-        const hasImgOrUrl = currentObj.some(item => isImg(item?.[col]) || isHttpLink(item?.[col]))
+        const hasImgOrUrl = currentObj.some(item => isColor(item?.[col]) || isImg(item?.[col]) || isHttpLink(item?.[col]))
         const extraIconW = (hasImgOrUrl ? 22 : 0) + 24
         colWidths[col] = Math.max(84, Math.min(300, Math.round(maxLen * 7.5 + 20 + extraIconW)))
       })
@@ -646,13 +647,50 @@ watch(selectedPath, (newPath) => {
   }
 })
 
-// ─── Hover synchronization helpers ───────────────────────────────────────────
+// ─── Selected & Hover synchronization helpers ─────────────────────────────────
+const selectedType = inject('selectedType', ref('all'))
+
+const isKeySelected = (path) => {
+  if (selectedType.value === 'value') return false
+  const cur = selectedPath.value
+  if (!cur || !path || path.length !== cur.length) return false
+  return path.every((v, i) => String(v) === String(cur[i]))
+}
+
+const isValSelected = (path) => {
+  if (selectedType.value === 'key') return false
+  const cur = selectedPath.value
+  if (!cur || !path || path.length !== cur.length) return false
+  return path.every((v, i) => String(v) === String(cur[i]))
+}
+
+const isColSelected = (col, parentPath = []) => {
+  if (selectedType.value === 'value') return false
+  const cur = selectedPath.value
+  if (!cur || cur.length < 2) return false
+  if (cur.length !== parentPath.length + 2) return false
+  for (let i = 0; i < parentPath.length; i++) {
+    if (String(cur[i]) !== String(parentPath[i])) return false
+  }
+  return String(cur[cur.length - 1]) === String(col)
+}
+
+const isColHovered = (col, parentPath = []) => {
+  const cur = props.hoveredPath
+  if (!cur || cur.length < 2) return false
+  if (cur.length !== parentPath.length + 2) return false
+  for (let i = 0; i < parentPath.length; i++) {
+    if (String(cur[i]) !== String(parentPath[i])) return false
+  }
+  return String(cur[cur.length - 1]) === String(col)
+}
+
 const emitHover = (path) => {
   emit('hover-path', path)
 }
 
 const isPathHovered = (path) => {
-  const current = props.hoveredPath || selectedPath.value
+  const current = props.hoveredPath
   if (!current || !path || path.length === 0 || path.length > current.length) return false
   return path.every((v, i) => String(v) === String(current[i]))
 }
@@ -890,15 +928,20 @@ const startMinimapDrag = (e) => {
                     v-for="col in node.columns"
                     :key="col"
                     class="tbl-th"
+                    :class="{
+                      'is-selected': isColSelected(col, node.path),
+                      'is-hovered': isColHovered(col, node.path)
+                    }"
                     :style="{ width: node.colWidths[col] + 'px', minWidth: node.colWidths[col] + 'px', maxWidth: node.colWidths[col] + 'px' }"
-                    @click.stop="handleCopyKey(col); emitClick([...node.path, col])"
-                    @mouseenter="emitHover([...node.path, col])"
+                    @click.stop="emitClick([...node.path, 0, col], 'key')"
+                    @mouseenter="emitHover([...node.path, 0, col])"
                     @mouseleave="emitHover(null)"
                   >
                     <div class="tbl-th-content">
                       <span
                         class="tbl-th-text"
                         data-tooltip="点击复制键名"
+                        @click.stop="handleCopyKey(col); emitClick([...node.path, 0, col], 'key')"
                         v-html="highlightText(col, searchQuery)"
                       ></span>
                       <button
@@ -923,12 +966,20 @@ const startMinimapDrag = (e) => {
                   <!-- Row Index -->
                   <td
                     class="tbl-td tbl-td--index"
+                    :class="{
+                      'is-selected': isKeySelected(row.path),
+                      'is-hovered': isPathHovered(row.path)
+                    }"
                     :style="{ width: node.indexColW + 'px', minWidth: node.indexColW + 'px', maxWidth: node.indexColW + 'px' }"
-                    @click.stop="handleCopyKey(row.rowIdx); emitClick(row.path)"
+                    @click.stop="emitClick(row.path, 'key')"
                     @mouseenter="emitHover(row.path)"
                     @mouseleave="emitHover(null)"
                   >
-                    <span class="tbl-index-text" data-tooltip="点击复制行号">{{ row.rowIdx }}</span>
+                    <span
+                      class="tbl-index-text"
+                      data-tooltip="点击复制行号"
+                      @click.stop="handleCopyKey(row.rowIdx); emitClick(row.path, 'key')"
+                    >{{ row.rowIdx }}</span>
                   </td>
 
                   <!-- Data Cells -->
@@ -937,18 +988,26 @@ const startMinimapDrag = (e) => {
                     :key="cell.col"
                     class="tbl-td"
                     :class="{
+                      'is-selected': isValSelected(cell.path),
                       'is-hovered': isPathHovered(cell.path),
                       'tbl-td--complex': cell.isComplex
                     }"
                     :style="{ width: node.colWidths[cell.col] + 'px', minWidth: node.colWidths[cell.col] + 'px', maxWidth: node.colWidths[cell.col] + 'px' }"
-                    @click.stop="handleCopyValue(cell.value); emitClick(cell.path)"
+                    @click.stop="emitClick(cell.path, 'value')"
                     @mouseenter="emitHover(cell.path)"
                     @mouseleave="emitHover(null)"
                   >
                     <div class="tbl-cell-content">
                       <template v-if="cell.value !== undefined && cell.value !== null">
                         <span
-                          v-if="isImg(cell.value)"
+                          v-if="isColor(cell.value)"
+                          class="graph-color-badge"
+                          :title="`颜色值: ${cell.value}`"
+                        >
+                          <span class="graph-color-chip-inner" :style="{ backgroundColor: cell.value }"></span>
+                        </span>
+                        <span
+                          v-else-if="isImg(cell.value)"
                           class="graph-img-badge"
                           @mouseenter="(e) => onValMouseEnter(cell.value, e)"
                           @mouseleave="() => onValMouseLeave(cell.value)"
@@ -972,7 +1031,8 @@ const startMinimapDrag = (e) => {
                           ]"
                           @mouseenter="(e) => onValMouseEnter(cell.value, e)"
                           @mouseleave="() => onValMouseLeave(cell.value)"
-                          :data-tooltip="isImg(cell.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(cell.value) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
+                          @click.stop="handleCopyValue(cell.value); emitClick(cell.path, 'value')"
+                          :data-tooltip="isImg(cell.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(cell.value) ? '点击复制键值，点击左侧图标可直接打开' : (isColor(cell.value) ? `颜色: ${cell.value}，点击复制键值` : '点击复制键值'))"
                           v-html="highlightText(cell.preview, searchQuery)"
                         ></span>
                       </template>
@@ -1016,22 +1076,39 @@ const startMinimapDrag = (e) => {
           >
             <span
               class="card-key node-key"
-              :class="{ 'card-key--index': node.isArray, 'root-key--complex': entry.isComplex }"
+              :class="{
+                'is-selected': isKeySelected(getEntryPath(node, entry)),
+                'is-hovered': isPathHovered(getEntryPath(node, entry)),
+                'card-key--index': node.isArray,
+                'root-key--complex': entry.isComplex
+              }"
               :style="node.isArray ? {} : { width: node.keyW + 'px', minWidth: node.keyW + 'px', maxWidth: node.keyW + 'px' }"
-              @click.stop="handleCopyKey(entry.key); emitClick(getEntryPath(node, entry))"
+              @click.stop="emitClick(getEntryPath(node, entry), 'key')"
             >
               <span
                 class="card-key-text"
                 data-tooltip="点击复制键名"
+                @click.stop="handleCopyKey(entry.key); emitClick(getEntryPath(node, entry), 'key')"
                 v-html="highlightText(entry.key, searchQuery)"
               ></span>
             </span>
             <span
               class="card-val"
-              @click.stop="handleCopyValue(entry.value); emitClick(getEntryPath(node, entry))"
+              :class="{
+                'is-selected': isValSelected(getEntryPath(node, entry)),
+                'is-hovered': isPathHovered(getEntryPath(node, entry))
+              }"
+              @click.stop="emitClick(getEntryPath(node, entry), 'value')"
             >
               <span
-                v-if="isImg(entry.value)"
+                v-if="isColor(entry.value)"
+                class="graph-color-badge"
+                :title="`颜色值: ${entry.value}`"
+              >
+                <span class="graph-color-chip-inner" :style="{ backgroundColor: entry.value }"></span>
+              </span>
+              <span
+                v-else-if="isImg(entry.value)"
                 class="graph-img-badge"
                 @mouseenter="(e) => onValMouseEnter(entry.value, e)"
                 @mouseleave="() => onValMouseLeave(entry.value)"
@@ -1055,7 +1132,7 @@ const startMinimapDrag = (e) => {
                 ]"
                 @mouseenter="(e) => onValMouseEnter(entry.value, e)"
                 @mouseleave="() => onValMouseLeave(entry.value)"
-                :data-tooltip="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
+                :data-tooltip="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : (isColor(entry.value) ? `颜色: ${entry.value}，点击复制键值` : '点击复制键值'))"
                 v-html="highlightText(entry.preview, searchQuery)"
               ></span>
             </span>
@@ -1413,6 +1490,48 @@ const startMinimapDrag = (e) => {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.08));
 }
 
+/* ── Selected & Hover Highlight for Table Headers, Table Cells, and Card Keys/Values ── */
+.tbl-th.is-selected,
+.tbl-td--index.is-selected,
+.card-key.is-selected {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
+  color: var(--json-key, #4f46e5) !important;
+  font-weight: 700 !important;
+  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+}
+
+:global(.dark-mode) .tbl-th.is-selected,
+:global(.dark-mode) .tbl-td--index.is-selected,
+:global(.dark-mode) .card-key.is-selected {
+  background-color: rgba(97, 175, 239, 0.32) !important;
+  color: #61afef !important;
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
+}
+
+.tbl-td:not(.tbl-td--complex).is-selected,
+.card-val.is-selected {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
+  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+}
+
+:global(.dark-mode) .tbl-td:not(.tbl-td--complex).is-selected,
+:global(.dark-mode) .card-val.is-selected {
+  background-color: rgba(97, 175, 239, 0.32) !important;
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
+}
+
+.tbl-th.is-hovered,
+.tbl-td--index.is-hovered,
+.card-key.is-hovered {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.12)) !important;
+  color: var(--json-key) !important;
+}
+
+.tbl-td:not(.tbl-td--complex).is-hovered {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.12)) !important;
+  box-shadow: inset 0 0 0 1px var(--json-key, #6366f1);
+}
+
 .tbl-th--index {
   text-align: center;
   color: var(--text-secondary);
@@ -1743,6 +1862,47 @@ const startMinimapDrag = (e) => {
   text-decoration: underline dotted var(--accent-color, #6366f1) !important;
   text-underline-offset: 2px;
   cursor: pointer;
+}
+
+.graph-color-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-right: 4px;
+  vertical-align: -1.5px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
+                    linear-gradient(-45deg, #ccc 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #ccc 75%),
+                    linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-size: 6px 6px;
+  background-position: 0 0, 0 3px, 3px -3px, -3px 0px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.graph-color-badge:hover {
+  transform: scale(1.25);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+.graph-color-chip-inner {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+:global(.dark-mode) .graph-color-badge {
+  border-color: rgba(255, 255, 255, 0.3);
+  background-image: linear-gradient(45deg, #555 25%, transparent 25%),
+                    linear-gradient(-45deg, #555 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #555 75%),
+                    linear-gradient(-45deg, transparent 75%, #555 75%);
 }
 
 .graph-img-badge {

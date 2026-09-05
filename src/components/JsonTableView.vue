@@ -2,7 +2,7 @@
 import { ref, computed, watch, inject } from 'vue'
 import { ExternalLink, Copy, Image as ImageIcon } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
-import { isImageUrl, isHttpUrl, openExternalUrl } from '../utils/imageDetector.js'
+import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
 
 const searchQuery = inject('searchQuery', ref(''))
 const imagePreview = inject('imagePreview', null)
@@ -18,17 +18,11 @@ const handleCopyKey = (key) => {
 }
 
 const handleCopyValue = (val) => {
-  let text = ''
-  if (typeof val === 'object' && val !== null) {
-    text = safeStringify(val, null, 2)
-  } else {
-    text = typeof val === 'string' ? val : String(val ?? '')
-  }
-
-  navigator.clipboard.writeText(text).then(() => {
+  if (val === null || val === undefined) return
+  const str = typeof val === 'object' ? safeStringify(val, null, 2) : String(val)
+  navigator.clipboard.writeText(str).then(() => {
     if (showToast) {
-      const truncated = text.length > 20 ? text.substring(0, 20) + '...' : text
-      showToast(`已复制键值: ${truncated}`)
+      showToast(`已复制键值: ${str.length > 30 ? str.slice(0, 30) + '...' : str}`)
     }
   })
 }
@@ -57,8 +51,9 @@ const handleCopyColumn = (arr, colKey) => {
   })
 }
 
-const isImg = (v) => typeof v === 'string' && isImageUrl(v)
-const isHttpLink = (v) => typeof v === 'string' && !isImg(v) && isHttpUrl(v)
+const isColor = (v) => typeof v === 'string' && isColorValue(v)
+const isImg = (v) => typeof v === 'string' && !isColor(v) && isImageUrl(v)
+const isHttpLink = (v) => typeof v === 'string' && !isColor(v) && !isImg(v) && isHttpUrl(v)
 
 const handleOpenUrl = (url) => {
   openExternalUrl(url)
@@ -211,6 +206,29 @@ const isValSelected = (path) => {
   const cur = currentSelectedPath.value
   if (!cur || target.length !== cur.length) return false
   return target.every((v, i) => String(v) === String(cur[i]))
+}
+
+const isColSelected = (col, parentPath = []) => {
+  if (injectedSelectedType.value === 'value') return false
+  const cur = currentSelectedPath.value
+  if (!cur || cur.length < 2) return false
+  const fullParent = getFullPath(parentPath)
+  if (cur.length !== fullParent.length + 2) return false
+  for (let i = 0; i < fullParent.length; i++) {
+    if (String(cur[i]) !== String(fullParent[i])) return false
+  }
+  return String(cur[cur.length - 1]) === String(col)
+}
+
+const isColHovered = (col, parentPath = []) => {
+  const cur = props.hoveredPath
+  if (!cur || cur.length < 2) return false
+  const fullParent = getFullPath(parentPath)
+  if (cur.length !== fullParent.length + 2) return false
+  for (let i = 0; i < fullParent.length; i++) {
+    if (String(cur[i]) !== String(fullParent[i])) return false
+  }
+  return String(cur[cur.length - 1]) === String(col)
 }
 
 const isPathHovered = (path) => {
@@ -367,15 +385,19 @@ const rootTableStyles = computed(() => {
             v-for="col in rootDirectColumns"
             :key="col"
             class="grid-col-header"
-            @click.stop="emitClick([col])"
-            @mouseenter.stop="emitHover([col])"
+            :class="{
+              'is-selected': isColSelected(col, []),
+              'is-hovered': isColHovered(col, [])
+            }"
+            @click.stop="emitClick([0, col], 'key')"
+            @mouseenter.stop="emitHover([0, col])"
             @mouseleave.stop="emitHover(null)"
           >
             <div class="grid-th-content">
               <span
                 class="grid-col-header-text"
                 data-tooltip="点击复制键名"
-                @click.stop="handleCopyKey(col); emitClick([col])"
+                @click.stop="handleCopyKey(col); emitClick([0, col], 'key')"
                 v-html="highlightText(col, searchQuery)"
               ></span>
               <button
@@ -400,7 +422,7 @@ const rootTableStyles = computed(() => {
           <td
             class="grid-index-cell"
             :class="{ 'is-selected': isKeySelected([idx]) }"
-            @click.stop="handleCopyKey(idx); emitClick([idx], 'key')"
+            @click.stop="emitClick([idx], 'key')"
             @mouseenter.stop="emitHover([idx])"
             @mouseleave.stop="emitHover(null)"
           >
@@ -431,7 +453,12 @@ const rootTableStyles = computed(() => {
               <!-- Primitive value in 2D grid -->
               <div v-if="isPrimitive(item[col])" class="val-primitive-wrap">
                 <span
-                  v-if="isImg(item[col])"
+                  v-if="isColor(item[col])"
+                  class="table-color-badge"
+                  :title="`颜色值: ${item[col]}`"
+                ><span class="table-color-chip-inner" :style="{ backgroundColor: item[col] }"></span></span>
+                <span
+                  v-else-if="isImg(item[col])"
                   class="table-img-badge"
                   @mouseenter="(e) => onValMouseEnter(item[col], e)"
                   @mouseleave="() => onValMouseLeave(item[col])"
@@ -449,7 +476,7 @@ const rootTableStyles = computed(() => {
                   :class="[getValueColorClass(getValueType(item[col])), 'copyable-val', { 'is-image-url': isImg(item[col]), 'is-web-url': isHttpLink(item[col]) }]"
                   @mouseenter="(e) => onValMouseEnter(item[col], e)"
                   @mouseleave="() => onValMouseLeave(item[col])"
-                  @click.stop="handleCopyValue(item[col]); emitClick([idx, col])"
+                  @click.stop="handleCopyValue(item[col]); emitClick([idx, col], 'value')"
                   :data-tooltip="getValTooltip(item[col])"
                   v-html="highlightText(getPreview(item[col]), searchQuery)"
                 ></span>
@@ -538,7 +565,12 @@ const rootTableStyles = computed(() => {
             <!-- 2.1 基础单值属性 (Primitive Value) -->
             <div v-if="isPrimitive(entry.value)" class="val-primitive-wrap">
               <span
-                v-if="isImg(entry.value)"
+                v-if="isColor(entry.value)"
+                class="table-color-badge"
+                :title="`颜色值: ${entry.value}`"
+              ><span class="table-color-chip-inner" :style="{ backgroundColor: entry.value }"></span></span>
+              <span
+                v-else-if="isImg(entry.value)"
                 class="table-img-badge"
                 @mouseenter="(e) => onValMouseEnter(entry.value, e)"
                 @mouseleave="() => onValMouseLeave(entry.value)"
@@ -556,7 +588,7 @@ const rootTableStyles = computed(() => {
                 :class="[getValueColorClass(getValueType(entry.value)), 'copyable-val', { 'is-image-url': isImg(entry.value), 'is-web-url': isHttpLink(entry.value) }]"
                 @mouseenter="(e) => onValMouseEnter(entry.value, e)"
                 @mouseleave="() => onValMouseLeave(entry.value)"
-                @click.stop="handleCopyValue(entry.value); emitClick([entry.isIndex ? Number(entry.key) : entry.key])"
+                @click.stop="handleCopyValue(entry.value); emitClick([entry.isIndex ? Number(entry.key) : entry.key], 'value')"
                 :data-tooltip="getValTooltip(entry.value)"
                 v-html="highlightText(getPreview(entry.value), searchQuery)"
               ></span>
@@ -592,15 +624,19 @@ const rootTableStyles = computed(() => {
                         v-for="col in getColumnsFromObjectArray(entry.value)"
                         :key="col"
                         class="inner-grid-th"
-                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, col])"
-                        @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, col])"
+                        :class="{
+                          'is-selected': isColSelected(col, [entry.isIndex ? Number(entry.key) : entry.key]),
+                          'is-hovered': isColHovered(col, [entry.isIndex ? Number(entry.key) : entry.key])
+                        }"
+                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, 0, col], 'key')"
+                        @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, 0, col])"
                         @mouseleave.stop="emitHover(null)"
                       >
                         <div class="grid-th-content">
                           <span
                             class="grid-col-header-text"
                             data-tooltip="点击复制键名"
-                            @click.stop="handleCopyKey(col); emitClick([entry.isIndex ? Number(entry.key) : entry.key, col])"
+                            @click.stop="handleCopyKey(col); emitClick([entry.isIndex ? Number(entry.key) : entry.key, 0, col], 'key')"
                             v-html="highlightText(col, searchQuery)"
                           ></span>
                           <button
@@ -638,7 +674,12 @@ const rootTableStyles = computed(() => {
                         <template v-if="subObj && subObj[col] !== undefined">
                           <div v-if="isPrimitive(subObj[col])" class="val-primitive-wrap">
                             <span
-                              v-if="isImg(subObj[col])"
+                              v-if="isColor(subObj[col])"
+                              class="table-color-badge"
+                              :title="`颜色值: ${subObj[col]}`"
+                            ><span class="table-color-chip-inner" :style="{ backgroundColor: subObj[col] }"></span></span>
+                            <span
+                              v-else-if="isImg(subObj[col])"
                               class="table-img-badge"
                               @mouseenter="(e) => onValMouseEnter(subObj[col], e)"
                               @mouseleave="() => onValMouseLeave(subObj[col])"
@@ -656,7 +697,7 @@ const rootTableStyles = computed(() => {
                               :class="[getValueColorClass(getValueType(subObj[col])), 'copyable-val', { 'is-image-url': isImg(subObj[col]), 'is-web-url': isHttpLink(subObj[col]) }]"
                               @mouseenter="(e) => onValMouseEnter(subObj[col], e)"
                               @mouseleave="() => onValMouseLeave(subObj[col])"
-                              @click.stop="handleCopyValue(subObj[col]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                              @click.stop="handleCopyValue(subObj[col]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], 'value')"
                               :data-tooltip="getValTooltip(subObj[col])"
                               v-html="highlightText(getPreview(subObj[col]), searchQuery)"
                             ></span>
@@ -747,7 +788,12 @@ const rootTableStyles = computed(() => {
                       >
                         <div v-if="isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1])" class="val-primitive-wrap">
                           <span
-                            v-if="isImg(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-if="isColor(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="table-color-badge"
+                            :title="`颜色值: ${Array.isArray(entry.value) ? subVal : subVal[1]}`"
+                          ><span class="table-color-chip-inner" :style="{ backgroundColor: Array.isArray(entry.value) ? subVal : subVal[1] }"></span></span>
+                          <span
+                            v-else-if="isImg(Array.isArray(entry.value) ? subVal : subVal[1])"
                             class="table-img-badge"
                             @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
                             @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
@@ -765,7 +811,7 @@ const rootTableStyles = computed(() => {
                             :class="[getValueColorClass(getValueType(Array.isArray(entry.value) ? subVal : subVal[1])), 'copyable-val', { 'is-image-url': isImg(Array.isArray(entry.value) ? subVal : subVal[1]), 'is-web-url': isHttpLink(Array.isArray(entry.value) ? subVal : subVal[1]) }]"
                             @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
                             @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
-                            @click.stop="handleCopyValue(Array.isArray(entry.value) ? subVal : subVal[1]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                            @click.stop="handleCopyValue(Array.isArray(entry.value) ? subVal : subVal[1]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'value')"
                             :data-tooltip="getValTooltip(Array.isArray(entry.value) ? subVal : subVal[1])"
                             v-html="highlightText(getPreview(Array.isArray(entry.value) ? subVal : subVal[1]), searchQuery)"
                           ></span>
@@ -1266,7 +1312,10 @@ const rootTableStyles = computed(() => {
 .grid-col-header:hover,
 .inner-grid-th:hover,
 .root-key-cell.is-hovered,
-.inner-key-cell.is-hovered {
+.inner-key-cell.is-hovered,
+.grid-index-cell.is-hovered,
+.grid-col-header.is-hovered,
+.inner-grid-th.is-hovered {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.14)) !important;
   color: var(--json-key) !important;
 }
@@ -1284,7 +1333,9 @@ const rootTableStyles = computed(() => {
 /* ── Selected Cell Highlight (Single Focus Cell Only) ── */
 .root-key-cell.is-selected,
 .inner-key-cell.is-selected,
-.grid-index-cell.is-selected {
+.grid-index-cell.is-selected,
+.grid-col-header.is-selected,
+.inner-grid-th.is-selected {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
   color: var(--json-key, #4f46e5) !important;
   font-weight: 700 !important;
@@ -1293,7 +1344,9 @@ const rootTableStyles = computed(() => {
 
 :global(.dark-mode) .root-key-cell.is-selected,
 :global(.dark-mode) .inner-key-cell.is-selected,
-:global(.dark-mode) .grid-index-cell.is-selected {
+:global(.dark-mode) .grid-index-cell.is-selected,
+:global(.dark-mode) .grid-col-header.is-selected,
+:global(.dark-mode) .inner-grid-th.is-selected {
   background-color: rgba(97, 175, 239, 0.32) !important;
   color: #61afef !important;
   box-shadow: inset 0 0 0 1.5px #61afef !important;
@@ -1372,6 +1425,50 @@ const rootTableStyles = computed(() => {
 .is-web-url {
   text-decoration: underline dotted var(--text-secondary, #9ca3af) !important;
   text-underline-offset: 3px;
+}
+
+.table-color-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(12px * var(--table-scale, 0.9));
+  height: calc(12px * var(--table-scale, 0.9));
+  margin-right: 4px;
+  vertical-align: -1.5px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
+                    linear-gradient(-45deg, #ccc 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #ccc 75%),
+                    linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-size: 6px 6px;
+  background-position: 0 0, 0 3px, 3px -3px, -3px 0px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.table-color-badge:hover {
+  transform: scale(1.25);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.table-color-chip-inner {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+
+:global(.dark-mode) .table-color-badge {
+  border-color: rgba(255, 255, 255, 0.3);
+  background-image: linear-gradient(45deg, #555 25%, transparent 25%),
+                    linear-gradient(-45deg, #555 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #555 75%),
+                    linear-gradient(-45deg, transparent 75%, #555 75%);
 }
 
 .table-img-badge {

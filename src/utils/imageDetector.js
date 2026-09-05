@@ -37,6 +37,22 @@ export function isImageUrl(val) {
   return false
 }
 
+// 常见颜色格式识别 (Hex, RGB, RGBA, HSL, HSLA)
+const COLOR_HEX_RE = /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+const COLOR_FUNC_RE = /^(rgba?|hsla?)\(\s*[\d.%\s,/-]+\s*\)$/i
+
+/**
+ * 判断一个字符串是否是有效的 CSS 颜色值 (Hex, rgb, rgba, hsl, hsla)
+ * @param {any} val
+ * @returns {boolean}
+ */
+export function isColorValue(val) {
+  if (typeof val !== 'string') return false
+  const trimmed = val.trim()
+  if (trimmed.length < 4 || trimmed.length > 40) return false
+  return COLOR_HEX_RE.test(trimmed) || COLOR_FUNC_RE.test(trimmed)
+}
+
 /**
  * 判断是否为非图片的通用 HTTP/HTTPS 链接（如文件下载、API、网页链接等）
  * @param {any} val

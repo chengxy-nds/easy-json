@@ -2,7 +2,7 @@
 import { ref, computed, watch, inject, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ChevronDown, ChevronRight, ExternalLink, Image as ImageIcon } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
-import { isImageUrl, isHttpUrl, openExternalUrl } from '../utils/imageDetector.js'
+import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
 
 const props = defineProps({
   data: {
@@ -18,7 +18,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['scroll', 'hover-path', 'click-path'])
+const emit = defineEmits(['scroll', 'hover-path', 'click-path', 'toggle-fold'])
 
 // Injected properties
 const treeExpanded = inject('treeExpanded', ref(true))
@@ -69,18 +69,79 @@ const isNodeExpanded = (id, depth) => {
   return expandedKeys.value.has(id)
 }
 
-const toggleNode = (id, depth) => {
-  if (treeExpanded.value) {
-    if (collapsedKeys.value.has(id)) {
-      collapsedKeys.value.delete(id)
+const toggleNode = (id, depth, path) => {
+  const isRoot = !path || path.length === 0 || id === 'root'
+  let isNowFolded = false
+  if (isRoot) {
+    if (treeExpanded.value) {
+      if (collapsedKeys.value.has('root')) {
+        collapsedKeys.value.clear()
+        isNowFolded = false
+      } else {
+        collapsedKeys.value.add('root')
+        isNowFolded = true
+      }
     } else {
-      collapsedKeys.value.add(id)
+      if (expandedKeys.value.has('root')) {
+        expandedKeys.value.clear()
+        isNowFolded = true
+      } else {
+        expandedKeys.value.clear()
+        collapsedKeys.value.clear()
+        treeExpanded.value = true
+        isNowFolded = false
+      }
     }
   } else {
-    if (expandedKeys.value.has(id)) {
-      expandedKeys.value.delete(id)
+    if (treeExpanded.value) {
+      if (collapsedKeys.value.has(id)) {
+        collapsedKeys.value.delete(id)
+        isNowFolded = false
+      } else {
+        collapsedKeys.value.add(id)
+        isNowFolded = true
+      }
     } else {
-      expandedKeys.value.add(id)
+      if (expandedKeys.value.has(id)) {
+        expandedKeys.value.delete(id)
+        isNowFolded = true
+      } else {
+        expandedKeys.value.add(id)
+        isNowFolded = false
+      }
+    }
+  }
+  emit('toggle-fold', { path: path || [], isFolded: isNowFolded })
+}
+
+const setNodeFold = (path, isFolded) => {
+  const isRoot = !path || path.length === 0
+  const id = getPathId(path)
+  if (isRoot) {
+    if (isFolded) {
+      if (treeExpanded.value) {
+        collapsedKeys.value.add('root')
+      } else {
+        expandedKeys.value.clear()
+      }
+    } else {
+      collapsedKeys.value.clear()
+      expandedKeys.value.clear()
+      treeExpanded.value = true
+    }
+  } else {
+    if (treeExpanded.value) {
+      if (isFolded) {
+        collapsedKeys.value.add(id)
+      } else {
+        collapsedKeys.value.delete(id)
+      }
+    } else {
+      if (isFolded) {
+        expandedKeys.value.delete(id)
+      } else {
+        expandedKeys.value.add(id)
+      }
     }
   }
 }
@@ -141,8 +202,9 @@ const flatRows = computed(() => {
       }
     } else {
       // Primitive value row
-      const isImg = typeof val === 'string' && isImageUrl(val)
-      const isUrl = typeof val === 'string' && !isImg && isHttpUrl(val)
+      const isColor = typeof val === 'string' && isColorValue(val)
+      const isImg = typeof val === 'string' && !isColor && isImageUrl(val)
+      const isUrl = typeof val === 'string' && !isColor && !isImg && isHttpUrl(val)
 
       let valClass = ''
       if (typeof val === 'string') valClass = 'tree-string'
@@ -157,6 +219,7 @@ const flatRows = computed(() => {
         name,
         value: val,
         type: 'primitive',
+        isColorValue: isColor,
         isImageValue: isImg,
         isOtherUrlValue: isUrl,
         valueClass: valClass,
@@ -200,15 +263,15 @@ const recalculateMaxLineWidth = () => {
 
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]
-    const depthW = r.depth * 18 + 48
-    const nameW = r.name ? String(r.name).length * charWidth + 20 : 0
+    const depthW = r.depth * 14 + 32
+    const nameW = r.name ? String(r.name).length * charWidth + 16 : 0
     let valW = 0
     if (r.value !== null && r.value !== undefined) {
-      valW = String(r.value).length * charWidth + 24
+      valW = String(r.value).length * charWidth + 20
     } else if (r.type === 'object' || r.type === 'array') {
-      valW = 120
+      valW = 100
     }
-    const totalW = depthW + nameW + valW + 40
+    const totalW = depthW + nameW + valW + 30
     if (totalW > maxW) maxW = totalW
   }
   maxLineWidth.value = Math.ceil(maxW)
@@ -235,7 +298,7 @@ const estimateRowHeight = (row) => {
     const nameLen = row.name ? String(row.name).length + 3 : 0
     const valLen = row.value !== null && row.value !== undefined ? String(row.value).length + 2 : 4
     const totalLen = nameLen + valLen
-    const availWidth = Math.max(120, containerWidth.value - (row.depth * 18 + 50))
+    const availWidth = Math.max(120, containerWidth.value - (row.depth * 14 + 36))
     const charsPerLine = Math.max(12, Math.floor(availWidth / charWidth))
     const lines = Math.max(1, Math.ceil(totalLen / charsPerLine))
     return lines * lh
@@ -389,8 +452,9 @@ const highlightPrimitiveValue = (val) => {
 const handleCopyKey = (name, path) => {
   if (!name) return
   if (setSelectedPath && path) {
-    setSelectedPath(path)
+    setSelectedPath(path, 'key')
   }
+  emit('click-path', path, 'key')
   navigator.clipboard.writeText(String(name)).then(() => {
     if (showToast) {
       showToast(`已复制键名: ${name}`)
@@ -400,8 +464,9 @@ const handleCopyKey = (name, path) => {
 
 const handleCopyValue = (val, path) => {
   if (setSelectedPath && path) {
-    setSelectedPath(path)
+    setSelectedPath(path, 'value')
   }
+  emit('click-path', path, 'value')
   let text = ''
   if (typeof val === 'object' && val !== null) {
     text = safeStringify(val, null, 2)
@@ -494,6 +559,7 @@ defineExpose({
     return containerRef.value ? containerRef.value.querySelectorAll(selector) : []
   },
   scrollContainer: containerRef,
+  setNodeFold,
   scrollToTop: () => {
     if (containerRef.value) containerRef.value.scrollTop = 0
   },
@@ -530,7 +596,7 @@ defineExpose({
           lineHeight: `${editorLineHeight}px`,
           width: isWrap ? '100%' : `${maxLineWidth}px`,
           minWidth: isWrap ? '100%' : `${maxLineWidth}px`,
-          paddingLeft: `${row.depth * 18 + 26}px`
+          paddingLeft: `${row.depth * 14 + 14}px`
         }"
       >
         <!-- Vertical Tree Indentation Guide Lines (层级竖线) -->
@@ -538,14 +604,14 @@ defineExpose({
           v-for="lvl in row.depth"
           :key="lvl"
           class="tree-indent-guide"
-          :style="{ left: `${(lvl - 1) * 18 + 15}px` }"
+          :style="{ left: `${(lvl - 1) * 14 + 9}px` }"
         ></div>
 
         <!-- Object / Array Opening Header Row -->
         <template v-if="row.type === 'object' || row.type === 'array'">
           <div
             class="node-header expandable"
-            @click="toggleNode(row.id, row.depth); onKeyClick(row.path)"
+            @click="toggleNode(row.id, row.depth, row.path); onKeyClick(row.path)"
             @mouseenter="onKeyMouseEnter(row.path)"
             @mouseleave="onKeyMouseLeave"
           >
@@ -561,8 +627,7 @@ defineExpose({
               data-tooltip="点击复制键名"
               v-html="highlightKey(row.name)"
             ></span>
-            <span v-if="row.name !== undefined && row.name !== null" class="node-colon">: </span>
-
+            <span v-if="row.name !== undefined && row.name !== null" class="node-colon">:</span>
             <span
               class="node-bracket"
               @click.stop="handleCopyValue(row.value, row.path)"
@@ -570,23 +635,25 @@ defineExpose({
             >{{ row.type === 'array' ? '[' : '{' }}</span>
 
             <!-- Collapsed Summary -->
-            <span
-              v-if="!row.isExpanded"
-              class="node-collapsed-summary"
-              @click.stop="handleCopyValue(row.value, row.path)"
-              data-tooltip="点击复制子树 JSON"
-            >
-              {{ row.type === 'array' ? `Array(${row.childCount})` : `Object(${row.childCount})` }}
-              <span class="node-bracket">{{ row.type === 'array' ? ']' : '}' }}</span>
+            <template v-if="!row.isExpanded">
+              <span
+                class="node-collapsed-summary"
+                @click.stop="handleCopyValue(row.value, row.path)"
+                data-tooltip="点击复制子树 JSON"
+              >{{ row.type === 'array' ? `Array(${row.childCount})` : `Object(${row.childCount})` }}</span>
+              <span
+                class="node-bracket"
+                @click.stop="handleCopyValue(row.value, row.path)"
+                data-tooltip="点击复制子树 JSON"
+              >{{ row.type === 'array' ? ']' : '}' }}</span>
               <span v-if="!row.isLast" class="node-comma">,</span>
-            </span>
+            </template>
           </div>
         </template>
 
         <!-- Closing Bracket Row -->
         <template v-else-if="row.type === 'closing'">
           <div class="node-closing">
-            <span class="icon-spacer"></span>
             <span
               class="node-bracket"
               @click.stop="handleCopyValue(row.value, row.path)"
@@ -613,11 +680,18 @@ defineExpose({
               data-tooltip="点击复制键名"
               v-html="highlightKey(row.name)"
             ></span>
-            <span v-if="row.name !== undefined && row.name !== null" class="node-colon">: </span>
+            <span v-if="row.name !== undefined && row.name !== null" class="node-colon">:</span>
 
-            <!-- Image preview badge / URL open button -->
+            <!-- Color chip badge / Image preview badge / URL open button -->
             <span
-              v-if="row.isImageValue"
+              v-if="row.isColorValue"
+              class="tree-color-badge"
+              :title="`颜色值: ${row.value}`"
+            >
+              <span class="tree-color-chip-inner" :style="{ backgroundColor: row.value }"></span>
+            </span>
+            <span
+              v-else-if="row.isImageValue"
               class="tree-img-badge"
               @mouseenter="onValMouseEnter(row.value, $event)"
               @mouseleave="onValMouseLeave(row.value)"
@@ -658,7 +732,7 @@ defineExpose({
   overflow: auto;
   position: relative;
   box-sizing: border-box;
-  padding: 4px;
+  padding: 4px 12px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   font-size: var(--editor-font-size, 13px);
   user-select: text;
@@ -774,42 +848,54 @@ defineExpose({
   align-items: center;
   cursor: pointer;
   border-radius: 4px;
-  padding: 0 4px;
+  padding: 0 2px;
   user-select: none;
 }
 .node-header:hover {
   background-color: var(--border-color, rgba(255, 255, 255, 0.08));
 }
 
-.node-closing,
+.node-closing {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 2px;
+  margin-left: -7px;
+  border-radius: 4px;
+}
+.node-closing:hover {
+  background-color: var(--border-color, rgba(255, 255, 255, 0.08));
+}
+
 .node-primitive {
   display: inline-flex;
   align-items: center;
-  padding: 0 4px;
+  padding: 0 2px;
+  border-radius: 4px;
 }
 
 .icon-wrapper {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
-  margin-left: -18px;
-  margin-right: 4px;
+  width: 12px;
+  height: 12px;
+  margin-left: -13px;
+  margin-right: 1px;
   color: var(--text-muted, #94a3b8);
   flex-shrink: 0;
 }
 
 .icon-spacer {
   display: inline-block;
-  width: 18px;
-  margin-left: -18px;
+  width: 12px;
+  margin-left: -13px;
+  margin-right: 1px;
   flex-shrink: 0;
 }
 
 .toggle-icon {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
 }
 
 .node-key {
@@ -843,16 +929,36 @@ defineExpose({
 }
 
 .node-collapsed-summary {
-  background-color: var(--bg-app, rgba(255, 255, 255, 0.06));
+  background-color: rgba(0, 0, 0, 0.05);
   color: var(--text-muted, #94a3b8);
-  font-size: 0.9em;
-  padding: 0 5px;
-  border-radius: 3px;
-  margin-left: 6px;
+  font-family: inherit;
+  font-size: 12px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  margin: 0 4px;
   cursor: pointer;
+  display: inline-block;
+  text-align: center;
+  vertical-align: -1px;
+  border: none;
+  box-sizing: border-box;
+  user-select: none;
+  transition: background-color 0.15s ease;
 }
 .node-collapsed-summary:hover {
-  background-color: var(--bg-hover, rgba(255, 255, 255, 0.1));
+  background-color: rgba(0, 0, 0, 0.09);
+}
+
+:global(.dark-mode) .node-collapsed-summary,
+:deep(.dark-mode) .node-collapsed-summary {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted, #94a3b8);
+}
+:global(.dark-mode) .node-collapsed-summary:hover,
+:deep(.dark-mode .node-collapsed-summary:hover) {
+  background-color: rgba(255, 255, 255, 0.14);
 }
 
 /* Value Data Types */
@@ -878,6 +984,47 @@ defineExpose({
 }
 .copyable-value:hover {
   background-color: var(--bg-hover, rgba(255, 255, 255, 0.08));
+}
+
+.tree-color-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-right: 5px;
+  vertical-align: -1.5px;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
+                    linear-gradient(-45deg, #ccc 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #ccc 75%),
+                    linear-gradient(-45deg, transparent 75%, #ccc 75%);
+  background-size: 6px 6px;
+  background-position: 0 0, 0 3px, 3px -3px, -3px 0px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.tree-color-badge:hover {
+  transform: scale(1.25);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+.tree-color-chip-inner {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+}
+:global(.dark-mode) .tree-color-badge {
+  border-color: rgba(255, 255, 255, 0.3);
+  background-image: linear-gradient(45deg, #555 25%, transparent 25%),
+                    linear-gradient(-45deg, #555 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #555 75%),
+                    linear-gradient(-45deg, transparent 75%, #555 75%);
 }
 
 .tree-img-badge {

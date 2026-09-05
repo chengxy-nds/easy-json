@@ -768,7 +768,7 @@ const handlePathClick = (path, type = 'all') => {
   if (cmEditorRef.value) {
     const text = activeTab.value?.inputText
     if (text) {
-      const range = getJsonPathRange(text, path)
+      const range = getJsonPathRange(text, path, type)
       if (range) {
         cmEditorRef.value.focus()
         cmEditorRef.value.setSelectionRange(range.start, range.end)
@@ -2348,7 +2348,26 @@ const countKeys = (obj, maxLimit = 800) => {
 
 const handleToggleExpand = () => {
   treeExpanded.value = !treeExpanded.value
-  showToast(treeExpanded.value ? '已展开全部节点' : '已折叠节点')
+  if (cmEditorRef.value) {
+    if (treeExpanded.value) {
+      cmEditorRef.value.unfoldAll?.()
+    } else {
+      cmEditorRef.value.foldAll?.()
+    }
+  }
+  showToast(treeExpanded.value ? '已展开全部节点' : '已折叠全部节点')
+}
+
+const handleEditorToggleFold = ({ path, isFolded }) => {
+  if (treeWrapperRef.value?.setNodeFold) {
+    treeWrapperRef.value.setNodeFold(path, isFolded)
+  }
+}
+
+const handleTreeToggleFold = ({ path, isFolded }) => {
+  if (cmEditorRef.value?.foldPath) {
+    cmEditorRef.value.foldPath(path, isFolded)
+  }
 }
 
 // 去除 JSON 注释（支持字符串内不误删）
@@ -4044,6 +4063,7 @@ onBeforeUnmount(() => {
               @focus="handleTextareaFocus"
               @blur="handleTextareaBlur"
               @paste="handlePaste"
+              @toggle-fold="handleEditorToggleFold"
             />
 
             <!-- Floating Scroll Buttons -->
@@ -4141,7 +4161,7 @@ onBeforeUnmount(() => {
             <button class="action-btn outline icon-only" @click="hideOutput" data-tooltip-bottom="隐藏输出">
               <EyeOff class="btn-icon" />
             </button>
-            <button v-if="activeTab.viewMode === 'tree' || activeTab.viewMode === 'table'" class="action-btn outline icon-only" @click="handleToggleExpand" :data-tooltip-bottom="treeExpanded ? '折叠全部节点' : '展开全部树节点'">
+            <button v-if="activeTab.viewMode === 'tree' || activeTab.viewMode === 'table' || activeTab.viewMode === 'code'" class="action-btn outline icon-only" @click="handleToggleExpand" :data-tooltip-bottom="treeExpanded ? '折叠全部节点' : '展开全部节点'">
               <Maximize2 v-if="!treeExpanded" class="btn-icon" />
               <Minimize2 v-else class="btn-icon" />
             </button>
@@ -4223,6 +4243,9 @@ onBeforeUnmount(() => {
               ref="treeWrapperRef"
               key="tree"
               @scroll="handleTreeScroll"
+              @hover-path="setHoveredPath"
+              @click-path="handlePathClick"
+              @toggle-fold="handleTreeToggleFold"
               @mouseenter="activeScrollTarget = 'right'"
               @touchstart="activeScrollTarget = 'right'"
             />
