@@ -247,7 +247,7 @@ const handleCopyValue = (e) => {
         <ExternalLink class="url-jump-icon" />
       </button>
 
-      <!-- 键值文本 -->
+      <!-- 键值文本与逗号无缝连接 -->
       <span
         :class="[valueClass, 'copyable-value', { 'is-image-url': isImageValue, 'is-web-url': isOtherUrlValue }]"
         @click.stop="handleCopyValue"
@@ -255,8 +255,7 @@ const handleCopyValue = (e) => {
         @mouseleave="onValueMouseLeave"
         :data-tooltip="isImageValue ? '悬停预览图片，点击复制键值' : (isOtherUrlValue ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
         v-html="highlightValue(value)"
-      ></span>
-      <span v-if="!isLast" class="node-comma">,</span>
+      ></span><span v-if="!isLast" class="node-comma">,</span>
     </div>
   </div>
 </template>
@@ -405,17 +404,18 @@ const handleCopyValue = (e) => {
 .copyable-value {
   cursor: pointer;
   white-space: nowrap;
-  transition: all 0.2s ease;
+  transition: all 0.15s ease;
+  border-radius: 2px;
 }
 
 .copyable-value:hover {
-  text-decoration: underline;
-  opacity: 0.8;
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.08));
+  opacity: 0.9;
 }
 
 .is-image-url {
   text-decoration: underline dotted var(--accent-color, #6366f1) !important;
-  text-underline-offset: 3px;
+  text-underline-offset: 4px;
 }
 
 .tree-img-badge {

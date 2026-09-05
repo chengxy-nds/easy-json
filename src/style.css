@@ -223,16 +223,16 @@ body {
 }
 
 .json-number {
-  color: #b55717;
+  color: #098658;
 }
 
 .json-bool,
 .json-boolean {
-  color: #0066cc;
+  color: #0000ff;
 }
 
 .json-null {
-  color: #808080;
+  color: #64748b;
 }
 
 .json-bracket {
@@ -937,18 +937,25 @@ body.vscode-mode .sr-action-btn:hover {
   position: absolute;
   top: 0;
   left: 0;
+  right: 0;
   width: 100%;
   height: auto;
   min-height: 100%;
   margin: 0;
-  padding: 8px 0 24px 0;
-  font-family: var(--font-mono);
-  font-size: var(--editor-font-size, 12px);
-  line-height: var(--editor-line-height, 20px);
+  padding: 8px 0 24px 0 !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--editor-font-size, 12px) !important;
+  line-height: var(--editor-line-height, 20px) !important;
+  letter-spacing: 0px !important;
+  word-spacing: 0px !important;
+  tab-size: 2 !important;
+  -moz-tab-size: 2 !important;
+  font-variant-ligatures: none !important;
+  font-feature-settings: "liga" 0, "calt" 0 !important;
   white-space: pre;
   word-break: normal;
   overflow: visible;
-  box-sizing: border-box;
+  box-sizing: border-box !important;
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
@@ -963,32 +970,63 @@ body.vscode-mode .sr-action-btn:hover {
 .editor-line {
   position: relative;
   /* Force WebKit layering for background highlights */
-  display: block;
-  width: max-content;
-  min-width: 100%;
-  box-sizing: border-box;
-  font-size: var(--editor-font-size, 12px);
-  line-height: var(--editor-line-height, 20px);
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  box-sizing: border-box !important;
+  font-family: inherit !important;
+  font-size: var(--editor-font-size, 12px) !important;
+  line-height: var(--editor-line-height, 20px) !important;
+  letter-spacing: 0px !important;
+  word-spacing: 0px !important;
   height: var(--editor-line-height, 20px);
   min-height: var(--editor-line-height, 20px);
-  padding: 0 12px;
+  padding: 0 12px !important;
+  margin: 0 !important;
   white-space: pre;
   word-break: normal;
 }
 
+/* Ensure child tokens in editor-line are inline with zero layout shift */
+.editor-line * {
+  display: inline !important;
+  word-break: break-all !important;
+  overflow-wrap: anywhere !important;
+  line-break: anywhere !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  letter-spacing: 0px !important;
+  word-spacing: 0px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+}
+
+.editor-highlight .json-key,
+.editor-highlight .json-string,
+.editor-highlight .json-number,
+.editor-highlight .json-boolean,
+.editor-highlight .json-null,
+.editor-highlight .json-bracket,
+.editor-highlight .json-colon {
+  font-weight: 400 !important;
+  font-family: inherit !important;
+  letter-spacing: 0px !important;
+}
+
 .editor-line.has-error {
   background-color: var(--error-bg);
-  box-shadow: inset 2px 0 0 var(--error-text);
+  box-shadow: inset 3px 0 0 var(--error-text) !important;
 }
 
 .editor-line.has-duplicate {
   background-color: rgba(234, 179, 8, 0.08);
-  box-shadow: inset 2px 0 0 #d97706;
+  box-shadow: inset 3px 0 0 #d97706 !important;
 }
 
 .dark-mode .editor-line.has-duplicate {
   background-color: rgba(234, 179, 8, 0.1);
-  box-shadow: inset 2px 0 0 #fbbf24;
+  box-shadow: inset 3px 0 0 #fbbf24 !important;
 }
 
 html.popup-mode .editor-highlight {
@@ -1025,18 +1063,26 @@ html.popup-mode .editor-line {
   position: absolute;
   top: 0;
   left: 0;
+  right: 0;
   width: 100%;
   height: 100%;
   margin: 0;
-  padding: 8px 12px 24px 12px;
-  font-family: var(--font-mono);
-  font-size: var(--editor-font-size, 12px);
-  line-height: var(--editor-line-height, 20px);
+  padding: 8px 12px 24px 12px !important;
+  font-family: var(--font-mono) !important;
+  font-size: var(--editor-font-size, 12px) !important;
+  line-height: var(--editor-line-height, 20px) !important;
+  letter-spacing: 0px !important;
+  word-spacing: 0px !important;
+  tab-size: 2 !important;
+  -moz-tab-size: 2 !important;
+  font-variant-ligatures: none !important;
+  font-feature-settings: "liga" 0, "calt" 0 !important;
   white-space: pre;
   word-break: normal;
   overflow-x: auto;
   overflow-y: auto;
-  box-sizing: border-box;
+  scrollbar-gutter: stable;
+  box-sizing: border-box !important;
   background-color: transparent !important;
   color: transparent !important;
   caret-color: var(--text-primary);
@@ -1047,6 +1093,29 @@ html.popup-mode .editor-line {
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: subpixel-antialiased;
   -moz-osx-font-smoothing: auto;
+}
+
+/* ── Textarea Custom Scrollbar (杜绝系统粗滚动条挤压排版宽度) ── */
+.editor-textarea::-webkit-scrollbar,
+.edit-textarea::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.editor-textarea::-webkit-scrollbar-track,
+.edit-textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.editor-textarea::-webkit-scrollbar-thumb,
+.edit-textarea::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 3px;
+}
+
+.editor-textarea::-webkit-scrollbar-thumb:hover,
+.edit-textarea::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.6);
 }
 
 /* ── Textarea Transparent Selection (杜绝双层叠加重影) ── */
@@ -1077,10 +1146,16 @@ html.popup-mode .editor-line {
 .minify-wrap .editor-line {
   white-space: pre-wrap !important;
   word-break: break-all !important;
+  overflow-wrap: anywhere !important;
+  line-break: anywhere !important;
+  overflow-x: hidden !important;
 }
 
 .minify-wrap .editor-line {
   min-width: 100% !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 0 22px 0 12px !important;
 }
 
 /* ── Editor Wrap Mode (换行展示方式 - 左侧编辑区与右侧树形/代码同步) ── */
@@ -1094,13 +1169,23 @@ html.popup-mode .editor-line {
 .editor-wrap-mode .line-code {
   white-space: pre-wrap !important;
   word-break: break-all !important;
+  overflow-wrap: anywhere !important;
+  line-break: anywhere !important;
+}
+
+.editor-wrap-mode .editor-textarea,
+.editor-wrap-mode .edit-textarea {
+  overflow-x: hidden !important;
 }
 
 .editor-wrap-mode .editor-line {
   width: 100% !important;
   min-width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
   height: auto;
   min-height: var(--editor-line-height, 20px) !important;
+  padding: 0 22px 0 12px !important;
 }
 
 .editor-wrap-mode .tree-wrapper .tree-node {
@@ -1108,17 +1193,30 @@ html.popup-mode .editor-line {
 }
 
 .editor-wrap-mode .tree-wrapper .node-row.primitive {
+  display: block !important;
   white-space: normal !important;
   width: 100% !important;
   max-width: 100% !important;
-  flex-wrap: wrap !important;
-  align-items: baseline !important;
+  min-height: var(--editor-line-height, 20px) !important;
+  line-height: var(--editor-line-height, 20px) !important;
+}
+
+.editor-wrap-mode .tree-wrapper .node-row.primitive > * {
+  display: inline !important;
+  vertical-align: baseline !important;
+}
+
+.editor-wrap-mode .tree-wrapper .tree-img-badge,
+.editor-wrap-mode .tree-wrapper .url-jump-btn {
+  display: inline-flex !important;
+  vertical-align: middle !important;
 }
 
 .editor-wrap-mode .tree-wrapper .tree-string,
 .editor-wrap-mode .tree-wrapper .copyable-value {
   white-space: pre-wrap !important;
   word-break: break-all !important;
+  overflow-wrap: anywhere !important;
 }
 
 /* ── Editor Nowrap Mode (平铺展示方式 - 横向滚动) ── */
@@ -1162,7 +1260,7 @@ html.popup-mode .editor-line {
   font-weight: 500;
 }
 
-/* warm VSCode red */
+/* warm VSCode blue for strings */
 .editor-highlight .json-string,
 .output-pre .json-string,
 .mask-preview-pre .json-string,
@@ -1173,7 +1271,7 @@ html.popup-mode .editor-line {
   color: #0451A5;
 }
 
-/* VSCode blue */
+/* VSCode Light Green - Crisp emerald number */
 .editor-highlight .json-number,
 .output-pre .json-number,
 .mask-preview-pre .json-number,
@@ -1181,10 +1279,10 @@ html.popup-mode .editor-line {
 .diff-line-row .json-number,
 .diff-lines-wrapper .json-number,
 .tree-number {
-  color: #0451a5;
+  color: #098658;
 }
 
-/* VSCode blue */
+/* VSCode Light Keyword Blue - Classic bold boolean */
 .editor-highlight .json-boolean,
 .output-pre .json-boolean,
 .mask-preview-pre .json-boolean,
@@ -1192,10 +1290,10 @@ html.popup-mode .editor-line {
 .diff-line-row .json-boolean,
 .diff-lines-wrapper .json-boolean,
 .tree-boolean {
-  color: #0451a5;
+  color: #0000ff;
 }
 
-/* VSCode blue */
+/* VSCode Slate Gray - null */
 .editor-highlight .json-null,
 .output-pre .json-null,
 .mask-preview-pre .json-null,
@@ -1572,8 +1670,8 @@ html.popup-mode .editor-line {
 :root {
   --json-key: #A31515;
   --json-string: #0451A5;
-  --json-number: #0451A5;
-  --json-boolean: #0451A5;
+  --json-number: #098658;
+  --json-boolean: #0000ff;
   --json-null: #64748b;
   --json-bracket: #16a34a;
   --json-hover-bg: rgba(163, 21, 21, 0.15);
@@ -1947,16 +2045,18 @@ mark.search-match-current {
 
 /* ── Left Editor Line & Token Selection (Premium Glow) ── */
 
-/* 1. Full line background & indicator bar */
+/* 1. Full line background & clean non-intrusive highlight */
 .editor-line.is-selected-line {
-  background-color: rgba(249, 115, 22, 0.16) !important;
-  box-shadow: inset 3px 0 0 #f97316 !important;
+  background-color: rgba(249, 115, 22, 0.14) !important;
+  border-radius: 0px !important;
+  box-shadow: inset 3px 0 0 #ea580c !important;
   transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
 }
 
 .dark-mode .editor-line.is-selected-line {
-  background-color: rgba(97, 175, 239, 0.20) !important;
-  box-shadow: inset 3.5px 0 0 #61afef, 0 0 12px rgba(97, 175, 239, 0.15) !important;
+  background-color: rgba(97, 175, 239, 0.18) !important;
+  border-radius: 0px !important;
+  box-shadow: inset 3px 0 0 #38bdf8 !important;
 }
 
 /* 2. Selected Key or Value Token (Zero layout-shift: padding 0 with paint-layer glow to preserve exact textarea alignment) */
@@ -1967,28 +2067,28 @@ mark.search-match-current {
   font-weight: inherit !important;
   padding: 0 !important;
   margin: 0 !important;
-  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.28) !important;
+  box-shadow: 0 0 0 1px rgba(249, 115, 22, 0.35) !important;
   border: none !important;
   transition: background-color 0.15s ease !important;
 }
 
 .dark-mode .editor-highlight .token-highlight-selected,
 .dark-mode .output-pre .token-highlight-selected {
-  background-color: rgba(97, 175, 239, 0.35) !important;
-  box-shadow: 0 0 0 1px rgba(97, 175, 239, 0.35) !important;
+  background-color: rgba(97, 175, 239, 0.30) !important;
+  box-shadow: 0 0 0 1px rgba(97, 175, 239, 0.40) !important;
   border: none !important;
 }
 
 /* Hover-to-highlight line style */
 .editor-line.line-highlight-hover {
-  background-color: rgba(249, 115, 22, 0.10) !important;
-  box-shadow: inset 2.5px 0 0 #f97316 !important;
+  background-color: rgba(249, 115, 22, 0.08) !important;
+  border-radius: 0px !important;
   transition: background-color 0.15s ease, box-shadow 0.15s ease !important;
 }
 
 .dark-mode .editor-line.line-highlight-hover {
   background-color: rgba(97, 175, 239, 0.10) !important;
-  box-shadow: inset 2.5px 0 0 #61afef !important;
+  border-radius: 0px !important;
 }
 
 /* ── Mask Preview Line & Row Highlights (Global for v-html in Modal) ── */

@@ -1155,13 +1155,16 @@ const startMinimapDrag = (e) => {
   overflow: hidden;
   cursor: grab;
   user-select: none;
-  background-color: rgb(252, 252, 252);
-  background-image: radial-gradient(rgb(119 119 119 / 22%) 0.75px, transparent 0.55px);
+  background-color: var(--bg-app, rgb(252, 252, 252));
+  background-image: radial-gradient(var(--graph-dot-color, rgba(119, 119, 119, 0.22)) 0.75px, transparent 0.55px);
   background-size: 20px 20px;
+  transition: background-color 0.2s ease;
 }
-:global(.dark-mode) .graph-view {
-  background-color: #18181b;
-  background-image: radial-gradient(rgb(255 255 255 / 18%) 0.75px, transparent 0.55px);
+:global(.dark-mode) .graph-view,
+:global(html.dark-mode) .graph-view,
+.dark-mode .graph-view {
+  background-color: var(--bg-app, #18181b) !important;
+  background-image: radial-gradient(var(--graph-dot-color, rgba(255, 255, 255, 0.18)) 0.75px, transparent 0.55px) !important;
 }
 .graph-view.panning { cursor: grabbing; }
 
