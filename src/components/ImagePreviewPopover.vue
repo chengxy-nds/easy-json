@@ -298,7 +298,7 @@ const onPopoverLeave = () => {
 
           <div class="action-group">
             <button
-              class="icon-action-btn primary-copy-btn"
+              class="icon-action-btn"
               @click.stop="copyImage"
               :title="copiedImage ? '已复制图片' : '复制图片 (可直接粘贴)'"
             >
@@ -313,7 +313,7 @@ const onPopoverLeave = () => {
               <Maximize2 class="action-icon" />
             </button>
             <button
-              class="icon-action-btn"
+              class="icon-action-btn primary-open-btn"
               @click.stop="openInNewTab"
               title="在新标签页打开原图"
             >
@@ -334,10 +334,6 @@ const onPopoverLeave = () => {
           <div v-if="isError" class="state-container error-state">
             <AlertCircle class="error-icon" />
             <span class="state-text">图片无法直接预览</span>
-            <span class="sub-text">可能存在防盗链或链接已失效</span>
-            <button class="retry-link-btn" @click.stop="openInNewTab">
-              尝试直接打开 <ExternalLink class="btn-sm-icon" />
-            </button>
           </div>
 
           <!-- 真实图片（带 no-referrer 规避大部分防盗链） -->
@@ -486,6 +482,17 @@ const onPopoverLeave = () => {
   color: var(--text-primary, #f3f4f6);
 }
 
+.icon-action-btn.primary-open-btn {
+  background: var(--accent-color, #6366f1);
+  color: #ffffff;
+}
+
+.icon-action-btn.primary-open-btn:hover {
+  background: #4f46e5;
+  color: #ffffff;
+  opacity: 0.95;
+}
+
 .action-icon {
   width: 13px;
   height: 13px;
@@ -564,35 +571,6 @@ const onPopoverLeave = () => {
   width: 22px;
   height: 22px;
   color: #ef4444;
-}
-
-.error-state .sub-text {
-  font-size: 11px;
-  color: var(--text-muted, #9ca3af);
-}
-
-.retry-link-btn {
-  margin-top: 4px;
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: var(--accent-color, #6366f1);
-  color: #ffffff;
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: opacity 0.15s ease;
-}
-
-.retry-link-btn:hover {
-  opacity: 0.9;
-}
-
-.btn-sm-icon {
-  width: 11px;
-  height: 11px;
 }
 
 @keyframes ej-spin {

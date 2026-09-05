@@ -10,6 +10,7 @@
   --bg-header: #ffffff;
   --border-color: #e5e7eb;
   --border-color-active: #cbd5e1;
+  --tree-guide-color: rgba(100, 116, 139, 0.35);
   --text-primary: #171717;
   --text-secondary: #64748b;
   --text-muted: #9ca3af;
@@ -59,8 +60,8 @@
   --graph-node-border: #d2d2d2;
 
   --font-sans: "Inter Display SemiBold", "Inter Display SemiBold Placeholder", sans-serif;
-  --font-mono: 'JetBrains Mono', Consolas, "Courier New", ui-monospace, 'Cascadia Code', 'Fira Code',
-    Menlo, Monaco, monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, -apple-system, BlinkMacSystemFont, 'SF Mono',
+    SFMono-Regular, Menlo, Monaco, Consolas, 'Cascadia Code', 'Fira Code', monospace;
 
   /* Table view colors */
   --table-root-bg: rgba(0, 0, 0, 0.05);
@@ -89,6 +90,7 @@
   --bg-header: #313136;
   --border-color: #404046;
   --border-color-active: #63636b;
+  --tree-guide-color: rgba(148, 163, 184, 0.35);
   --text-primary: #f8fafc;
   --text-secondary: #cbd5e1;
   --text-muted: #8b949e;
@@ -745,7 +747,7 @@ body.vscode-mode .sr-action-btn:hover {
 
 /* Sidebar — 自适应屏幕分辨率 */
 .app-sidebar {
-  width: clamp(38px, 4vw, 42px);
+  width: clamp(38px, 4vw, 48px);
   height: 100%;
   background-color: var(--bg-panel);
   border-right: 1px solid var(--border-color);

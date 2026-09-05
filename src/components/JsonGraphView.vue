@@ -498,12 +498,12 @@ const curves = computed(() => {
 })
 
 // ─── Pan / Zoom (Adapted for smoother interaction) ──────────────────────────
-const DEFAULT_SCALE = 1.0 // 默认缩放 100% (清晰 1:1 像素显示)
-const MIN_SCALE = 0.5
-const MAX_SCALE = 1.8
+const DEFAULT_SCALE = 0.75 // 默认展示比例 75% (提供更舒适开阔的拓扑概览)
+const MIN_SCALE = 0.25
+const MAX_SCALE = 2.0
 
 const containerRef = ref(null)
-const tx = ref(60)
+const tx = ref(40)
 const ty = ref(40)
 const scale = ref(DEFAULT_SCALE)
 const isPanning = ref(false)
@@ -716,7 +716,7 @@ const graphViewStyle = computed(() => {
 })
 
 // ─── Minimap (右下角交互式小地图) ─────────────────────────────────────────────
-const showMinimap = ref(true)
+const showMinimap = ref(false)
 const minimapSvgRef = ref(null)
 const isMinimapDragging = ref(false)
 
@@ -740,8 +740,9 @@ const viewportBox = computed(() => {
 const handleMinimapPointer = (e) => {
   if (!minimapSvgRef.value || !layout.value || !containerRef.value) return
   const rect = minimapSvgRef.value.getBoundingClientRect()
-  const clickX = Math.max(0, Math.min(rect.width, e.clientX - rect.left))
-  const clickY = Math.max(0, Math.min(rect.height, e.clientY - rect.top))
+  const pointerEvent = e.touches && e.touches[0] ? e.touches[0] : e
+  const clickX = Math.max(0, Math.min(rect.width, pointerEvent.clientX - rect.left))
+  const clickY = Math.max(0, Math.min(rect.height, pointerEvent.clientY - rect.top))
   
   const scaleX = layout.value.wsW / rect.width
   const scaleY = layout.value.wsH / rect.height
@@ -763,7 +764,7 @@ const handleMinimapPointer = (e) => {
 }
 
 const startMinimapDrag = (e) => {
-  if (e.button !== 0) return
+  if (e.type !== 'touchstart' && e.button !== 0) return
   isMinimapDragging.value = true
   handleMinimapPointer(e)
   const onMove = (ev) => {
@@ -775,9 +776,13 @@ const startMinimapDrag = (e) => {
     isMinimapDragging.value = false
     window.removeEventListener('mousemove', onMove)
     window.removeEventListener('mouseup', onUp)
+    window.removeEventListener('touchmove', onMove)
+    window.removeEventListener('touchend', onUp)
   }
   window.addEventListener('mousemove', onMove)
   window.addEventListener('mouseup', onUp)
+  window.addEventListener('touchmove', onMove, { passive: false })
+  window.addEventListener('touchend', onUp)
 }
 </script>
 
@@ -1079,67 +1084,74 @@ const startMinimapDrag = (e) => {
 
     <!-- Minimap (右下角交互式小地图) -->
     <div class="graph-minimap-container" :class="{ 'is-collapsed': !showMinimap }">
-      <!-- Expanded Minimap Card -->
-      <div v-if="showMinimap" class="graph-minimap-card">
-        <div class="minimap-header">
-          <div class="minimap-title">
-            <MapIcon class="minimap-title-icon" />
-            <span>小地图</span>
+      <transition name="minimap-fade" mode="out-in">
+        <!-- Expanded Minimap Card -->
+        <div v-if="showMinimap" key="minimap-card" class="graph-minimap-card">
+          <div class="minimap-header">
+            <div class="minimap-title">
+              <MapIcon class="minimap-title-icon" />
+              <span>小地图</span>
+            </div>
+            <button class="minimap-toggle-btn" @click.stop="toggleMinimap" data-tooltip-left="折叠小地图">
+              <Minus class="minimap-icon-btn" />
+            </button>
           </div>
-          <button class="minimap-toggle-btn" @click.stop="toggleMinimap" data-tooltip="折叠小地图">
-            <Minus class="minimap-icon-btn" />
-          </button>
-        </div>
-        <div class="minimap-body" @mousedown.stop="startMinimapDrag">
-          <svg
-            v-if="layout"
-            ref="minimapSvgRef"
-            class="minimap-svg"
-            :viewBox="`0 0 ${layout.wsW} ${layout.wsH}`"
-            preserveAspectRatio="xMidYMid meet"
+          <div
+            class="minimap-body"
+            @mousedown.stop="startMinimapDrag"
+            @touchstart.stop.prevent="startMinimapDrag"
           >
-            <!-- Minimap Edges -->
-            <path
-              v-for="curve in curves"
-              :key="'mm-path-' + curve.id"
-              :d="curve.d"
-              class="mm-edge"
-              :class="{ 'is-active': isCurveHovered(curve) }"
-            />
-            <!-- Minimap Nodes -->
-            <rect
-              v-for="node in layout?.nodes"
-              :key="'mm-node-' + node.id"
-              :x="node.x"
-              :y="node.y"
-              :width="node.width"
-              :height="node.height"
-              rx="4"
-              class="mm-node"
-              :class="{ 'is-active': isCardSelected(node) }"
-            />
-            <!-- Viewport Rectangle Box -->
-            <rect
-              :x="viewportBox.x"
-              :y="viewportBox.y"
-              :width="viewportBox.w"
-              :height="viewportBox.h"
-              rx="4"
-              class="mm-viewport"
-            />
-          </svg>
+            <svg
+              v-if="layout"
+              ref="minimapSvgRef"
+              class="minimap-svg"
+              :viewBox="`0 0 ${layout.wsW} ${layout.wsH}`"
+              preserveAspectRatio="xMidYMid meet"
+            >
+              <!-- Minimap Edges -->
+              <path
+                v-for="curve in curves"
+                :key="'mm-path-' + curve.id"
+                :d="curve.d"
+                class="mm-edge"
+                :class="{ 'is-active': isCurveHovered(curve) }"
+              />
+              <!-- Minimap Nodes -->
+              <rect
+                v-for="node in layout?.nodes"
+                :key="'mm-node-' + node.id"
+                :x="node.x"
+                :y="node.y"
+                :width="node.width"
+                :height="node.height"
+                rx="4"
+                class="mm-node"
+                :class="{ 'is-active': isCardSelected(node) }"
+              />
+              <!-- Viewport Rectangle Box -->
+              <rect
+                :x="viewportBox.x"
+                :y="viewportBox.y"
+                :width="viewportBox.w"
+                :height="viewportBox.h"
+                rx="4"
+                class="mm-viewport"
+              />
+            </svg>
+          </div>
         </div>
-      </div>
 
-      <!-- Collapsed Minimap Button -->
-      <button
-        v-else
-        class="minimap-expand-btn"
-        @click.stop="toggleMinimap"
-        data-tooltip="展开小地图"
-      >
-        <MapIcon class="minimap-expand-icon" />
-      </button>
+        <!-- Collapsed Minimap Button -->
+        <button
+          v-else
+          key="minimap-btn"
+          class="minimap-expand-btn"
+          @click.stop="toggleMinimap"
+          data-tooltip-left="展开小地图"
+        >
+          <MapIcon class="minimap-expand-icon" />
+        </button>
+      </transition>
     </div>
 
     <!-- Watermark -->
@@ -1815,15 +1827,18 @@ const startMinimapDrag = (e) => {
 /* ── Minimap (右下角交互小地图) ── */
 .graph-minimap-container {
   position: absolute;
-  bottom: 16px;
-  right: 16px;
+  bottom: clamp(10px, 1.8vh, 18px);
+  right: clamp(10px, 1.8vw, 18px);
   z-index: 15;
   user-select: none;
+  pointer-events: auto;
 }
 
 .graph-minimap-card {
-  width: 190px;
-  height: 135px;
+  width: clamp(160px, 18vw, 240px);
+  height: clamp(110px, 14vh, 165px);
+  max-width: min(240px, calc(100vw - 32px), calc(100% - 24px));
+  max-height: min(165px, calc(50vh - 32px), calc(50% - 24px));
   background: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -1831,7 +1846,7 @@ const startMinimapDrag = (e) => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 :global(.dark-mode) .graph-minimap-card {
@@ -1876,8 +1891,8 @@ const startMinimapDrag = (e) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: none;
   background: transparent;
@@ -1906,6 +1921,7 @@ const startMinimapDrag = (e) => {
   overflow: hidden;
   background: #f8fafc;
   cursor: crosshair;
+  touch-action: none;
 }
 :global(.dark-mode) .minimap-body {
   background: #18181b;
@@ -1963,8 +1979,8 @@ const startMinimapDrag = (e) => {
 }
 
 .minimap-expand-btn {
-  width: 28px;
-  height: 28px;
+  width: clamp(28px, 2.4vw, 32px);
+  height: clamp(28px, 2.4vw, 32px);
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: #ffffff;
@@ -1995,5 +2011,27 @@ const startMinimapDrag = (e) => {
 .minimap-expand-icon {
   width: 15px;
   height: 15px;
+}
+
+.minimap-fade-enter-active,
+.minimap-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.minimap-fade-enter-from,
+.minimap-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
+
+@media (max-width: 768px) {
+  .graph-minimap-container {
+    bottom: 8px;
+    right: 8px;
+  }
+  .graph-minimap-card {
+    width: clamp(140px, 36vw, 190px);
+    height: clamp(95px, 20vh, 130px);
+  }
 }
 </style>

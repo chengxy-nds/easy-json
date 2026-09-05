@@ -287,12 +287,79 @@ const rootEntries = computed(() => {
     ? obj.map((v, i) => ({ key: String(i), value: v, isIndex: true }))
     : Object.keys(obj).map(k => ({ key: k, value: obj[k], isIndex: false }))
 })
+
+// ─── Table Scale & Density Zoom (方案一：字体与密度缩放) ───────────────────────────
+const TABLE_SCALE_STORAGE_KEY = 'easy_json_table_scale'
+const DEFAULT_TABLE_SCALE = 0.9 // 默认比例 90%
+const MIN_TABLE_SCALE = 0.6
+const MAX_TABLE_SCALE = 1.5
+
+const savedScale = typeof localStorage !== 'undefined' ? localStorage.getItem(TABLE_SCALE_STORAGE_KEY) : null
+const initialScale = savedScale ? parseFloat(savedScale) || DEFAULT_TABLE_SCALE : DEFAULT_TABLE_SCALE
+const tableScale = ref(initialScale)
+
+watch(tableScale, (newVal) => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(TABLE_SCALE_STORAGE_KEY, String(newVal))
+  }
+})
+
+const tableZoomIn = () => {
+  tableScale.value = Math.min(MAX_TABLE_SCALE, Number((tableScale.value + 0.05).toFixed(2)))
+}
+
+const tableZoomOut = () => {
+  tableScale.value = Math.max(MIN_TABLE_SCALE, Number((tableScale.value - 0.05).toFixed(2)))
+}
+
+const resetTableScale = () => {
+  tableScale.value = DEFAULT_TABLE_SCALE
+}
+
+const handleTableWheel = (e) => {
+  if (props.depth !== 0) return
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    if (e.deltaY < 0) {
+      tableZoomIn()
+    } else {
+      tableZoomOut()
+    }
+  }
+}
+
+const rootTableStyles = computed(() => {
+  if (props.depth !== 0) return {}
+  const s = tableScale.value
+  return {
+    '--table-scale': s,
+    '--table-font-size': `${(13 * s).toFixed(1)}px`,
+    '--table-font-small': `${(11 * s).toFixed(1)}px`,
+    '--table-font-sub': `${(10 * s).toFixed(1)}px`,
+    '--table-padding-y': `${(6 * s).toFixed(1)}px`,
+    '--table-padding-x': `${(12 * s).toFixed(1)}px`,
+    '--table-header-padding-y': `${(7 * s).toFixed(1)}px`,
+    '--table-header-padding-x': `${(12 * s).toFixed(1)}px`,
+    '--table-compact-padding-y': `${(4 * s).toFixed(1)}px`,
+    '--table-compact-padding-x': `${(10 * s).toFixed(1)}px`,
+    '--table-index-width': `${(48 * s).toFixed(1)}px`,
+    '--table-root-index-width': `${(50 * s).toFixed(1)}px`,
+    '--table-min-val-width': `${(140 * s).toFixed(1)}px`,
+    '--table-min-key-width': `${(110 * s).toFixed(1)}px`
+  }
+})
 </script>
 
 <template>
-  <div class="table-view-wrapper" :class="{ 'nested-wrapper': depth > 0 }">
-    <!-- ─── 场景 1: 顶层数据本身就是对象数组 (Direct 2D Data Grid) ─── -->
-    <table v-if="isRootDirectArrayOfObjects" class="json-table data-grid-table">
+  <div
+    class="table-view-root"
+    :class="{ 'is-nested-child': depth > 0 }"
+    :style="depth === 0 ? rootTableStyles : undefined"
+    @wheel="handleTableWheel"
+  >
+    <div class="table-view-wrapper" :class="{ 'nested-wrapper': depth > 0 }">
+      <!-- ─── 场景 1: 顶层数据本身就是对象数组 (Direct 2D Data Grid) ─── -->
+      <table v-if="isRootDirectArrayOfObjects" class="json-table data-grid-table">
       <thead>
         <tr class="grid-header-row">
           <th class="grid-col-header grid-index-header">#</th>
@@ -724,13 +791,60 @@ const rootEntries = computed(() => {
         </tr>
       </tbody>
     </table>
+    </div>
+
+    <!-- Floating Table Scale Controls (Root Only, Absolute overlay pinned at bottom-right) -->
+    <div v-if="depth === 0" class="table-scale-controls">
+      <button class="table-ctrl-btn" @click.stop="tableZoomIn" data-tooltip-left="放大表格比例 (Ctrl + 滚轮)">
+        ＋
+      </button>
+      <span
+        class="table-ctrl-badge"
+        :data-tooltip-left="`当前比例: ${Math.round(tableScale * 100)}%`"
+      >
+        {{ Math.round(tableScale * 100) }}%
+      </span>
+      <button class="table-ctrl-btn" @click.stop="tableZoomOut" data-tooltip-left="缩小表格比例 (Ctrl + 滚轮)">
+        －
+      </button>
+      <button
+        v-if="tableScale !== DEFAULT_TABLE_SCALE"
+        class="table-ctrl-btn reset-btn"
+        @click.stop="resetTableScale"
+        data-tooltip-left="重置为 90% 默认比例"
+      >
+        ⊡
+      </button>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.table-view-root:not(.is-nested-child) {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.table-view-root.is-nested-child {
+  position: static;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  display: block;
+  flex: none;
+}
+
 .table-view-wrapper {
   flex: 1;
+  width: 100%;
+  height: 100%;
   overflow: auto;
+  position: relative;
   background-color: var(--bg-panel);
   background-image: 
     linear-gradient(to right, var(--grid-line-color, rgba(0, 0, 0, 0.05)) 1px, transparent 1px),
@@ -743,16 +857,20 @@ const rootEntries = computed(() => {
   background: transparent;
   background-image: none;
   width: 100%;
+  height: auto;
+  overflow: visible;
+  flex: none;
 }
 
 .table-view-wrapper:not(.nested-wrapper) {
+  min-height: 100%;
 }
 
 .json-table {
   border-collapse: separate;
   border-spacing: 0;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: var(--table-font-size, 13px);
   width: max-content;
   min-width: auto;
   border: 1px solid var(--border-color);
@@ -781,9 +899,9 @@ const rootEntries = computed(() => {
   background: var(--table-header-bg, rgba(0, 0, 0, 0.08));
   color: var(--table-subkey-fg, #991b1b);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--table-font-size, 13px);
   font-weight: 500;
-  padding: 7px 12px;
+  padding: var(--table-header-padding-y, 7px) var(--table-header-padding-x, 12px);
   border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
   text-align: left;
@@ -864,8 +982,8 @@ const rootEntries = computed(() => {
   position: sticky !important;
   left: 0 !important;
   z-index: 10 !important;
-  width: 48px;
-  min-width: 48px;
+  width: var(--table-index-width, 48px);
+  min-width: var(--table-index-width, 48px);
   text-align: center;
   background: var(--table-header-bg, #f1f5f9) !important;
   box-shadow: 1px 0 0 var(--border-color);
@@ -883,11 +1001,12 @@ const rootEntries = computed(() => {
   font-family: var(--font-mono);
   font-weight: 600;
   text-align: center;
-  padding: 6px 8px;
+  padding: var(--table-padding-y, 6px) 8px;
+  font-size: var(--table-font-size, 13px);
   border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
-  width: 48px;
-  min-width: 48px;
+  width: var(--table-index-width, 48px);
+  min-width: var(--table-index-width, 48px);
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
   box-shadow: 1px 0 0 var(--border-color);
@@ -907,7 +1026,8 @@ const rootEntries = computed(() => {
   left: 0 !important;
   z-index: 5 !important;
   color: var(--table-root-fg, #991b1b);
-  padding: 7px 12px;
+  padding: var(--table-header-padding-y, 7px) var(--table-header-padding-x, 12px);
+  font-size: var(--table-font-size, 13px);
   border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
   text-align: left;
@@ -916,7 +1036,7 @@ const rootEntries = computed(() => {
   user-select: none;
   cursor: pointer;
   width: auto;
-  min-width: 120px;
+  min-width: var(--table-min-key-width, 110px);
   max-width: 280px;
   letter-spacing: 0.01em;
   transition: background-color 0.15s ease, color 0.15s ease;
@@ -936,8 +1056,8 @@ const rootEntries = computed(() => {
 }
 
 .root-key-cell.root-index-cell {
-  width: 50px;
-  min-width: 50px;
+  width: var(--table-root-index-width, 50px);
+  min-width: var(--table-root-index-width, 50px);
   text-align: center;
   font-family: var(--font-mono);
   color: var(--json-number, #2563eb);
@@ -955,14 +1075,14 @@ const rootEntries = computed(() => {
 
 /* Value cell */
 .value-cell {
-  padding: 6px 12px;
+  padding: var(--table-padding-y, 6px) var(--table-padding-x, 12px);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--table-font-size, 13px);
   color: var(--text-primary);
   word-break: break-word;
   background: transparent;
   vertical-align: middle;
-  min-width: 140px;
+  min-width: var(--table-min-val-width, 140px);
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -998,7 +1118,7 @@ const rootEntries = computed(() => {
 }
 
 .complex-header-row.padding-box {
-  padding: 4px 10px;
+  padding: var(--table-compact-padding-y, 4px) var(--table-compact-padding-x, 10px);
 }
 
 .toggle-btn {
@@ -1012,7 +1132,7 @@ const rootEntries = computed(() => {
   border-radius: 4px;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--table-font-small, 11px);
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
@@ -1029,6 +1149,7 @@ const rootEntries = computed(() => {
 .preview-text {
   opacity: 0.8;
   font-style: italic;
+  font-size: var(--table-font-small, 11px);
 }
 
 .copy-subtree-btn {
@@ -1080,9 +1201,9 @@ const rootEntries = computed(() => {
 }
 
 .inner-grid-td {
-  padding: 6px 12px;
+  padding: var(--table-padding-y, 6px) var(--table-padding-x, 12px);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--table-font-size, 13px);
   border-right: 1px solid var(--border-color);
   vertical-align: middle;
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
@@ -1106,7 +1227,7 @@ const rootEntries = computed(() => {
   max-width: 220px;
   color: var(--table-subkey-fg, #991b1b);
   font-weight: 500;
-  padding: 6px 12px;
+  padding: var(--table-padding-y, 6px) var(--table-padding-x, 12px);
   border-right: 1px solid var(--border-color);
   white-space: nowrap;
   overflow: hidden;
@@ -1114,6 +1235,7 @@ const rootEntries = computed(() => {
   background: transparent;
   vertical-align: top;
   font-family: var(--font-sans);
+  font-size: var(--table-font-size, 13px);
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
@@ -1122,9 +1244,9 @@ const rootEntries = computed(() => {
 }
 
 .inner-val-cell {
-  padding: 6px 12px;
+  padding: var(--table-padding-y, 6px) var(--table-padding-x, 12px);
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--table-font-size, 13px);
   vertical-align: middle;
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -1253,7 +1375,7 @@ const rootEntries = computed(() => {
 }
 
 .table-img-badge {
-  font-size: 13px;
+  font-size: var(--table-font-size, 13px);
   margin-right: 4px;
   margin-left: 1px;
   cursor: pointer;
@@ -1350,7 +1472,7 @@ const rootEntries = computed(() => {
   border: none;
   color: var(--text-secondary);
   font-family: var(--font-sans);
-  font-size: 11px;
+  font-size: var(--table-font-small, 11px);
   cursor: pointer;
   padding: 2px 5px;
   border-radius: 4px;
@@ -1369,7 +1491,7 @@ const rootEntries = computed(() => {
 
 .preview-text {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--table-font-small, 11px);
 }
 
 .copy-subtree-btn {
@@ -1399,5 +1521,85 @@ const rootEntries = computed(() => {
 .copy-subtree-icon {
   width: 11px;
   height: 11px;
+}
+
+/* ── Table Scale / Density Floating Controls (方案一) ── */
+.table-scale-controls {
+  position: absolute;
+  bottom: clamp(12px, 2vh, 20px);
+  right: clamp(12px, 2vw, 20px);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-panel, #ffffff);
+  padding: 4px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  user-select: none;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+
+:global(.dark-mode) .table-scale-controls {
+  background: #1e1e24;
+  border-color: #3f4452;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+.table-ctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  border-radius: 5px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.table-ctrl-btn:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.06));
+  color: var(--json-key, #4f46e5);
+}
+
+:global(.dark-mode) .table-ctrl-btn:hover {
+  background: #334155;
+  color: #38bdf8;
+}
+
+.table-ctrl-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  height: 22px;
+  min-width: 42px;
+  border: 1px solid var(--border-color, #cbd5e1);
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  color: var(--text-primary, #0f172a);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  user-select: none;
+}
+
+:global(.dark-mode) .table-ctrl-badge {
+  background: #27272a;
+  border-color: #3f4452;
+  color: #f1f5f9;
+}
+
+.table-ctrl-btn.reset-btn {
+  font-size: 12px;
+  color: var(--accent-color, #6366f1);
 }
 </style>

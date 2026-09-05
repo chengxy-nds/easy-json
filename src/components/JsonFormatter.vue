@@ -12,11 +12,13 @@ import {
   Car, Building2, BookUser, Database
 } from 'lucide-vue-next'
 import JsonTreeNode   from './JsonTreeNode.vue'
+import JsonVirtualTreeView from './JsonVirtualTreeView.vue'
 import JsonGraphView  from './JsonGraphView.vue'
 import JsonTableView  from './JsonTableView.vue'
 import ImportDropdown from './ImportDropdown.vue'
 import ImagePreviewPopover from './ImagePreviewPopover.vue'
 import MaskKeyTreePicker from './MaskKeyTreePicker.vue'
+import CodeMirrorEditor from './CodeMirrorEditor.vue'
 import { extractJsonFromText, convertJsObjectToJson, safeParseJsLike, tryParseCandidate } from '../utils/jsonExtractor.js';
 import { convertJson, formatLabels, getFormatExtension } from '../utils/jsonConverter.js';
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js';
@@ -26,6 +28,9 @@ import { isImageUrl } from '../utils/imageDetector.js';
 import { getJsonPathRange } from '../utils/jsonPathRange.js';
 
 const showToast = inject('showToast')
+const isDark = inject('isDark', ref(true))
+const isPremiumTheme = inject('isPremiumTheme', ref(true))
+const cmEditorRef = ref(null)
 
 const indentSize = ref('2') // '2' | '4' | 'tab' | 'minify'
 const sortKeys = inject('sortKeys', ref(false))
@@ -39,6 +44,7 @@ const formatterLastPasted = ref('')
 const editorFontSize = inject('editorFontSize', ref(13))
 const showLineNumbers = inject('showLineNumbers', ref(true))
 const editorWordWrap = inject('editorWordWrap', ref('wrap'))
+const editorFontFamily = inject('editorFontFamily', ref(''))
 
 const editorLineHeight = computed(() => {
   const size = Number(editorFontSize.value) || 13
@@ -202,41 +208,60 @@ const toggleReplace = () => {
   }
 }
 
+const searchMatches = computed(() => {
+  const query = searchQuery.value
+  if (!query) return []
+  const text = activeTab.value?.inputText || ''
+  if (!text) return []
+  try {
+    const escaped = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+    const regex = new RegExp(escaped, 'gi')
+    return [...text.matchAll(regex)]
+  } catch (e) {
+    return []
+  }
+})
+
+watch([searchMatches, searchQuery], ([matches, query]) => {
+  if (!query) {
+    totalMatches.value = 0
+    currentMatchIndex.value = 0
+  } else {
+    totalMatches.value = matches.length
+    if (currentMatchIndex.value >= matches.length) {
+      currentMatchIndex.value = 0
+    }
+  }
+}, { immediate: true })
+
 const goNextMatch = () => {
   if (totalMatches.value === 0) return
   currentMatchIndex.value = (currentMatchIndex.value + 1) % totalMatches.value
+  if (cmEditorRef.value?.findNext) {
+    cmEditorRef.value.findNext()
+  }
   scrollToCurrentMatch()
 }
 
 const goPrevMatch = () => {
   if (totalMatches.value === 0) return
   currentMatchIndex.value = (currentMatchIndex.value - 1 + totalMatches.value) % totalMatches.value
+  if (cmEditorRef.value?.findPrevious) {
+    cmEditorRef.value.findPrevious()
+  }
   scrollToCurrentMatch()
 }
 
 const scrollToCurrentMatch = () => {
   nextTick(() => {
-    // 1. 左侧输入编辑区：根据高亮层中的 .search-match-current 滚动 textarea
-    const inputContainer = inputHighlightRef.value
-    const textarea = textareaRef.value
-    if (inputContainer && textarea) {
-      const target = inputContainer.querySelector('.search-match-current')
-      if (target) {
-        const relativeTop = targetRect.top - containerRect.top
-        const relativeLeft = targetRect.left - containerRect.left
-
-        textarea.scrollTo({
-          top: Math.max(0, relativeTop - textarea.clientHeight / 2 + targetRect.height / 2),
-          left: Math.max(0, relativeLeft - textarea.clientWidth / 4),
-          behavior: 'smooth'
-        })
-        syncGutterScroll()
-      }
+    // 1. 左侧 CodeMirror 编辑区：定位并选中当前匹配
+    if (cmEditorRef.value?.goToMatch) {
+      cmEditorRef.value.goToMatch(currentMatchIndex.value)
     }
 
-    // 2. 右侧代码视图：根据 outputPre 中的 .search-match-current 滚动
+    // 2. 右侧代码视图：根据 outputPre 中的 .search-match-current 或 .search-match 滚动
     if (outputPreRef.value) {
-      const outputTarget = outputPreRef.value.querySelector('.search-match-current')
+      const outputTarget = outputPreRef.value.querySelector('.search-match-current') || outputPreRef.value.querySelector('.search-match')
       if (outputTarget) {
         const targetRect = outputTarget.getBoundingClientRect()
         const containerRect = outputPreRef.value.getBoundingClientRect()
@@ -265,6 +290,11 @@ const scrollToCurrentMatch = () => {
 const scrollToErrorLine = () => {
   const tab = activeTab.value
   if (!tab) return
+
+  if (cmEditorRef.value && tab.errorLine) {
+    cmEditorRef.value.scrollToLine(tab.errorLine)
+    return
+  }
 
   const textarea = textareaRef.value
   if (!textarea) return
@@ -313,29 +343,36 @@ const buildSearchRegex = () => {
 }
 
 const replaceCurrent = () => {
-  const regex = buildSearchRegex()
-  if (!regex) return
-  const tab = activeTab.value
-  const text = tab.inputText
-  const matches = [...text.matchAll(new RegExp(regex.source, 'gi'))]
-  if (matches.length === 0) return
-
-  const idx = currentMatchIndex.value % matches.length
-  const m = matches[idx]
-  tab.inputText = text.substring(0, m.index) + replaceText.value + text.substring(m.index + m[0].length)
-  if (currentMatchIndex.value >= matches.length - 1) {
-    currentMatchIndex.value = 0
+  if (totalMatches.value === 0) return
+  if (cmEditorRef.value?.replaceNext) {
+    cmEditorRef.value.replaceNext(replaceText.value)
+    showToast('已替换当前')
+  } else {
+    const matches = searchMatches.value
+    if (matches.length === 0) return
+    const idx = currentMatchIndex.value % matches.length
+    const m = matches[idx]
+    const tab = activeTab.value
+    const text = tab.inputText
+    tab.inputText = text.substring(0, m.index) + replaceText.value + text.substring(m.index + m[0].length)
+    if (currentMatchIndex.value >= matches.length - 1) {
+      currentMatchIndex.value = 0
+    }
+    showToast('已替换当前')
   }
 }
 
 const replaceAllMatches = () => {
-  const regex = buildSearchRegex()
-  if (!regex) return
-  const tab = activeTab.value
-  const matches = tab.inputText.match(regex)
-  if (!matches || matches.length === 0) return
-  const count = matches.length
-  tab.inputText = tab.inputText.replace(regex, replaceText.value)
+  if (totalMatches.value === 0) return
+  const count = totalMatches.value
+  if (cmEditorRef.value?.replaceAll) {
+    cmEditorRef.value.replaceAll(replaceText.value)
+  } else {
+    const regex = buildSearchRegex()
+    if (regex) {
+      activeTab.value.inputText = activeTab.value.inputText.replace(regex, replaceText.value)
+    }
+  }
   currentMatchIndex.value = 0
   showToast(`已替换 ${count} 处`)
 }
@@ -442,12 +479,20 @@ const pathBreadcrumbs = computed(() => {
 
 const handleBreadcrumbClick = (crumb) => {
   if (!crumb) return
-  const textarea = textareaRef.value
   const text = activeTab.value?.inputText
-  if (!textarea || !text) return
+  if (!text) return
+
+  setSelectedPath(crumb.path, 'all')
 
   const range = getJsonPathRange(text, crumb.path)
   if (range) {
+    if (cmEditorRef.value) {
+      cmEditorRef.value.focus()
+      cmEditorRef.value.setSelectionRange(range.start, range.end)
+      return
+    }
+    const textarea = textareaRef.value
+    if (!textarea) return
     textarea.focus()
     textarea.setSelectionRange(range.start, range.end)
 
@@ -480,6 +525,27 @@ const copyHoveredPath = () => {
     }).catch(() => {
       if (showToast) showToast('复制失败', 'error')
     })
+  }
+}
+
+const handleCopySelectionFeedback = () => {
+  if (showToast) {
+    showToast('已复制所选内容')
+  }
+}
+
+// CodeMirror 6 光标与选区变化处理
+const handleEditorCursorChange = ({ offset, line, col, path, type }) => {
+  if (activeTab.value?.validationError) {
+    selectedPath.value = null
+    return
+  }
+  if (path && path.length > 0) {
+    selectedPath.value = path
+    selectedType.value = type || 'all'
+  } else {
+    selectedPath.value = null
+    selectedType.value = 'all'
   }
 }
 
@@ -699,6 +765,18 @@ const handlePathClick = (path, type = 'all') => {
   if (!path) return
   setSelectedPath(path, type)
   
+  if (cmEditorRef.value) {
+    const text = activeTab.value?.inputText
+    if (text) {
+      const range = getJsonPathRange(text, path)
+      if (range) {
+        cmEditorRef.value.focus()
+        cmEditorRef.value.setSelectionRange(range.start, range.end)
+        return
+      }
+    }
+  }
+
   const highlightContainer = inputHighlightRef.value
   if (!highlightContainer) return
   
@@ -2079,7 +2157,10 @@ onDeactivated(() => {
 onActivated(() => {
   nextTick(() => {
     activeScrollTarget.value = 'left'
-    if (textareaRef.value) {
+    if (cmEditorRef.value) {
+      cmEditorRef.value.setScrollTop(savedScrollState.inputTop)
+      cmEditorRef.value.setScrollLeft(savedScrollState.inputLeft)
+    } else if (textareaRef.value) {
       textareaRef.value.scrollTop = savedScrollState.inputTop
       textareaRef.value.scrollLeft = savedScrollState.inputLeft
     }
@@ -2096,15 +2177,41 @@ onActivated(() => {
   })
 })
 
+const handleEditorScroll = (e) => {
+  const target = e?.target
+  if (!target) return
+  const scrollTop = target.scrollTop || 0
+  const scrollLeft = target.scrollLeft || 0
+
+  savedScrollState.inputTop = scrollTop
+  savedScrollState.inputLeft = scrollLeft
+
+  if (activeScrollTarget.value === 'left') {
+    if (outputPreRef.value) {
+      outputPreRef.value.scrollTop = scrollTop
+      outputPreRef.value.scrollLeft = scrollLeft
+      if (outputGutterRef.value) outputGutterRef.value.scrollTop = scrollTop
+    }
+    if (treeWrapperRef.value) {
+      treeWrapperRef.value.scrollTop = scrollTop
+      treeWrapperRef.value.scrollLeft = scrollLeft
+    }
+  }
+}
+
 const scrollToTop = () => {
-  if (textareaRef.value) {
+  if (cmEditorRef.value) {
+    cmEditorRef.value.scrollToTop()
+  } else if (textareaRef.value) {
     textareaRef.value.scrollTop = 0
     syncGutterScroll()
   }
 }
 
 const scrollToBottom = () => {
-  if (textareaRef.value) {
+  if (cmEditorRef.value) {
+    cmEditorRef.value.scrollToBottom()
+  } else if (textareaRef.value) {
     textareaRef.value.scrollTop = textareaRef.value.scrollHeight
     syncGutterScroll()
   }
@@ -2139,7 +2246,10 @@ const handleOutputScroll = () => {
     savedScrollState.outputTop = scrollTop
     savedScrollState.outputLeft = scrollLeft
     // Sync Input Pane
-    if (textareaRef.value) {
+    if (cmEditorRef.value) {
+      cmEditorRef.value.setScrollTop(scrollTop)
+      cmEditorRef.value.setScrollLeft(scrollLeft)
+    } else if (textareaRef.value) {
       textareaRef.value.scrollTop = scrollTop
       textareaRef.value.scrollLeft = scrollLeft
     }
@@ -2165,7 +2275,10 @@ const handleTreeScroll = () => {
     const scrollLeft = treeWrapperRef.value.scrollLeft
     savedScrollState.treeTop = scrollTop
     savedScrollState.treeLeft = scrollLeft
-    if (textareaRef.value) {
+    if (cmEditorRef.value) {
+      cmEditorRef.value.setScrollTop(scrollTop)
+      cmEditorRef.value.setScrollLeft(scrollLeft)
+    } else if (textareaRef.value) {
       textareaRef.value.scrollTop = scrollTop
       textareaRef.value.scrollLeft = scrollLeft
     }
@@ -3910,49 +4023,37 @@ onBeforeUnmount(() => {
         </Transition>
 
         <div class="panel-body">
-          <div class="editor-wrapper">
-            <!-- Sync scroll line numbers -->
-            <div v-show="showLineNumbers" class="gutter" ref="gutterRef" v-html="inputGutterHtml" aria-hidden="true" @wheel.prevent="handleGutterWheel"></div>
+          <div class="editor-wrapper" @mouseenter="activeScrollTarget = 'left'" @touchstart="activeScrollTarget = 'left'">
+            <CodeMirrorEditor
+              ref="cmEditorRef"
+              v-model="activeTab.inputText"
+              :error-line="activeTab.errorLine"
+              :duplicate-lines="activeTab.duplicateLines"
+              :search-query="searchQuery"
+              :replace-query="replaceText"
+              :word-wrap="editorWordWrap === 'wrap' || isInputMinified"
+              :show-line-numbers="showLineNumbers"
+              :dark-mode="isDark"
+              :is-premium="isPremiumTheme"
+              :font-size="Number(editorFontSize) || 13"
+              :line-height="editorLineHeight"
+              :font-family="editorFontFamily"
+              @cursor-change="handleEditorCursorChange"
+              @copy-selection="handleCopySelectionFeedback"
+              @scroll="handleEditorScroll"
+              @focus="handleTextareaFocus"
+              @blur="handleTextareaBlur"
+              @paste="handlePaste"
+            />
 
-            <div class="textarea-overlay-container" :class="{ 'minify-wrap': isInputMinified }">
-              <!-- Syntax highlight overlay (behind textarea) -->
-              <div
-                ref="inputHighlightRef"
-                class="editor-highlight"
-                v-html="highlightedInput || (isTextareaFocused ? '' : '<div class=\'editor-line placeholder\'>在此粘贴或拖入你的 JSON 数据...</div>')"
-              ></div>
-              <!-- Transparent textarea on top -->
-              <textarea
-                ref="textareaRef"
-                v-model="activeTab.inputText"
-                class="editor-textarea"
-                placeholder=""
-                spellcheck="false"
-                autocomplete="off"
-                autocorrect="off"
-                autocapitalize="off"
-                @scroll="syncGutterScroll"
-                @paste="handlePaste"
-                @cut="handleCut"
-                @copy="handleCopy"
-                @click="updateCursorPath"
-                @keyup="updateCursorPath"
-                @select="updateCursorPath"
-                @mouseenter="activeScrollTarget = 'left'"
-                @touchstart="activeScrollTarget = 'left'"
-                @focus="handleTextareaFocus(); updateCursorPath()"
-                @blur="handleTextareaBlur"
-              ></textarea>
-              
-              <!-- Floating Scroll Buttons -->
-              <div v-if="activeTab.inputText" class="textarea-scroll-controls">
-                <button class="scroll-control-btn" @click="scrollToTop" data-tooltip-left="回到顶部">
-                  <ChevronUp class="scroll-control-icon" />
-                </button>
-                <button class="scroll-control-btn" @click="scrollToBottom" data-tooltip-left="回到底部">
-                  <ChevronDown class="scroll-control-icon" />
-                </button>
-              </div>
+            <!-- Floating Scroll Buttons -->
+            <div v-if="activeTab.inputText" class="textarea-scroll-controls">
+              <button class="scroll-control-btn" @click="scrollToTop" data-tooltip-left="回到顶部">
+                <ChevronUp class="scroll-control-icon" />
+              </button>
+              <button class="scroll-control-btn" @click="scrollToBottom" data-tooltip-left="回到底部">
+                <ChevronDown class="scroll-control-icon" />
+              </button>
             </div>
           </div>
         </div>
@@ -4113,18 +4214,18 @@ onBeforeUnmount(() => {
               ></pre>
             </div>
 
-            <!-- Tree view -->
-            <div
+            <!-- Tree view (Virtualized) -->
+            <JsonVirtualTreeView
               v-else-if="activeTab.viewMode === 'tree' && activeTab.parsedObj"
-              class="tree-wrapper"
+              :data="activeTab.parsedObj"
+              :hoveredPath="hoveredPath"
+              :selectedPath="selectedPath"
               ref="treeWrapperRef"
               key="tree"
               @scroll="handleTreeScroll"
               @mouseenter="activeScrollTarget = 'right'"
               @touchstart="activeScrollTarget = 'right'"
-            >
-              <JsonTreeNode :value="activeTab.parsedObj" :is-last="true" :path="[]" />
-            </div>
+            />
 
             <!-- Table view -->
             <JsonTableView

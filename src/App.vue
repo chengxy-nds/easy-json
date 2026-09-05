@@ -229,20 +229,30 @@ const getSavedShowLineNumbers = () => {
 }
 
 const fontOptions = [
-  { label: 'JetBrains Mono', value: "'JetBrains Mono', Consolas, ui-monospace, monospace" },
-  { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
-  { label: 'Fira Code', value: "'Fira Code', Consolas, monospace" },
-  { label: 'Cascadia Code', value: "'Cascadia Code', Consolas, monospace" },
-  { label: 'Source Code Pro', value: "'Source Code Pro', Consolas, monospace" },
-  { label: '系统等宽', value: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }
+  { label: 'JetBrains Mono', value: "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace" },
+  { label: 'Fira Code', value: "'Fira Code', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace" },
+  { label: 'IBM Plex Mono', value: "'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace" },
+  { label: 'Space Mono', value: "'Space Mono', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace" },
+  { label: 'Inconsolata', value: "'Inconsolata', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace" },
+  { label: 'Source Code Pro', value: "'Source Code Pro', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace" },
+  { label: 'VT323', value: "'VT323', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace" },
+  { label: 'SF Mono / Menlo', value: "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace" },
+  { label: 'Consolas', value: "Consolas, ui-monospace, 'SF Mono', Menlo, Monaco, monospace" },
+  { label: 'Cascadia Code', value: "'Cascadia Code', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace" },
+  { label: '系统等宽', value: "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace" }
 ]
 
 const getSavedFontFamily = () => {
   try {
     const saved = localStorage.getItem('ej_editor_font_family')
-    if (saved) return saved
+    if (saved) {
+      if (saved.includes('"Courier New"') || saved === 'Consolas, "Courier New", monospace') {
+        return "Consolas, ui-monospace, 'SF Mono', Menlo, Monaco, monospace"
+      }
+      return saved
+    }
   } catch (e) {}
-  return "'JetBrains Mono', Consolas, ui-monospace, monospace"
+  return "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace"
 }
 
 const getSavedWordWrap = () => {
@@ -424,7 +434,9 @@ const updateSyntaxThemeClass = () => {
 }
 
 provide('isDark', isDark)
+provide('isPremiumTheme', isPremiumTheme)
 provide('toggleTheme', toggleTheme)
+provide('toggleSyntaxTheme', toggleSyntaxTheme)
 
 const handlePopState = () => {
   const path = window.location.pathname.replace(/\/$/, '')
@@ -891,7 +903,7 @@ onBeforeUnmount(() => {
             <span class="settings-label">字体选择</span>
             <div class="settings-select-wrapper">
               <select v-model="editorFontFamily" class="settings-select">
-                <option v-for="font in fontOptions" :key="font.label" :value="font.value">
+                <option v-for="font in fontOptions" :key="font.label" :value="font.value" :style="{ fontFamily: font.value }">
                   {{ font.label }}
                 </option>
               </select>
