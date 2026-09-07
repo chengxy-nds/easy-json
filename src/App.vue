@@ -383,28 +383,29 @@ const getToastStyle = (index) => {
     return {
       transform: 'scale(1) translateY(0)',
       opacity: 1,
-      zIndex: 10000 + index
+      zIndex: 99999 + index
     }
   } else if (reverseIndex === 1) {
     return {
       transform: 'scale(0.94) translateY(-10px)',
       opacity: 0.85,
-      zIndex: 10000 + index
+      zIndex: 99999 + index
     }
   } else if (reverseIndex === 2) {
     return {
       transform: 'scale(0.88) translateY(-20px)',
       opacity: 0.6,
-      zIndex: 10000 + index
+      zIndex: 99999 + index
     }
   }
   return {
     transform: 'scale(0.82) translateY(-30px)',
     opacity: 0,
-    zIndex: 10000 + index,
+    zIndex: 99999 + index,
     pointerEvents: 'none'
   }
 }
+
 
 const toggleTheme = () => {
   // 切换瞬间禁用全局 transition，避免背景色/文字色闪动
@@ -981,21 +982,23 @@ onBeforeUnmount(() => {
     </main>
 
     <!-- Global Toast Notification Stack -->
-    <div class="toast-stack-container">
-      <TransitionGroup name="toast-slide">
-        <div 
-          v-for="t in toasts" 
-          :key="t.id" 
-          class="global-toast" 
-          :class="t.type"
-          :style="getToastStyle(toasts.indexOf(t))"
-        >
-          <CheckCircle v-if="t.type === 'success'" class="toast-icon success" />
-          <AlertTriangle v-else class="toast-icon error" />
-          <span>{{ t.message }}</span>
-        </div>
-      </TransitionGroup>
-    </div>
+    <Teleport to="body">
+      <div class="toast-stack-container">
+        <TransitionGroup name="toast-slide">
+          <div 
+            v-for="t in toasts" 
+            :key="t.id" 
+            class="global-toast" 
+            :class="t.type"
+            :style="getToastStyle(toasts.indexOf(t))"
+          >
+            <CheckCircle v-if="t.type === 'success'" class="toast-icon success" />
+            <AlertTriangle v-else class="toast-icon error" />
+            <span>{{ t.message }}</span>
+          </div>
+        </TransitionGroup>
+      </div>
+    </Teleport>
 
     <!-- Global Floating Tooltip System -->
     <GlobalTooltip />
@@ -1007,7 +1010,7 @@ onBeforeUnmount(() => {
   animation: fadeIn 0.15s ease forwards;
 }
 
-/* Toast Styles */
+/* Toast Styles (Sonner-like Stacked Notifications) */
 .global-toast {
   position: fixed;
   bottom: 24px;
@@ -1021,7 +1024,7 @@ onBeforeUnmount(() => {
   background-color: var(--bg-panel);
   backdrop-filter: blur(8px);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.02);
-  z-index: 9999;
+  z-index: 99999;
   font-family: var(--font-sans);
   font-size: 13px;
   font-weight: 500;

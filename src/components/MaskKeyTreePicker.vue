@@ -345,6 +345,8 @@ const flatVisibleNodes = computed(() => {
 .mask-key-tree-picker {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   background: var(--bg-app, #f8fafc);
   border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
   border-radius: 0.5rem;
@@ -481,7 +483,9 @@ const flatVisibleNodes = computed(() => {
 
 /* 节点容器 */
 .tree-nodes-container {
-  max-height: 11.25rem;
+  flex: 1;
+  min-height: 8rem;
+  max-height: none;
   overflow-y: auto;
   padding: 0.25rem 0;
   font-family: var(--font-mono, monospace);

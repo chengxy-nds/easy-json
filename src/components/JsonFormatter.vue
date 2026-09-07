@@ -3623,13 +3623,38 @@ watch(showMaskModal, (val) => {
   }
 })
 
+// 递归收集 JSON 数据中包含的所有键名（支持任意深度嵌套与数组对象采样）
+const collectKeysFromJson = (val, set = new Set(), depth = 0) => {
+  if (!val || depth > 20) return set
+  if (Array.isArray(val)) {
+    const sampleLen = Math.min(val.length, 10)
+    for (let i = 0; i < sampleLen; i++) {
+      collectKeysFromJson(val[i], set, depth + 1)
+    }
+  } else if (typeof val === 'object') {
+    for (const k of Object.keys(val)) {
+      set.add(k)
+      collectKeysFromJson(val[k], set, depth + 1)
+    }
+  }
+  return set
+}
+
 const openDataMaskModal = () => {
   const tab = activeTab.value
   if (!tab || !tab.inputText?.trim()) {
     showToast('请先输入需要脱敏的 JSON 数据', 'error')
     return
   }
-  showKeyTreePicker.value = false
+  // 默认打开条件：如果已选中的 key 在当前 JSON 中存在，则默认展示选取面板，否则默认收起
+  const parsed = tab.parsedObj || parseJsonRobust(tab.inputText)
+  if (parsed && Array.isArray(maskOptions.value.customKeys) && maskOptions.value.customKeys.length > 0) {
+    const keysInJson = collectKeysFromJson(parsed)
+    showKeyTreePicker.value = maskOptions.value.customKeys.some(k => keysInJson.has(k))
+  } else {
+    showKeyTreePicker.value = false
+  }
+
   updateMaskPreview()
   showMaskModal.value = true
 }
@@ -3756,7 +3781,6 @@ const applyMaskToCurrentTab = async () => {
     activeTab.value.inputText = res.text
     showMaskModal.value = false
     showToast(`已完成智能脱敏（共处理 ${res.count} 处敏感数据）`)
-    autoCopyResult(activeTab.value.inputText)
   } catch (e) {
     showToast('脱敏处理失败: ' + (e?.message || ''), 'error')
   } finally {
@@ -4660,143 +4684,150 @@ onBeforeUnmount(() => {
               </button>
             </div>
 
-            <div class="ej-modal-body">
-              <!-- 规则选择区 -->
-              <div class="mask-section">
-                <div class="mask-section-title">内置规则勾选</div>
-                <div class="mask-checkbox-grid">
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskPhone" />
-                    <Smartphone class="rule-icon" />
-                    <span>手机号码 (11位)</span>
-                  </label>
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskIdCard" />
-                    <IdCard class="rule-icon" />
-                    <span>身份证号 (18位)</span>
-                  </label>
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskEmail" />
-                    <Mail class="rule-icon" />
-                    <span>电子邮箱</span>
-                  </label>
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskBankCard" />
-                    <CreditCard class="rule-icon" />
-                    <span>银行卡号</span>
-                  </label>
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskIp" />
-                    <Globe class="rule-icon" />
-                    <span>IP 地址 (v4/v6)</span>
-                  </label>
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskLicensePlate" />
-                    <Car class="rule-icon" />
-                    <span>车牌号码</span>
-                  </label>
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskUsci" />
-                    <Building2 class="rule-icon" />
-                    <span>统一社会信用代码</span>
-                  </label>
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskPassport" />
-                    <BookUser class="rule-icon" />
-                    <span>中国护照号</span>
-                  </label>
-                  <label class="mask-checkbox-item">
-                    <input type="checkbox" v-model="maskOptions.maskDsn" />
-                    <Database class="rule-icon" />
-                    <span>数据库连接串 (DSN)</span>
-                  </label>
-                </div>
-              </div>
-
-              <!-- 自定义 Key 脱敏区 -->
-              <div class="mask-section">
-                <div class="mask-section-title">
-                  <span>指定 Key 脱敏</span>
-                  <span class="section-sub-tip">（匹配到的字段值将自动掩码）</span>
-                </div>
-                <div class="custom-key-input-row">
-                  <input
-                    type="text"
-                    class="custom-key-input"
-                    v-model="customKeyInput"
-                    placeholder="输入需要脱敏的 Key 名称 (如 salary, address)，按回车添加"
-                    @keydown.enter="addCustomKey"
-                  />
-                  <button class="custom-key-add-btn" @click="addCustomKey" :disabled="!customKeyInput.trim()">
-                    添加
-                  </button>
-                  <button
-                    type="button"
-                    class="custom-key-tree-btn"
-                    :class="{ active: showKeyTreePicker }"
-                    @click="showKeyTreePicker = !showKeyTreePicker"
-                    title="从当前 JSON 树形结构可视化选取字段"
-                  >
-                    <ListTree class="btn-icon-xs" />
-                    <span>从当前 JSON 选取</span>
-                    <ChevronDown class="tree-toggle-arrow" :class="{ 'is-open': showKeyTreePicker }" />
-                  </button>
-                </div>
-
-                <!-- 已指定的 Key 列表 -->
-                <div v-if="maskOptions.customKeys.length > 0" class="selected-keys-wrap">
-                  <span class="selected-key-tag" v-for="k in maskOptions.customKeys" :key="k">
-                    {{ k }}
-                    <X class="tag-close-icon" @click="removeCustomKey(k)" />
-                  </span>
-                  <button class="clear-all-keys-btn" @click="clearAllCustomKeys" title="一键清空全部已选字段">
-                    <Trash2 class="clear-keys-icon" />
-                    <span>一键清空</span>
-                  </button>
-                </div>
-
-                <!-- 树形结构选取面板 -->
-                <MaskKeyTreePicker
-                  v-if="showKeyTreePicker"
-                  :data="activeTab.parsedObj || parseJsonRobust(activeTab.inputText)"
-                  v-model="maskOptions.customKeys"
-                  @update:model-value="() => { saveMaskOptions(); updateMaskPreview(); }"
-                />
-              </div>
-
-              <!-- 实时预览区 -->
-              <div class="mask-preview-area">
-                <div class="preview-header">
-                  <div class="preview-title-wrap">
-                    <span>脱敏效果实时预览 (当前{{ isMaskPreviewSampled ? '示例' : '' }}共处理 {{ maskCountResult }} 处)</span>
-                    <span v-if="isMaskPreviewSampled" class="preview-sample-badge" :title="`总数据量为 ${maskSampleTotalCount.toLocaleString()} 项，当前抽样展示前 ${maskSampleShownCount} 项`">
-                      已展示前 {{ maskSampleShownCount }} 条示例 (共 {{ maskSampleTotalCount.toLocaleString() }} 条)
-                    </span>
+            <div class="ej-modal-body mask-modal-split-body">
+              <!-- 左侧：脱敏规则与字段配置区 -->
+              <div class="mask-modal-left">
+                <!-- 规则选择区 -->
+                <div class="mask-section">
+                  <div class="mask-section-title">内置规则勾选</div>
+                  <div class="mask-checkbox-grid">
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskPhone" />
+                      <Smartphone class="rule-icon" />
+                      <span>手机号码 (11位)</span>
+                    </label>
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskIdCard" />
+                      <IdCard class="rule-icon" />
+                      <span>身份证号 (18位)</span>
+                    </label>
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskEmail" />
+                      <Mail class="rule-icon" />
+                      <span>电子邮箱</span>
+                    </label>
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskBankCard" />
+                      <CreditCard class="rule-icon" />
+                      <span>银行卡号</span>
+                    </label>
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskIp" />
+                      <Globe class="rule-icon" />
+                      <span>IP 地址 (v4/v6)</span>
+                    </label>
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskLicensePlate" />
+                      <Car class="rule-icon" />
+                      <span>车牌号码</span>
+                    </label>
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskUsci" />
+                      <Building2 class="rule-icon" />
+                      <span>统一社会信用代码</span>
+                    </label>
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskPassport" />
+                      <BookUser class="rule-icon" />
+                      <span>中国护照号</span>
+                    </label>
+                    <label class="mask-checkbox-item">
+                      <input type="checkbox" v-model="maskOptions.maskDsn" />
+                      <Database class="rule-icon" />
+                      <span>数据库连接串 (DSN)</span>
+                    </label>
                   </div>
-                  <button class="preview-copy-btn" @click="copyMaskedData" :disabled="isMaskApplying" title="复制全量脱敏后的 JSON 数据">
-                    <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
-                    <Copy v-else class="btn-icon-xs" />
-                    <span>{{ isMaskApplying ? '正在处理...' : '复制 JSON' }}</span>
-                  </button>
                 </div>
-                <div class="mask-preview-code-wrap">
-                  <pre class="mask-preview-pre output-pre" @click="handleOutputPreClick" v-html="highlightedMaskPreview"></pre>
+
+                <!-- 自定义 Key 脱敏区 -->
+                <div class="mask-section" :class="{ 'tree-active': showKeyTreePicker }">
+                  <div class="mask-section-title">
+                    <span>指定 Key 脱敏</span>
+                    <span class="section-sub-tip">（匹配到的字段值将自动掩码）</span>
+                  </div>
+                  <div class="custom-key-input-row">
+                    <input
+                      type="text"
+                      class="custom-key-input"
+                      v-model="customKeyInput"
+                      placeholder="输入 Key 名称..."
+                      @keydown.enter="addCustomKey"
+                    />
+                    <button class="custom-key-add-btn" @click="addCustomKey" :disabled="!customKeyInput.trim()">
+                      添加
+                    </button>
+                    <button
+                      type="button"
+                      class="custom-key-tree-btn"
+                      :class="{ active: showKeyTreePicker }"
+                      @click="showKeyTreePicker = !showKeyTreePicker"
+                      title="从当前 JSON 可视化选取字段"
+                    >
+                      <ListTree class="btn-icon-xs" />
+                      <span>从 JSON 选取</span>
+                      <ChevronDown class="tree-toggle-arrow" :class="{ 'is-open': showKeyTreePicker }" />
+                    </button>
+                  </div>
+
+                  <!-- 已指定的 Key 列表 -->
+                  <div v-if="maskOptions.customKeys.length > 0" class="selected-keys-wrap">
+                    <span class="selected-key-tag" v-for="k in maskOptions.customKeys" :key="k">
+                      {{ k }}
+                      <X class="tag-close-icon" @click="removeCustomKey(k)" />
+                    </span>
+                    <button class="clear-all-keys-btn" @click="clearAllCustomKeys" title="一键清空全部已选字段">
+                      <Trash2 class="clear-keys-icon" />
+                      <span>一键清空</span>
+                    </button>
+                  </div>
+
+                  <!-- 树形结构选取面板 (自适应撑满剩余高度) -->
+                  <MaskKeyTreePicker
+                    v-if="showKeyTreePicker"
+                    class="mask-tree-panel"
+                    :data="activeTab.parsedObj || parseJsonRobust(activeTab.inputText)"
+                    v-model="maskOptions.customKeys"
+                    @update:model-value="() => { saveMaskOptions(); updateMaskPreview(); }"
+                  />
                 </div>
               </div>
-            </div>
 
-            <div class="ej-modal-footer">
-              <button class="modal-btn outline" @click="showMaskModal = false" :disabled="isMaskApplying">取消</button>
-              <button class="modal-btn secondary" @click="applyMaskToNewTab" :disabled="isMaskApplying">
-                <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
-                <Plus v-else class="btn-icon-xs" />
-                <span>{{ isMaskApplying ? '正在全量脱敏...' : '在新标签页打开' }}</span>
-              </button>
-              <button class="modal-btn primary" @click="applyMaskToCurrentTab" :disabled="isMaskApplying">
-                <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
-                <Check v-else class="btn-icon-xs" />
-                <span>{{ isMaskApplying ? '正在全量脱敏...' : '应用到当前编辑器' }}</span>
-              </button>
+              <!-- 右侧：实时预览区与底部操作栏 -->
+              <div class="mask-modal-right">
+                <div class="mask-preview-area">
+                  <div class="preview-header">
+                    <div class="preview-title-wrap">
+                      <span>脱敏效果实时预览 (当前{{ isMaskPreviewSampled ? '示例' : '' }}共处理 {{ maskCountResult }} 处)</span>
+                      <span v-if="isMaskPreviewSampled" class="preview-sample-badge" :title="`总数据量为 ${maskSampleTotalCount.toLocaleString()} 项，当前抽样展示前 ${maskSampleShownCount} 项`">
+                        已展示前 {{ maskSampleShownCount }} 条示例 (共 {{ maskSampleTotalCount.toLocaleString() }} 条)
+                      </span>
+                    </div>
+                    <button class="preview-copy-btn" @click="copyMaskedData" :disabled="isMaskApplying" title="复制全量脱敏后的 JSON 数据">
+                      <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
+                      <Copy v-else class="btn-icon-xs" />
+                      <span>{{ isMaskApplying ? '正在处理...' : '复制 JSON' }}</span>
+                    </button>
+                  </div>
+                  <div class="mask-preview-code-wrap">
+                    <pre class="mask-preview-pre output-pre" @click="handleOutputPreClick" v-html="highlightedMaskPreview"></pre>
+                  </div>
+                </div>
+
+                <!-- 仅在右侧预览区下方的底部操作栏 -->
+                <div class="mask-modal-right-footer">
+                  <button class="modal-btn outline" @click="showMaskModal = false" :disabled="isMaskApplying">取消</button>
+                  <button class="modal-btn secondary" @click="applyMaskToNewTab" :disabled="isMaskApplying">
+                    <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
+                    <Plus v-else class="btn-icon-xs" />
+                    <span>{{ isMaskApplying ? '正在全量脱敏...' : '在新标签页打开' }}</span>
+                  </button>
+                  <button class="modal-btn primary" @click="applyMaskToCurrentTab" :disabled="isMaskApplying">
+                    <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
+                    <Check v-else class="btn-icon-xs" />
+                    <span>{{ isMaskApplying ? '正在全量脱敏...' : '应用到当前编辑器' }}</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -7011,9 +7042,7 @@ body.utools-mode {
   display: flex;
   flex-direction: column;
   border-radius: 0.5rem;
-  border: 1px solid var(--border-color);
   overflow: hidden;
-  background: var(--bg-app);
 }
 
 .preview-header {
@@ -7220,15 +7249,101 @@ body.utools-mode {
   height: 0.8125rem;
 }
 
-/* ─── Data Masking Modal Styles (rem 响应式) ─── */
+/* ─── Data Masking Modal Styles (左右分栏布局与 rem 响应式) ─── */
 .mask-modal-dialog {
-  width: min(47.5rem, 90vw);
+  width: min(65rem, 94vw);
+  height: min(45rem, 88vh);
+  max-width: 94vw;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.mask-modal-split-body {
+  display: flex;
+  flex-direction: row;
+  padding: 0 !important;
+  gap: 0 !important;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mask-modal-left {
+  width: 27rem;
+  min-width: 22rem;
+  max-width: 48%;
+  flex-shrink: 0;
+  padding: 1.125rem 1.25rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  border-right: 1px solid var(--border-color);
+  background: var(--bg-panel);
+  box-sizing: border-box;
+  height: 100%;
+}
+
+.mask-modal-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-app);
+  box-sizing: border-box;
+}
+
+.mask-modal-right .mask-preview-area {
+  flex: 1;
+  min-height: 0;
+  border-bottom: 1px solid var(--border-color);
+  overflow: hidden;
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+}
+
+.mask-modal-right .mask-preview-code-wrap {
+  flex: 1;
+  max-height: none;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+}
+
+.mask-modal-right-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.625rem;
+  height: 3.75rem;
+  padding: 0 1.25rem;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.mask-modal-left .mask-checkbox-grid {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.5rem 0.625rem;
+  padding: 0.625rem 0.75rem;
 }
 
 .mask-section {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.mask-section.tree-active {
+  flex: 1;
+  min-height: 0;
+}
+
+.mask-tree-panel {
+  flex: 1;
+  min-height: 12rem;
 }
 
 .mask-section-title {
@@ -7274,13 +7389,15 @@ body.utools-mode {
 .custom-key-input-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
+  width: 100%;
 }
 
 .custom-key-input {
   flex: 1;
+  min-width: 0;
   height: 2rem;
-  padding: 0.25rem 0.625rem;
+  padding: 0.25rem 0.5rem;
   border-radius: 0.375rem;
   border: 1px solid var(--border-color);
   background: var(--bg-panel);
@@ -7297,7 +7414,7 @@ body.utools-mode {
 
 .custom-key-add-btn {
   height: 2rem;
-  padding: 0 0.875rem;
+  padding: 0 0.625rem;
   border-radius: 0.375rem;
   border: 1px solid var(--border-color);
   background: var(--bg-hover);
@@ -7307,6 +7424,7 @@ body.utools-mode {
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .custom-key-add-btn:hover:not(:disabled) {
@@ -7324,6 +7442,9 @@ body.utools-mode {
   flex-wrap: wrap;
   gap: 0.375rem;
   padding: 0.25rem 0;
+  max-height: 4.5rem;
+  overflow-y: auto;
+  flex-shrink: 0;
 }
 
 .selected-key-tag {
@@ -7381,14 +7502,14 @@ body.utools-mode {
 .custom-key-tree-btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.3125rem;
+  gap: 0.25rem;
   height: 2rem;
-  padding: 0 0.75rem;
+  padding: 0 0.5rem;
   border-radius: 0.375rem;
   border: 1px solid var(--border-color);
   background: var(--bg-panel);
   color: var(--text-primary);
-  font-size: 0.75rem;
+  font-size: 0.71875rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -7419,7 +7540,7 @@ body.utools-mode {
 }
 
 /* ─── 模态弹窗全分辨率与响应式适配 (rem 尺寸单位) ─── */
-@media (max-width: 768px) {
+@media (max-width: 820px) {
   .ej-modal-backdrop {
     padding: 0.625rem;
   }
@@ -7427,8 +7548,37 @@ body.utools-mode {
   .mask-modal-dialog {
     width: 100%;
     max-width: 100%;
+    height: auto;
     max-height: calc(100vh - 1.25rem);
     border-radius: 0.625rem;
+  }
+
+  .mask-modal-split-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .mask-modal-left {
+    width: 100%;
+    max-width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color);
+    padding: 0.875rem;
+  }
+
+  .mask-modal-right {
+    padding: 0.875rem;
+    overflow: visible;
+  }
+
+  .mask-modal-right .mask-preview-area {
+    min-height: 12rem;
+  }
+
+  .mask-modal-right .mask-preview-code-wrap {
+    max-height: 13rem;
+    min-height: 6.5rem;
+    padding: 0.5rem 0.625rem;
   }
 
   .ej-modal-header {
@@ -7437,11 +7587,6 @@ body.utools-mode {
 
   .ej-modal-title {
     font-size: 0.875rem;
-  }
-
-  .ej-modal-body {
-    padding: 0.75rem 0.875rem;
-    gap: 0.625rem;
   }
 
   .mask-checkbox-grid {
@@ -7463,12 +7608,6 @@ body.utools-mode {
   .custom-key-tree-btn {
     flex: 1;
     justify-content: center;
-  }
-
-  .mask-preview-code-wrap {
-    max-height: 11.25rem;
-    min-height: 6.25rem;
-    padding: 0.5rem 0.625rem;
   }
 
   .ej-modal-footer {
