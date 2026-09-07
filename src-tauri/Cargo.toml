@@ -1,6 +1,6 @@
 [package]
 name = "easy-json"
-version = "1.0.0"
+version = "1.0.6"
 description = "easyJSON - Professional JSON formatting tool"
 authors = ["easyJSON"]
 edition = "2021"

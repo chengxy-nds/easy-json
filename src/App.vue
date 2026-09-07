@@ -12,11 +12,22 @@ import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpD
 import { useUpdateCheck } from './composables/useUpdateCheck.js'
 import { useInstallCheck } from './composables/useInstallCheck.js'
 
-const currentView = ref('home') // 'home' | 'editor' | 'test' | 'comment' | 'changelog'
+const detectIsTauri = () => {
+  if (typeof window === 'undefined') return false
+  return !!(
+    window.__TAURI__ ||
+    window.__TAURI_INTERNALS__ ||
+    window.location.hostname === 'tauri.localhost' ||
+    window.location.protocol === 'tauri:' ||
+    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('tauri'))
+  )
+}
+
+const isTauri = ref(detectIsTauri())
+const currentView = ref(isTauri.value ? 'editor' : 'home') // 'home' | 'editor' | 'test' | 'comment' | 'changelog'
 const isPopup = ref(false)
 const isUtools = ref(false)
 const isVscode = ref(false)
-const isTauri = ref(false)
 
 // ── 版本更新检查与一键下载升级 ──
 const { hasUpdate, latestVersion, downloadUrl } = useUpdateCheck()
@@ -511,7 +522,7 @@ onMounted(() => {
   }
 
   // Tauri 桌面端环境：直接进入编辑器，跳过官网首页
-  const inTauri = typeof window !== 'undefined' && !!(window.__TAURI__ || window.__TAURI_INTERNALS__)
+  const inTauri = detectIsTauri()
   if (inTauri) {
     isTauri.value = true
     document.body.classList.add('tauri-mode')

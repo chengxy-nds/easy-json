@@ -15,6 +15,28 @@
     <meta property="og:url" content="https://easyjson.xiaofucode.com/" />
     <meta property="og:image" content="https://easyjson.xiaofucode.com/images/logo.png" />
     <link rel="stylesheet" href="/css/css2.css" />
+    <script>
+      window.addEventListener('error', function(e) {
+        var el = document.getElementById('easyjson-fatal-error');
+        if (!el) {
+          el = document.createElement('pre');
+          el.id = 'easyjson-fatal-error';
+          el.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#1e1e1e;color:#ff5555;padding:24px;font-family:monospace;font-size:14px;z-index:9999999;overflow:auto;margin:0;box-sizing:border-box;';
+          (document.body || document.documentElement).appendChild(el);
+        }
+        el.textContent += '\n[JS Error]: ' + e.message + '\n  at ' + e.filename + ':' + e.lineno + ':' + e.colno + '\n' + (e.error ? (e.error.stack || '') : '');
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var el = document.getElementById('easyjson-fatal-error');
+        if (!el) {
+          el = document.createElement('pre');
+          el.id = 'easyjson-fatal-error';
+          el.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#1e1e1e;color:#ff5555;padding:24px;font-family:monospace;font-size:14px;z-index:9999999;overflow:auto;margin:0;box-sizing:border-box;';
+          (document.body || document.documentElement).appendChild(el);
+        }
+        el.textContent += '\n[Promise Rejection]: ' + (e.reason && e.reason.stack ? e.reason.stack : e.reason);
+      });
+    </script>
   </head>
   <body>
     <div id="app"></div>

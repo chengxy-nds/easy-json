@@ -6,7 +6,14 @@ export function initAnalytics() {
   // 仅在真实 Web 环境（http/https 且不是 Chrome 扩展页面、不是 Tauri/uTools/VSCode）加载统计脚本
   const isHttp = window.location.protocol === 'http:' || window.location.protocol === 'https:'
   const isExtension = window.location.protocol === 'chrome-extension:' || (window.chrome?.runtime?.id && !isHttp)
-  const isDesktop = window.__TAURI__ || window.__TAURI_INTERNALS__ || window.__UTOOLS__ || window.__VSCODE_INIT_TEXT__
+  const isTauri = !!(
+    window.__TAURI__ ||
+    window.__TAURI_INTERNALS__ ||
+    window.location.hostname === 'tauri.localhost' ||
+    window.location.protocol === 'tauri:' ||
+    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('tauri'))
+  )
+  const isDesktop = isTauri || window.__UTOOLS__ || window.__VSCODE_INIT_TEXT__
 
   if (!isHttp || isExtension || isDesktop) return
 

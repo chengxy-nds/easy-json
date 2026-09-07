@@ -18,7 +18,27 @@ import { useHeroParticles } from '../composables/useHeroParticles.js'
 
 const heroRef = ref(null)
 const heroParticles = useHeroParticles()
-const isUTools = computed(() => typeof window !== 'undefined' && !!(window.__UTOOLS__ || window.utools || window.__VSCODE__ || document.body?.classList?.contains('utools-mode') || document.body?.classList?.contains('vscode-mode')))
+const isDesktopOrPlugin = computed(() => {
+  if (typeof window === 'undefined') return false
+  const isTauriEnv = !!(
+    window.__TAURI__ ||
+    window.__TAURI_INTERNALS__ ||
+    window.location.hostname === 'tauri.localhost' ||
+    window.location.protocol === 'tauri:' ||
+    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('tauri'))
+  )
+  return !!(
+    isTauriEnv ||
+    window.__UTOOLS__ ||
+    window.utools ||
+    window.__VSCODE__ ||
+    document.body?.classList?.contains('tauri-mode') ||
+    document.body?.classList?.contains('utools-mode') ||
+    document.body?.classList?.contains('vscode-mode') ||
+    document.documentElement?.classList?.contains('popup-mode')
+  )
+})
+const isUTools = isDesktopOrPlugin
 
 const trackDownload = (platform) => {
   // 51.la 自定义事件追踪 (LA.track)
@@ -479,7 +499,7 @@ onBeforeUnmount(() => {
               <img src="/images/logo.png" class="home-nav-logo-icon" alt="easyJSON logo" />
               <span class="home-nav-logo-text">EASY JSON</span>
             </a>
-            <span class="home-nav-badge">v1.0.5</span>
+            <span class="home-nav-badge">v1.0.6</span>
             <span class="home-nav-sep" />
           </div>
 
@@ -753,7 +773,7 @@ onBeforeUnmount(() => {
                   <div class="popup-header">
                     <img src="/images/logo.png" class="popup-logo" />
                     <span>easyJSON 弹窗</span>
-                    <span class="popup-badge">v1.0.5</span>
+                    <span class="popup-badge">v1.0.6</span>
                   </div>
                   <div class="popup-content">
                     <div class="popup-result">

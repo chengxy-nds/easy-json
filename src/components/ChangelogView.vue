@@ -11,6 +11,30 @@ const emit = defineEmits(['go-back'])
 
 const changelog = [
   {
+    version: 'v1.0.6',
+    date: '2026-09-07',
+    sections: [
+      {
+        icon: Sparkles,
+        title: '功能新增',
+        iconClass: 'cl-section-sparkle',
+        items: [
+          '增加色块预览和图片预览'
+        ]
+      },
+      {
+        icon: Zap,
+        title: '体验优化',
+        iconClass: 'cl-section-zap',
+        items: [
+          '全面优化使用体验',
+          '表格模式和拓扑图模式优化',
+          'JSON 对比使用体验升级'
+        ]
+      }
+    ]
+  },
+  {
     version: 'v1.0.5',
     date: '2026-09-03',
     sections: [
