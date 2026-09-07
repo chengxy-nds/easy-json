@@ -1,6 +1,6 @@
 {
   "name": "easyjson-v106",
-  "displayName": "easyJSON - 智能JSON格式化与对比",
+  "displayName": "easyJSON v1.0.6 - 智能JSON格式化与对比",
   "description": "专业级 JSON 智能提取、格式化、校验与语义对比工具。支持 Lombok、Python dict、YAML、海量日志提炼与四维结构化视图。",
   "version": "1.0.6",
   "publisher": "xiaofucode",

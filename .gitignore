@@ -1,15 +1,55 @@
 # Dependencies
 node_modules/
 
-# Build output
+# Build outputs
 dist/
 release/
 build/
+out/
+.vite/
+.eslintcache
 
-# Vite
+# Packages & Installers
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.deb
+*.rpm
+*.pdb
+*.vsix
+
+# Archives
+*.zip
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Extensions & Plugin outputs (build artifacts)
+vscode-dist/
+vscode-plugin/
+utools-dist/
+easyjson-plugin/
+
+# Tauri build artifacts
+src-tauri/target/
+
+# Temporary / Scratch / Diffs / Assembly debug
+scratch/
+.claude/
+*.patch
+*.diff
+*.s
+*.o
+*.obj
+
+# Environment & Local overrides
+.env.local
+.env.*.local
 *.local
 
-# Editor
+# Editor & IDEs
 .vscode/*
 !.vscode/extensions.json
 .idea/
@@ -17,25 +57,21 @@ build/
 *.swo
 *~
 
-# OS
-.DS_Store
-Thumbs.db
-
 # Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Electron
-out/
+# Test coverage
+coverage/
+.nyc_output/
 
-# Misc
-*.zip
-# Tauri
-src-tauri/target/
-
-# uTools
-utools-dist/
-
-easyjson-plugin/
+# OS metadata
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini

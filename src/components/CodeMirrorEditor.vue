@@ -1107,15 +1107,23 @@ const setSelectionRange = (start, end, options = { showCopyPill: true }) => {
   }
 }
 
-const scrollToTop = () => {
+const scrollToTop = (smooth = false) => {
   if (editorView?.scrollDOM) {
-    editorView.scrollDOM.scrollTo({ top: 0, behavior: 'smooth' })
+    if (smooth) {
+      editorView.scrollDOM.scrollTo({ top: 0, behavior: 'smooth' })
+    } else {
+      editorView.scrollDOM.scrollTop = 0
+    }
   }
 }
 
-const scrollToBottom = () => {
+const scrollToBottom = (smooth = false) => {
   if (editorView?.scrollDOM) {
-    editorView.scrollDOM.scrollTo({ top: editorView.scrollDOM.scrollHeight, behavior: 'smooth' })
+    if (smooth) {
+      editorView.scrollDOM.scrollTo({ top: editorView.scrollDOM.scrollHeight, behavior: 'smooth' })
+    } else {
+      editorView.scrollDOM.scrollTop = editorView.scrollDOM.scrollHeight
+    }
   }
 }
 
@@ -1560,8 +1568,8 @@ onBeforeUnmount(() => {
 
 /* Custom minimal scrollbar */
 :deep(.cm-scroller::-webkit-scrollbar) {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
 }
 
 :deep(.cm-scroller::-webkit-scrollbar-track) {
@@ -1569,11 +1577,11 @@ onBeforeUnmount(() => {
 }
 
 :deep(.cm-scroller::-webkit-scrollbar-thumb) {
-  background: rgba(148, 163, 184, 0.35);
-  border-radius: 3px;
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 4px;
 }
 
 :deep(.cm-scroller::-webkit-scrollbar-thumb:hover) {
-  background: rgba(148, 163, 184, 0.6);
+  background: rgba(148, 163, 184, 0.8);
 }
 </style>

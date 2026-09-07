@@ -151,11 +151,16 @@ const currentMatchIndex = ref(0)
 const totalMatches = ref(0)
 const isTextareaFocused = ref(false)
 
+// 树形模式展开状态管理（默认展开）
+const treeExpanded = ref(true)
+provide('treeExpanded', treeExpanded)
+
 // 导入文本回调（由 ImportDropdown 触发）
 const handleImportText = (text) => {
   if (activeTab.value) {
     activeTab.value.inputText = text
     activeTab.value._unsortedText = null
+    treeExpanded.value = true
     if (activeTabId.value !== activeTab.value.id) {
       activeTabId.value = activeTab.value.id
     }
@@ -1510,7 +1515,7 @@ const gridStyle = computed(() => {
     return { gridTemplateColumns: '1fr 6px 0px' }
   }
   return {
-    gridTemplateColumns: `${splitPercent.value}% 1px 1fr`
+    gridTemplateColumns: `${splitPercent.value}% 6px 1fr`
   }
 })
 
@@ -1912,10 +1917,7 @@ const formatJSON = () => {
     formatGuard = false
   }
 
-  // 大树 JSON 自动折叠节点（避免 DOM 爆炸，针对 > 80KB 或 key >= 800 的大 JSON 默认折叠深层节点）
-  if (tab.parsedObj && (tab.inputText.length > 80_000 || countKeys(tab.parsedObj, 800) >= 800)) {
-    treeExpanded.value = false
-  }
+
 }
 
 // Watch inputs and format; save only input-derived fields (NOT tabs deeply — avoids infinite loop
@@ -2199,9 +2201,91 @@ const handleEditorScroll = (e) => {
   }
 }
 
+let scrollHoldTimer = null
+let scrollHoldRaf = null
+let isHoldScrolling = false
+let holdStartTime = 0
+
+// 获取当前编辑区的可滚动 DOM 节点
+const getEditorScrollDOM = () => {
+  if (cmEditorRef.value?.getScrollDOM) {
+    return cmEditorRef.value.getScrollDOM()
+  }
+  return textareaRef.value || null
+}
+
+const stopContinuousScroll = () => {
+  if (scrollHoldTimer) {
+    clearTimeout(scrollHoldTimer)
+    scrollHoldTimer = null
+  }
+  if (scrollHoldRaf) {
+    cancelAnimationFrame(scrollHoldRaf)
+    scrollHoldRaf = null
+  }
+}
+
+const startContinuousScroll = (direction) => {
+  stopContinuousScroll()
+  isHoldScrolling = false
+  holdStartTime = performance.now()
+
+  // 按住 180ms 后判定为长按，启动连续丝滑滚动
+  scrollHoldTimer = setTimeout(() => {
+    isHoldScrolling = true
+    const loop = () => {
+      const scrollEl = getEditorScrollDOM()
+      if (!scrollEl) {
+        stopContinuousScroll()
+        return
+      }
+
+      // 动态加速度：初始速度 16px/帧，长按逐步加速至最高 60px/帧
+      const elapsed = performance.now() - holdStartTime
+      const speed = Math.min(60, 16 + elapsed * 0.03)
+
+      if (direction === 'up') {
+        const next = Math.max(0, scrollEl.scrollTop - speed)
+        scrollEl.scrollTop = next
+        if (next <= 0) {
+          stopContinuousScroll()
+          return
+        }
+      } else {
+        const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight
+        const next = Math.min(maxScroll, scrollEl.scrollTop + speed)
+        scrollEl.scrollTop = next
+        if (next >= maxScroll) {
+          stopContinuousScroll()
+          return
+        }
+      }
+
+      scrollHoldRaf = requestAnimationFrame(loop)
+    }
+
+    scrollHoldRaf = requestAnimationFrame(loop)
+  }, 180)
+
+  const onPointerUp = () => {
+    window.removeEventListener('mouseup', onPointerUp)
+    window.removeEventListener('touchend', onPointerUp)
+    window.removeEventListener('touchcancel', onPointerUp)
+    stopContinuousScroll()
+    setTimeout(() => {
+      isHoldScrolling = false
+    }, 60)
+  }
+
+  window.addEventListener('mouseup', onPointerUp)
+  window.addEventListener('touchend', onPointerUp)
+  window.addEventListener('touchcancel', onPointerUp)
+}
+
 const scrollToTop = () => {
+  if (isHoldScrolling) return
   if (cmEditorRef.value) {
-    cmEditorRef.value.scrollToTop()
+    cmEditorRef.value.scrollToTop(false)
   } else if (textareaRef.value) {
     textareaRef.value.scrollTop = 0
     syncGutterScroll()
@@ -2209,8 +2293,9 @@ const scrollToTop = () => {
 }
 
 const scrollToBottom = () => {
+  if (isHoldScrolling) return
   if (cmEditorRef.value) {
-    cmEditorRef.value.scrollToBottom()
+    cmEditorRef.value.scrollToBottom(false)
   } else if (textareaRef.value) {
     textareaRef.value.scrollTop = textareaRef.value.scrollHeight
     syncGutterScroll()
@@ -2313,8 +2398,6 @@ const loadDemo = () => {
 }
 
 // 展开/折叠全部树节点（toggle）
-const treeExpanded = ref(true)
-provide('treeExpanded', treeExpanded)
 
 // 统计对象总 key 数量（带最大上限提前中断，避免深层大树递归卡死）
 const countKeys = (obj, maxLimit = 800) => {
@@ -2405,6 +2488,7 @@ const triggerFileUpload = (e) => {
     reader.onload = (event) => {
       activeTab.value.inputText = getFormattedJsonString(event.target.result)
       activeTab.value._unsortedText = null
+      treeExpanded.value = true
       showToast('文件导入成功')
     }
     reader.readAsText(file)
@@ -2419,6 +2503,7 @@ const onDrop = (e) => {
     reader.onload = (event) => {
       activeTab.value.inputText = getFormattedJsonString(event.target.result)
       activeTab.value._unsortedText = null
+      treeExpanded.value = true
       showToast('文件导入成功')
       // 确保不创建新标签页
       if (activeTabId.value !== activeTab.value.id) {
@@ -3688,6 +3773,7 @@ const checkExtractOnLoad = () => {
   document.addEventListener('click', onJsonPathClickOutside)
 }
 onBeforeUnmount(() => {
+  stopContinuousScroll()
   document.removeEventListener('click', onConvertMenuClickOutside)
   document.removeEventListener('click', onJsonPathClickOutside)
 })
@@ -4068,10 +4154,22 @@ onBeforeUnmount(() => {
 
             <!-- Floating Scroll Buttons -->
             <div v-if="activeTab.inputText" class="textarea-scroll-controls">
-              <button class="scroll-control-btn" @click="scrollToTop" data-tooltip-left="回到顶部">
+              <button
+                class="scroll-control-btn"
+                @click="scrollToTop"
+                @mousedown="startContinuousScroll('up')"
+                @touchstart.passive="startContinuousScroll('up')"
+                data-tooltip-left="点击回到顶部，长按持续向上滚动"
+              >
                 <ChevronUp class="scroll-control-icon" />
               </button>
-              <button class="scroll-control-btn" @click="scrollToBottom" data-tooltip-left="回到底部">
+              <button
+                class="scroll-control-btn"
+                @click="scrollToBottom"
+                @mousedown="startContinuousScroll('down')"
+                @touchstart.passive="startContinuousScroll('down')"
+                data-tooltip-left="点击回到底部，长按持续向下滚动"
+              >
                 <ChevronDown class="scroll-control-icon" />
               </button>
             </div>
@@ -4750,10 +4848,10 @@ onBeforeUnmount(() => {
 /* Pane Splitter */
 .pane-splitter {
   position: relative;
-  width: 1px;
-  background-color: var(--border-color);
+  width: 6px;
+  background-color: transparent;
   cursor: col-resize;
-  z-index: 30;
+  z-index: 15;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4762,16 +4860,33 @@ onBeforeUnmount(() => {
   transition: background-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.pane-splitter.is-collapsed-left {
+/* 分割中线：在 6px 轨道正中绘制 1px 精致线条 */
+.pane-splitter::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  transition: background-color 0.2s ease;
+}
+
+.pane-splitter:hover::after,
+.pane-splitter.active::after {
+  background-color: var(--primary-color, #3b82f6);
+}
+
+.pane-splitter.is-collapsed-left,
+.pane-splitter.is-collapsed-right {
   cursor: pointer;
   width: 6px;
   background-color: var(--border-color);
 }
 
-.pane-splitter.is-collapsed-right {
-  cursor: pointer;
-  width: 6px;
-  background-color: var(--border-color);
+.pane-splitter.is-collapsed-left::after,
+.pane-splitter.is-collapsed-right::after {
+  display: none;
 }
 
 .pane-splitter.snap-active-left,
@@ -4780,14 +4895,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 10px var(--primary-light, rgba(79, 193, 255, 0.4)) !important;
 }
 
-/* 隐形鼠标抓取热区：向左右各延伸 6px，视觉保持精细线条，操作手感极佳 */
+/* 鼠标抓取热区：限定在分栏自身轨道内，绝不向左侵占编辑区滚动条 */
 .pane-splitter::before {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -6px;
-  right: -6px;
+  left: 0;
+  right: 0;
   z-index: 1;
   cursor: col-resize;
 }
@@ -4810,9 +4925,9 @@ onBeforeUnmount(() => {
   top: 50%;
   transform: translate(-50%, -50%);
   z-index: 2;
-  width: 9px;
+  width: 8px;
   height: 30px;
-  border-radius: 5px;
+  border-radius: 4px;
   background-color: var(--bg-panel);
   border: 1px solid var(--border-color);
   display: flex;
