@@ -30,7 +30,8 @@ export default function Lanyard({
   imageFit = 'cover',
   lanyardImage = null,
   lanyardWidth = 1.2,
-  onLoaded = null
+  onLoaded = null,
+  active = true
 }) {
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
 
@@ -43,6 +44,7 @@ export default function Lanyard({
   return (
     <div className="lanyard-wrapper">
       <Canvas
+        frameloop={active ? 'always' : 'never'}
         camera={{ position: position, fov: fov }}
         dpr={[1, isMobile ? 1.0 : Math.min(typeof window !== 'undefined' ? window.devicePixelRatio : 1.25, 1.25)]}
         gl={{ alpha: transparent, powerPreference: 'high-performance', antialias: true, stencil: false, depth: true }}

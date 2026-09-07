@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, computed, inject, defineAsyncComponent } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, inject, defineAsyncComponent, watch } from 'vue'
 import {
   Braces, Split, Zap, Lock, ShieldCheck, Eye, ArrowRight,
   ChevronDown, ChevronRight, FileCode, Layers, Table2, Network, ListTree,
@@ -20,19 +20,10 @@ const heroRef = ref(null)
 const heroParticles = useHeroParticles()
 const isDesktopOrPlugin = computed(() => {
   if (typeof window === 'undefined') return false
-  const isTauriEnv = !!(
-    window.__TAURI__ ||
-    window.__TAURI_INTERNALS__ ||
-    window.location.hostname === 'tauri.localhost' ||
-    window.location.protocol === 'tauri:' ||
-    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('tauri'))
-  )
   return !!(
-    isTauriEnv ||
     window.__UTOOLS__ ||
     window.utools ||
     window.__VSCODE__ ||
-    document.body?.classList?.contains('tauri-mode') ||
     document.body?.classList?.contains('utools-mode') ||
     document.body?.classList?.contains('vscode-mode') ||
     document.documentElement?.classList?.contains('popup-mode')
@@ -61,6 +52,13 @@ const trackDownload = (platform) => {
     window._hmt.push(['_trackEvent', '下载', platform])
   }
 }
+
+const props = defineProps({
+  active: {
+    type: Boolean,
+    default: true
+  }
+})
 
 const emit = defineEmits(['go-to-app', 'go-to-test', 'go-to-comment', 'go-to-changelog'])
 
@@ -475,6 +473,17 @@ onMounted(() => {
   }
 })
 
+watch(() => props.active, (val) => {
+  if (val) {
+    heroParticles.resume()
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'))
+    }, 60)
+  } else {
+    heroParticles.pause()
+  }
+})
+
 onBeforeUnmount(() => {
   heroParticles.unmount()
 })
@@ -482,12 +491,19 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="home-page">
-    <TargetCursor />
+    <TargetCursor v-if="active" />
     <!-- ─── 100% Full-Width Combined Top Hero Block (Navbar + Hero Section) ─── -->
     <div ref="heroRef" class="hero-top-block animate-fade-in">
       <!-- Floating 3D Physics Lanyard Card (Positioned at Top-Right Corner of Screen) -->
       <div v-if="!isUTools" class="hero-right-lanyard">
-        <LanyardWrapper :position="[0, 0, 20]" :gravity="[0, -40, 0]" frontImage="/images/image.png" backImage="/images/beimian.png" :lanyardWidth="1.2" />
+        <LanyardWrapper
+          :position="[0, 0, 20]"
+          :gravity="[0, -40, 0]"
+          frontImage="/images/image.png"
+          backImage="/images/beimian.png"
+          :lanyardWidth="1.2"
+          :active="active"
+        />
       </div>
 
       <!-- ─── Navbar ─── -->

@@ -25,6 +25,12 @@ const detectIsTauri = () => {
 
 const isTauri = ref(detectIsTauri())
 const currentView = ref(isTauri.value ? 'editor' : 'home') // 'home' | 'editor' | 'test' | 'comment' | 'changelog'
+const hasLoadedHome = ref(currentView.value === 'home')
+watch(currentView, (val) => {
+  if (val === 'home') {
+    hasLoadedHome.value = true
+  }
+})
 const isPopup = ref(false)
 const isUtools = ref(false)
 const isVscode = ref(false)
@@ -721,24 +727,32 @@ onBeforeUnmount(() => {
     </div>
   </Transition>
 
-  <!-- Home Page View -->
-  <HomeView v-if="currentView === 'home'" @go-to-app="goToApp" @go-to-test="goToTest" @go-to-comment="goToComment" @go-to-changelog="goToChangelog" />
+  <!-- Home Page View (全局单例常驻，只加载一次，后续秒级切换零卡顿) -->
+  <HomeView
+    v-if="hasLoadedHome"
+    v-show="currentView === 'home'"
+    :active="currentView === 'home'"
+    @go-to-app="goToApp"
+    @go-to-test="goToTest"
+    @go-to-comment="goToComment"
+    @go-to-changelog="goToChangelog"
+  />
 
-  <TestView v-else-if="currentView === 'test'" @go-back="goToHome" />
+  <TestView v-if="currentView === 'test'" @go-back="goToHome" />
 
   <CommentView v-else-if="currentView === 'comment'" @go-back="goToHome" />
 
   <ChangelogView v-else-if="currentView === 'changelog'" @go-back="goToHome" />
 
   <!-- Editor View -->
-  <div v-else class="app-layout">
+  <div v-else-if="currentView === 'editor'" class="app-layout">
     <!-- Left Sidebar -->
     <aside class="app-sidebar">
       <div class="sidebar-top">
         <div class="sidebar-logo" data-tooltip-right="easyJSON" @click="goToHome" style="cursor: pointer;">
           <img src="/images/logo.png" class="sidebar-logo-icon" alt="easyJSON" />
         </div>
-        <button v-if="!isUtools && !isVscode && !isTauri" class="sidebar-btn" @click="goToHome" data-tooltip-right="返回主页">
+        <button v-if="!isUtools && !isVscode" class="sidebar-btn" @click="goToHome" data-tooltip-right="返回主页">
           <Home class="sidebar-btn-icon" />
         </button>
         <button

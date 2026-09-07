@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import Lanyard from './Lanyard.jsx'
@@ -14,7 +14,8 @@ const props = defineProps({
   backImage: { type: String, default: null },
   imageFit: { type: String, default: 'cover' },
   lanyardImage: { type: String, default: null },
-  lanyardWidth: { type: Number, default: 1 }
+  lanyardWidth: { type: Number, default: 1 },
+  active: { type: Boolean, default: true }
 })
 
 const containerRef = ref(null)
@@ -39,10 +40,12 @@ const handleLanyardLoaded = () => {
   isLoaded.value = true
 }
 
-const init3D = () => {
-  if (!containerRef.value || !isWebGLSupported() || root) return
+const render3D = () => {
+  if (!containerRef.value || !isWebGLSupported()) return
   try {
-    root = createRoot(containerRef.value)
+    if (!root) {
+      root = createRoot(containerRef.value)
+    }
     root.render(
       React.createElement(Lanyard, {
         position: props.position,
@@ -55,22 +58,29 @@ const init3D = () => {
         imageFit: props.imageFit,
         lanyardImage: props.lanyardImage,
         lanyardWidth: props.lanyardWidth,
-        onLoaded: handleLanyardLoaded
+        onLoaded: handleLanyardLoaded,
+        active: props.active
       })
     )
   } catch (err) {
-    console.warn('Failed to initialize Lanyard 3D component:', err)
+    console.warn('Failed to render Lanyard 3D component:', err)
   }
 }
+
+watch(() => props.active, () => {
+  if (root) {
+    render3D()
+  }
+})
 
 onMounted(() => {
   // 避开首页路由切换、DOM 绘制与 Hero 区粒子初始化的 CPU 峰值
   if ('requestIdleCallback' in window) {
     idleId = requestIdleCallback(() => {
-      timeoutId = setTimeout(init3D, 180)
+      timeoutId = setTimeout(render3D, 180)
     }, { timeout: 600 })
   } else {
-    timeoutId = setTimeout(init3D, 250)
+    timeoutId = setTimeout(render3D, 250)
   }
 })
 

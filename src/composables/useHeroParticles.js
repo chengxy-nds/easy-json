@@ -212,9 +212,12 @@ export function useHeroParticles() {
   let resizeObserver = null
 
   function initParticleSystem() {
+    if (!container) return
     const rect = container.getBoundingClientRect()
     const width = Math.round(rect.width * dpr)
     const height = Math.round(rect.height * dpr)
+
+    if (width <= 0 || height <= 0) return
 
     canvas.width = width
     canvas.height = height
@@ -330,11 +333,32 @@ export function useHeroParticles() {
       target.addEventListener('mousemove', onMouseMove, { passive: true })
     }
 
-    resizeObserver = new ResizeObserver(() => { initParticleSystem() })
+    resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+          initParticleSystem()
+        }
+      }
+    })
     resizeObserver.observe(el)
 
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 
+    running = true
+    animate()
+  }
+
+  function pause() {
+    running = false
+    if (animId) cancelAnimationFrame(animId)
+  }
+
+  function resume() {
+    if (running || !canvas) return
+    const rect = container?.getBoundingClientRect()
+    if (rect && rect.width > 0 && rect.height > 0 && (particles.length === 0 || canvas.width === 0)) {
+      initParticleSystem()
+    }
     running = true
     animate()
   }
@@ -354,5 +378,6 @@ export function useHeroParticles() {
     hoverTargets = []
   }
 
-  return { mount, unmount }
+  return { mount, unmount, pause, resume }
 }
+
