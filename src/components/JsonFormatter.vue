@@ -9,7 +9,7 @@ import {
   Pencil, ArrowLeft, ArrowRight, Wand2, GripVertical, ArrowLeftToLine, ArrowRightToLine, MoreHorizontal,
   ShieldCheck, Workflow,
   Smartphone, IdCard, Mail, CreditCard, Globe,
-  Car, Building2, BookUser, Database
+  Car, Building2, BookUser, Database, Loader2
 } from 'lucide-vue-next'
 import JsonTreeNode   from './JsonTreeNode.vue'
 import JsonVirtualTreeView from './JsonVirtualTreeView.vue'
@@ -22,7 +22,7 @@ import CodeMirrorEditor from './CodeMirrorEditor.vue'
 import { extractJsonFromText, convertJsObjectToJson, safeParseJsLike, tryParseCandidate } from '../utils/jsonExtractor.js';
 import { convertJson, formatLabels, getFormatExtension } from '../utils/jsonConverter.js';
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js';
-import { maskJsonData, extractAllKeys } from '../utils/dataMasker.js';
+import { maskJsonData } from '../utils/dataMasker.js';
 import { queryJsonPath } from '../utils/jsonPath.js';
 import { isImageUrl } from '../utils/imageDetector.js';
 import { getJsonPathRange } from '../utils/jsonPathRange.js';
@@ -155,6 +155,88 @@ const isTextareaFocused = ref(false)
 const treeExpanded = ref(true)
 provide('treeExpanded', treeExpanded)
 
+// 导入 Loading 状态管理（全屏毛玻璃加载与阶段提示）
+const importLoading = ref({
+  visible: false,
+  fileName: '',
+  fileSize: '',
+  stageText: ''
+})
+
+const formatFileSize = (bytes) => {
+  if (!bytes || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  const val = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)
+  return `${val} ${units[i]}`
+}
+
+// 统一大文件导入核心逻辑：异步微切片调度，确保 Loading 动效流畅渲染
+const processImportFile = async (file) => {
+  if (!file) return
+  importLoading.value = {
+    visible: true,
+    fileName: file.name || '未命名文件',
+    fileSize: formatFileSize(file.size),
+    stageText: '正在读取文件数据...'
+  }
+
+  // 1. 让出微任务和宏任务，让浏览器在主线程卡顿前第一帧完整绘制出 Loading 动效
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 50))
+
+  try {
+    // 2. 异步读取文本内容
+    const text = await new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = (e) => resolve(e.target?.result || '')
+      reader.onerror = (err) => reject(err)
+      reader.readAsText(file)
+    })
+
+    // 3. 推进至解析排版阶段
+    importLoading.value.stageText = '正在解析并载入编辑器...'
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 30))
+
+    // 4. 针对超大文件 (>2MB) 进行智能排版优化：
+    // 若原文件已具备多行结构，直接使用原文本，避免在主线程进行昂贵重复的 safeStringify 导致死锁
+    let finalText = text
+    const isLarge = (file.size || text.length) > 2 * 1024 * 1024
+    const sample = text.slice(0, 3000)
+    const hasNewlines = (sample.match(/\n/g) || []).length > 5
+
+    if (!isLarge || !hasNewlines) {
+      try {
+        finalText = getFormattedJsonString(text)
+      } catch {
+        finalText = text
+      }
+    }
+
+    // 5. 填入活动编辑器标签页
+    if (activeTab.value) {
+      activeTab.value.inputText = finalText
+      activeTab.value._unsortedText = null
+      treeExpanded.value = true
+      if (activeTabId.value !== activeTab.value.id) {
+        activeTabId.value = activeTab.value.id
+      }
+    }
+
+    // 6. 等待 CodeMirror 与虚拟树完成首次挂载排版
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 80))
+
+    showToast(`文件导入成功 (${importLoading.value.fileSize})`)
+  } catch (err) {
+    console.error('导入文件失败:', err)
+    showToast('文件导入失败: ' + (err.message || '未知错误'), 'error')
+  } finally {
+    importLoading.value.visible = false
+  }
+}
+
 // 导入文本回调（由 ImportDropdown 触发）
 const handleImportText = (text) => {
   if (activeTab.value) {
@@ -165,6 +247,11 @@ const handleImportText = (text) => {
       activeTabId.value = activeTab.value.id
     }
   }
+}
+
+// 导入文件回调（由 ImportDropdown 触发）
+const handleImportFile = (file) => {
+  processImportFile(file)
 }
 // ─── 转换状态 ───
 const showConvertMenu = ref(false)
@@ -1043,18 +1130,33 @@ watch(incomingExtractText, (text) => {
 }, { immediate: true })
 
 let canSave = false
-const saveFormatterState = () => {
+let saveStateDebounceTimer = null
+const saveFormatterState = (immediate = false) => {
   if (!canSave) return
-  try {
-    const snapshot = tabs.value.map(t => ({
-      id: t.id,
-      title: t.title,
-      inputText: t.inputText,
-      viewMode: t.viewMode
-    }))
-    localStorage.setItem('ej_fmt_tabs', JSON.stringify(snapshot))
-    localStorage.setItem('ej_fmt_active', String(activeTabId.value))
-  } catch (e) {}
+  const doSave = () => {
+    try {
+      const snapshot = tabs.value.map(t => ({
+        id: t.id,
+        title: t.title,
+        // 大文本（> 300KB）避免塞满 localStorage 导致同步写入卡顿或配额报错
+        inputText: (t.inputText && t.inputText.length > 300_000) ? '' : (t.inputText || ''),
+        viewMode: t.viewMode
+      }))
+      localStorage.setItem('ej_fmt_tabs', JSON.stringify(snapshot))
+      localStorage.setItem('ej_fmt_active', String(activeTabId.value))
+    } catch (e) {}
+  }
+
+  if (immediate) {
+    if (saveStateDebounceTimer) {
+      clearTimeout(saveStateDebounceTimer)
+      saveStateDebounceTimer = null
+    }
+    doSave()
+  } else {
+    if (saveStateDebounceTimer) clearTimeout(saveStateDebounceTimer)
+    saveStateDebounceTimer = setTimeout(doSave, 800)
+  }
 }
 
 const editingTabId = ref(null)
@@ -1908,7 +2010,12 @@ const formatJSON = () => {
 
   // 自动格式化：将格式化结果回填到输入面板
   // 但如果用户正在编辑（textarea 聚焦时），不替换，避免光标跳到末尾
-  if (autoFormat.value && tab.outputText && tab.inputText !== tab.outputText
+  // 核心保护：如果当前内容是转义 JSON（含有 \" 或两端引号转义），绝对不可用未转义的 outputText 覆盖回去
+  const isEscapedContent = tab.inputText && (
+    tab.inputText.includes('\\"') ||
+    (tab.inputText.startsWith('"') && tab.inputText.endsWith('"') && tab.inputText.includes('\\'))
+  )
+  if (autoFormat.value && !isEscapedContent && tab.outputText && tab.inputText !== tab.outputText
     && !tab.validationError
     && document.activeElement !== textareaRef.value) {
     formatGuard = true
@@ -1916,17 +2023,56 @@ const formatJSON = () => {
     tab._unsortedText = null
     formatGuard = false
   }
+}
 
+let formatDebounceTimer = null
+const scheduleFormatJSON = (immediate = false) => {
+  // 如果当前被 formatGuard 锁定（正在执行转义、格式化等手动指令），直接清理 pending timer 并跳过
+  if (formatGuard) {
+    if (formatDebounceTimer) {
+      clearTimeout(formatDebounceTimer)
+      formatDebounceTimer = null
+    }
+    return
+  }
 
+  if (immediate) {
+    if (formatDebounceTimer) {
+      clearTimeout(formatDebounceTimer)
+      formatDebounceTimer = null
+    }
+    formatJSON()
+    saveFormatterState(true)
+    return
+  }
+
+  const currentText = activeTab.value?.inputText || ''
+  const isLarge = currentText.length > 50_000
+  const delay = isLarge ? 300 : 100
+
+  if (formatDebounceTimer) {
+    clearTimeout(formatDebounceTimer)
+  }
+  formatDebounceTimer = setTimeout(() => {
+    formatDebounceTimer = null
+    if (formatGuard) return
+    formatJSON()
+    saveFormatterState()
+  }, delay)
 }
 
 // Watch inputs and format; save only input-derived fields (NOT tabs deeply — avoids infinite loop
 // because formatJSON() mutates tab.outputText/parsedObj which are inside tabs)
 watch(
   [() => activeTab.value?.inputText, indentSize, sortKeys, activeTabId],
-  () => {
-    formatJSON()
-    saveFormatterState()
+  ([newText], [oldText]) => {
+    // 切换标签页或切换缩进/排序设置时，立即执行
+    if (newText === oldText) {
+      scheduleFormatJSON(true)
+      return
+    }
+    // 用户编辑/修改内容时：采用自适应防抖，防止高频击键阻塞主线程
+    scheduleFormatJSON(false)
   }
 )
 
@@ -2482,35 +2628,18 @@ const handleRemoveComments = () => {
 
 // File upload handler
 const triggerFileUpload = (e) => {
-  const file = e.target.files[0]
+  const file = e.target.files?.[0]
+  if (e.target) e.target.value = ''
   if (file) {
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      activeTab.value.inputText = getFormattedJsonString(event.target.result)
-      activeTab.value._unsortedText = null
-      treeExpanded.value = true
-      showToast('文件导入成功')
-    }
-    reader.readAsText(file)
+    processImportFile(file)
   }
 }
 
 // Drag & Drop
 const onDrop = (e) => {
-  const file = e.dataTransfer.files[0]
-  if (file && file.name.endsWith('.json')) {
-    const reader = new FileReader()
-    reader.onload = (event) => {
-      activeTab.value.inputText = getFormattedJsonString(event.target.result)
-      activeTab.value._unsortedText = null
-      treeExpanded.value = true
-      showToast('文件导入成功')
-      // 确保不创建新标签页
-      if (activeTabId.value !== activeTab.value.id) {
-        activeTabId.value = activeTab.value.id
-      }
-    }
-    reader.readAsText(file)
+  const file = e.dataTransfer?.files?.[0]
+  if (file && (file.name.endsWith('.json') || file.name.endsWith('.txt') || file.type === 'application/json')) {
+    processImportFile(file)
   }
 }
 
@@ -3176,30 +3305,47 @@ watch(hoveredPath, (newPath) => {
 // Handler functions for toolbar
 const handleFormatDirect = () => {
   const tab = activeTab.value
-  if (!tab.inputText.trim()) return
+  if (!tab.inputText?.trim()) return
   if (indentSize.value === 'minify') {
     indentSize.value = '2' // default format style
   }
-  try {
-    // 排序：开启前备份原始文本，关闭后恢复
-    if (sortKeys.value) {
-      if (!tab._unsortedText) tab._unsortedText = tab.inputText
-    } else if (tab._unsortedText) {
-      tab.inputText = tab._unsortedText
-      tab._unsortedText = null
+  formatGuard = true
+
+  const doFormat = () => {
+    try {
+      // 排序：开启前备份原始文本，关闭后恢复
+      if (sortKeys.value) {
+        if (!tab._unsortedText) tab._unsortedText = tab.inputText
+      } else if (tab._unsortedText) {
+        tab.inputText = tab._unsortedText
+        tab._unsortedText = null
+      }
+      let obj = safeParse(tab.inputText)
+      if (sortKeys.value) {
+        obj = sortJSONKeys(obj, sortKeys.value === 2)
+      }
+      const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
+      const formatted = safeStringify(obj, null, space)
+      tab.inputText = formatted
+      tab.outputText = formatted
+      tab.parsedObj = obj
+      tab.validationError = null
+      tab.errorLine = null
+      showToast('格式化成功')
+      autoCopyResult(formatted)
+    } catch (err) {
+      formatJSON()
+    } finally {
+      saveFormatterState()
+      setTimeout(() => { formatGuard = false }, 50)
     }
-    let obj = safeParse(tab.inputText)
-    if (sortKeys.value) {
-      obj = sortJSONKeys(obj, sortKeys.value === 2)
-    }
-    const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
-    tab.inputText = safeStringify(obj, null, space)
-    tab.validationError = null
-    tab.errorLine = null
-    showToast('格式化成功')
-    autoCopyResult(activeTab.value.inputText)
-  } catch (err) {
-    formatJSON()
+  }
+
+  // 大数据量通过微任务释放主线程，防止点击按钮时界面假死
+  if (tab.inputText.length > 50_000) {
+    setTimeout(doFormat, 10)
+  } else {
+    doFormat()
   }
 }
 
@@ -3229,45 +3375,40 @@ const handleMinifyDirect = () => {
 
 const handleEscape = () => {
   const tab = activeTab.value
-  if (!tab.inputText.trim()) return
+  if (!tab.inputText?.trim()) return
   formatGuard = true
+  if (formatDebounceTimer) {
+    clearTimeout(formatDebounceTimer)
+    formatDebounceTimer = null
+  }
+  tab._unsortedText = null
   try {
+    let escapedStr = ''
     try {
       let obj = safeParse(tab.inputText)
       const minified = safeStringify(obj)
-      tab.inputText = minified.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-      tab.outputText = tab.inputText
-      tab.parsedObj = null
-      tab.validationError = null
-      tab.errorLine = null
-      showToast('转义成功')
-      autoCopyResult(tab.inputText)
+      escapedStr = minified.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
     } catch (err) {
       try {
         const jsonStr = convertJsObjectToJson(tab.inputText)
         const obj = safeParse(jsonStr)
         const minified = safeStringify(obj)
-        tab.inputText = minified.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-        tab.outputText = tab.inputText
-        tab.parsedObj = null
-        tab.validationError = null
-        tab.errorLine = null
-        showToast('转义成功')
-        autoCopyResult(tab.inputText)
+        escapedStr = minified.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
       } catch (e2) {
-        tab.inputText = tab.inputText.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-        tab.outputText = tab.inputText
-        tab.parsedObj = null
-        tab.validationError = null
-        tab.errorLine = null
-        showToast('转义成功')
-        autoCopyResult(tab.inputText)
+        escapedStr = tab.inputText.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
       }
     }
+    tab.inputText = escapedStr
+    tab.outputText = escapedStr
+    tab.parsedObj = null
+    tab.validationError = null
+    tab.errorLine = null
+    showToast('转义成功')
+    autoCopyResult(escapedStr)
   } finally {
-    nextTick(() => { formatGuard = false })
+    setTimeout(() => { formatGuard = false }, 350)
   }
-  saveFormatterState()
+  saveFormatterState(true)
 }
 
 // Recursively unescape string values that represent valid JSON objects or arrays
@@ -3307,88 +3448,73 @@ const recursiveUnescape = (val) => {
 
 const handleUnescape = () => {
   const tab = activeTab.value
-  if (!tab.inputText.trim()) return
+  if (!tab.inputText?.trim()) return
   formatGuard = true
-  try {
-    let rawText = tab.inputText.trim()
 
-    const tryParseToObj = (txt) => {
-      const processParsed = (parsed) => {
-        if (parsed === null) return null
-        if (typeof parsed === 'object') return parsed
-        if (typeof parsed === 'string') {
-          const trimmed = parsed.trim()
-          if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-            try {
-              const nested = safeParse(trimmed)
-              if (nested !== null && typeof nested === 'object') return nested
-            } catch (e) {}
-          }
+  const doUnescape = () => {
+    try {
+      let rawText = tab.inputText.trim()
+
+      // 快速去转义：
+      // 1. 如果是两端带有双引号包裹的标准转义字符串
+      let unescaped = rawText
+      if (rawText.length >= 2 && rawText.startsWith('"') && rawText.endsWith('"')) {
+        try {
+          unescaped = JSON.parse(rawText)
+        } catch (e) {
+          unescaped = rawText.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\')
         }
-        return null
+      } else if (rawText.includes('\\"') || rawText.includes('\\\\')) {
+        unescaped = rawText.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
       }
 
+      // 尝试解析去转义后的文本为 JSON 对象
+      let parsedObj = null
       try {
-        const parsed = safeParse(txt)
-        const res = processParsed(parsed)
-        if (res) return res
-      } catch (e) {}
+        parsedObj = safeParse(unescaped)
+      } catch (e) {
+        try {
+          parsedObj = safeParse(rawText)
+        } catch (e2) {}
+      }
 
-      try {
-        const candidate = tryParseCandidate(txt)
-        if (candidate) {
-          const parsed = safeParse(candidate)
-          const res = processParsed(parsed)
-          if (res) return res
-        }
-      } catch (e) {}
+      // 如果成功解析出对象
+      if (parsedObj) {
+        // 大数据量跳过耗时的深层嵌套 recursiveUnescape，直接格式化输出
+        const finalObj = (tab.inputText.length < 50_000) ? recursiveUnescape(parsedObj) : parsedObj
+        const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
+        const formatted = safeStringify(finalObj, null, space)
+        tab.inputText = formatted
+        tab.outputText = formatted
+        tab.parsedObj = finalObj
+        tab.validationError = null
+        tab.errorLine = null
+        showToast('去转义成功')
+        autoCopyResult(formatted)
+        return
+      }
 
-      try {
-        const jsonStr = convertJsObjectToJson(txt)
-        const parsed = safeParse(jsonStr)
-        const res = processParsed(parsed)
-        if (res) return res
-      } catch (e) {}
-
-      return null
-    }
-
-    let parsedObj = tryParseToObj(rawText)
-
-    if (parsedObj) {
-      const unescapedObj = recursiveUnescape(parsedObj)
-      tab.inputText = safeStringify(unescapedObj)
-      tab.outputText = tab.inputText
+      // 降级使用纯文本去转义
+      tab.inputText = unescaped
+      tab.outputText = unescaped
       tab.parsedObj = null
       tab.validationError = null
       tab.errorLine = null
       showToast('去转义成功')
       autoCopyResult(tab.inputText)
+    } catch (err) {
+      tab.validationError = `去转义失败: ${err.message}`
+    } finally {
       saveFormatterState()
-      return
+      setTimeout(() => { formatGuard = false }, 50)
     }
+  }
 
-    let unescapedRaw = rawText.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
-
-    parsedObj = tryParseToObj(unescapedRaw)
-    if (parsedObj) {
-      const unescapedObj = recursiveUnescape(parsedObj)
-      tab.inputText = safeStringify(unescapedObj)
-    } else {
-      tab.inputText = unescapedRaw
-    }
-
-    tab.outputText = tab.inputText
-    tab.parsedObj = null
-    tab.validationError = null
-    tab.errorLine = null
-    showToast('去转义成功')
-    autoCopyResult(tab.inputText)
-  } catch (err) {
-    tab.validationError = `去转义失败: ${err.message}`
-  } finally {
-    nextTick(() => { formatGuard = false })
-    saveFormatterState()
+  // 大数据量通过微任务释放主线程，防止点击按钮时界面假死
+  if (tab.inputText.length > 50_000) {
+    setTimeout(doUnescape, 10)
+  } else {
+    doUnescape()
   }
 }
 
@@ -3433,16 +3559,21 @@ const maskOptions = ref({
 })
 const customKeyInput = ref('')
 const showKeyTreePicker = ref(false)
-const extractedKeysList = ref([])
 const maskPreviewText = ref('')
 const maskCountResult = ref(0)
+const isMaskPreviewSampled = ref(false)
+const maskSampleTotalCount = ref(0)
+const maskSampleShownCount = ref(0)
+const isMaskApplying = ref(false)
 
 const highlightedMaskPreview = computed(() => {
   if (!maskPreviewText.value) return ''
   if (maskPreviewText.value.startsWith('//')) {
     return `<div class="mask-preview-line"><span class="json-comment">${plainEscape(maskPreviewText.value)}</span></div>`
   }
-  const highlighted = applyJsonHighlightWithPath(maskPreviewText.value)
+  // 500 条采样预览行数较多时，使用极速 lightweightHighlight，大幅提升渲染流畅度
+  const isLarge = maskPreviewText.value.length > 50_000
+  const highlighted = isLarge ? lightweightHighlight(maskPreviewText.value) : applyJsonHighlightWithPath(maskPreviewText.value)
   const lines = highlighted.replace(/\r/g, '').split('\n')
   return lines.map(line => {
     const isMasked = line.includes('*')
@@ -3499,12 +3630,6 @@ const openDataMaskModal = () => {
     return
   }
   showKeyTreePicker.value = false
-  const parsed = tab.parsedObj || parseJsonRobust(tab.inputText)
-  if (parsed) {
-    extractedKeysList.value = extractAllKeys(parsed)
-  } else {
-    extractedKeysList.value = []
-  }
   updateMaskPreview()
   showMaskModal.value = true
 }
@@ -3548,6 +3673,7 @@ const updateMaskPreview = () => {
   if (!tab || !tab.inputText?.trim()) {
     maskPreviewText.value = ''
     maskCountResult.value = 0
+    isMaskPreviewSampled.value = false
     return
   }
   try {
@@ -3555,15 +3681,43 @@ const updateMaskPreview = () => {
     if (!parsed) {
       maskPreviewText.value = '// 输入数据非有效 JSON 格式，无法解析'
       maskCountResult.value = 0
+      isMaskPreviewSampled.value = false
       return
     }
-    const { maskedData, count } = maskJsonData(parsed, maskOptions.value)
+
+    // 智能采样：针对大数据量预览前 500 条（或前 500 个属性），满足用户查看多条样本需求同时秒开
+    let previewTarget = parsed
+    isMaskPreviewSampled.value = false
+
+    if (Array.isArray(parsed)) {
+      if (parsed.length > 500) {
+        previewTarget = parsed.slice(0, 500)
+        isMaskPreviewSampled.value = true
+        maskSampleTotalCount.value = parsed.length
+        maskSampleShownCount.value = 500
+      }
+    } else if (parsed && typeof parsed === 'object') {
+      const keys = Object.keys(parsed)
+      if (keys.length > 500) {
+        const slicedObj = {}
+        for (let i = 0; i < 500; i++) {
+          slicedObj[keys[i]] = parsed[keys[i]]
+        }
+        previewTarget = slicedObj
+        isMaskPreviewSampled.value = true
+        maskSampleTotalCount.value = keys.length
+        maskSampleShownCount.value = 500
+      }
+    }
+
+    const { maskedData, count } = maskJsonData(previewTarget, maskOptions.value)
     maskCountResult.value = count
     const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
     maskPreviewText.value = safeStringify(maskedData, null, space)
   } catch (e) {
     maskPreviewText.value = '// 脱敏处理失败: ' + (e?.message || '')
     maskCountResult.value = 0
+    isMaskPreviewSampled.value = false
   }
 }
 
@@ -3574,41 +3728,88 @@ watch(maskOptions, () => {
   }
 }, { deep: true })
 
-const applyMaskToCurrentTab = () => {
-  if (!maskPreviewText.value || maskPreviewText.value.startsWith('//')) return
-  activeTab.value.inputText = maskPreviewText.value
-  showMaskModal.value = false
-  showToast(`已完成智能脱敏（共处理 ${maskCountResult.value} 处敏感数据）`)
-  autoCopyResult(activeTab.value.inputText)
-}
+const getFullMaskedData = async () => {
+  const tab = activeTab.value
+  if (!tab || !tab.inputText?.trim()) return null
+  const parsed = tab.parsedObj || parseJsonRobust(tab.inputText)
+  if (!parsed) return null
 
-const applyMaskToNewTab = () => {
-  if (!maskPreviewText.value || maskPreviewText.value.startsWith('//')) return
-  const newId = nextTabId++
-  const newTab = {
-    id: newId,
-    title: `脱敏数据`,
-    inputText: maskPreviewText.value,
-    outputText: '',
-    parsedObj: null,
-    validationError: null,
-    errorLine: null,
-    duplicateLines: [],
-    viewMode: 'tree',
-    convertFormat: null,
-    extractedFormat: null
+  // 如果未采样且预览文本正常，直接复用
+  if (!isMaskPreviewSampled.value && maskPreviewText.value && !maskPreviewText.value.startsWith('//')) {
+    return { text: maskPreviewText.value, count: maskCountResult.value }
   }
-  tabs.value.push(newTab)
-  activeTabId.value = newId
-  showMaskModal.value = false
-  showToast(`已在新标签页生成脱敏数据（共脱敏 ${maskCountResult.value} 处）`)
+
+  // 否则执行全量脱敏
+  const { maskedData, count } = maskJsonData(parsed, maskOptions.value)
+  const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
+  const text = safeStringify(maskedData, null, space)
+  return { text, count }
 }
 
-const copyMaskedData = () => {
-  if (!maskPreviewText.value || maskPreviewText.value.startsWith('//')) return
-  navigator.clipboard.writeText(maskPreviewText.value).then(() => {
-    showToast('脱敏数据已复制到剪贴板')
-  })
+const applyMaskToCurrentTab = async () => {
+  if (isMaskApplying.value) return
+  isMaskApplying.value = true
+  try {
+    await new Promise(r => setTimeout(r, 20))
+    const res = await getFullMaskedData()
+    if (!res) return
+    activeTab.value.inputText = res.text
+    showMaskModal.value = false
+    showToast(`已完成智能脱敏（共处理 ${res.count} 处敏感数据）`)
+    autoCopyResult(activeTab.value.inputText)
+  } catch (e) {
+    showToast('脱敏处理失败: ' + (e?.message || ''), 'error')
+  } finally {
+    isMaskApplying.value = false
+  }
+}
+
+const applyMaskToNewTab = async () => {
+  if (isMaskApplying.value) return
+  isMaskApplying.value = true
+  try {
+    await new Promise(r => setTimeout(r, 20))
+    const res = await getFullMaskedData()
+    if (!res) return
+    const newId = nextTabId++
+    const newTab = {
+      id: newId,
+      title: `脱敏数据`,
+      inputText: res.text,
+      outputText: '',
+      parsedObj: null,
+      validationError: null,
+      errorLine: null,
+      duplicateLines: [],
+      viewMode: 'tree',
+      convertFormat: null,
+      extractedFormat: null
+    }
+    tabs.value.push(newTab)
+    activeTabId.value = newId
+    showMaskModal.value = false
+    showToast(`已在新标签页生成脱敏数据（共脱敏 ${res.count} 处）`)
+  } catch (e) {
+    showToast('脱敏处理失败: ' + (e?.message || ''), 'error')
+  } finally {
+    isMaskApplying.value = false
+  }
+}
+
+const copyMaskedData = async () => {
+  if (isMaskApplying.value) return
+  isMaskApplying.value = true
+  try {
+    await new Promise(r => setTimeout(r, 20))
+    const res = await getFullMaskedData()
+    if (!res) return
+    await navigator.clipboard.writeText(res.text)
+    showToast(`脱敏数据已复制到剪贴板（共 ${res.count} 处）`)
+  } catch (e) {
+    showToast('复制失败: ' + (e?.message || ''), 'error')
+  } finally {
+    isMaskApplying.value = false
+  }
 }
 
 // ─── 2. JSONPath 表达式提取 ───
@@ -3879,7 +4080,7 @@ onBeforeUnmount(() => {
             </button>
 
             <!-- 5. 导入 (平铺时显示，收纳时仅保留弹窗实例) -->
-            <ImportDropdown ref="importDropdownRef" :hide-trigger="!isToolVisible('import')" @import-text="handleImportText" />
+            <ImportDropdown ref="importDropdownRef" :hide-trigger="!isToolVisible('import')" @import-text="handleImportText" @import-file="handleImportFile" />
 
             <!-- 6. 提取 -->
             <button v-if="isToolVisible('extract')" class="toolbar-item" @click="handleExtract" data-tooltip-bottom="智能提取 JSON">
@@ -4566,10 +4767,16 @@ onBeforeUnmount(() => {
               <!-- 实时预览区 -->
               <div class="mask-preview-area">
                 <div class="preview-header">
-                  <span>脱敏效果实时预览 (当前共处理 {{ maskCountResult }} 处)</span>
-                  <button class="preview-copy-btn" @click="copyMaskedData">
-                    <Copy class="btn-icon-xs" />
-                    <span>复制 JSON</span>
+                  <div class="preview-title-wrap">
+                    <span>脱敏效果实时预览 (当前{{ isMaskPreviewSampled ? '示例' : '' }}共处理 {{ maskCountResult }} 处)</span>
+                    <span v-if="isMaskPreviewSampled" class="preview-sample-badge" :title="`总数据量为 ${maskSampleTotalCount.toLocaleString()} 项，当前抽样展示前 ${maskSampleShownCount} 项`">
+                      已展示前 {{ maskSampleShownCount }} 条示例 (共 {{ maskSampleTotalCount.toLocaleString() }} 条)
+                    </span>
+                  </div>
+                  <button class="preview-copy-btn" @click="copyMaskedData" :disabled="isMaskApplying" title="复制全量脱敏后的 JSON 数据">
+                    <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
+                    <Copy v-else class="btn-icon-xs" />
+                    <span>{{ isMaskApplying ? '正在处理...' : '复制 JSON' }}</span>
                   </button>
                 </div>
                 <div class="mask-preview-code-wrap">
@@ -4579,15 +4786,58 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="ej-modal-footer">
-              <button class="modal-btn outline" @click="showMaskModal = false">取消</button>
-              <button class="modal-btn secondary" @click="applyMaskToNewTab">
-                <Plus class="btn-icon-xs" />
-                <span>在新标签页打开</span>
+              <button class="modal-btn outline" @click="showMaskModal = false" :disabled="isMaskApplying">取消</button>
+              <button class="modal-btn secondary" @click="applyMaskToNewTab" :disabled="isMaskApplying">
+                <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
+                <Plus v-else class="btn-icon-xs" />
+                <span>{{ isMaskApplying ? '正在全量脱敏...' : '在新标签页打开' }}</span>
               </button>
-              <button class="modal-btn primary" @click="applyMaskToCurrentTab">
-                <Check class="btn-icon-xs" />
-                <span>应用到当前编辑器</span>
+              <button class="modal-btn primary" @click="applyMaskToCurrentTab" :disabled="isMaskApplying">
+                <Loader2 v-if="isMaskApplying" class="btn-icon-xs spin-animate" />
+                <Check v-else class="btn-icon-xs" />
+                <span>{{ isMaskApplying ? '正在全量脱敏...' : '应用到当前编辑器' }}</span>
               </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 大文件导入全屏毛玻璃 Loading 遮罩 (统一模态风格，支持深浅主题与多端分辨率适配) -->
+    <Teleport to="body">
+      <Transition name="import-loading-fade">
+        <div v-if="importLoading.visible" class="import-loading-backdrop" :class="{ 'dark-mode': isDark }">
+          <div class="import-loading-card">
+            <!-- 蓝色 SVG 螺旋式扩散 Loading 加载动画 -->
+            <div class="spiral-loader-box">
+              <svg class="spiral-svg" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+                <g class="spiral-group">
+                  <line class="sp-ray sp-1" x1="32" y1="20" x2="32" y2="10" />
+                  <line class="sp-ray sp-2" x1="38" y1="21.6" x2="43" y2="13" />
+                  <line class="sp-ray sp-3" x1="42.4" y1="26" x2="51" y2="21" />
+                  <line class="sp-ray sp-4" x1="44" y1="32" x2="54" y2="32" />
+                  <line class="sp-ray sp-5" x1="42.4" y1="38" x2="51" y2="43" />
+                  <line class="sp-ray sp-6" x1="38" y1="42.4" x2="43" y2="51" />
+                  <line class="sp-ray sp-7" x1="32" y1="44" x2="32" y2="54" />
+                  <line class="sp-ray sp-8" x1="26" y1="42.4" x2="21" y2="51" />
+                  <line class="sp-ray sp-9" x1="21.6" y1="38" x2="13" y2="43" />
+                  <line class="sp-ray sp-10" x1="20" y1="32" x2="10" y2="32" />
+                  <line class="sp-ray sp-11" x1="21.6" y1="26" x2="13" y2="21" />
+                  <line class="sp-ray sp-12" x1="26" y1="21.6" x2="21" y2="13" />
+                </g>
+                <path class="spiral-arm arm-1" d="M 32 32 C 37 26, 44 28, 50 36" fill="none" />
+                <path class="spiral-arm arm-2" d="M 32 32 C 27 38, 20 36, 14 28" fill="none" />
+                <circle class="spiral-dot" cx="32" cy="32" r="2.5" />
+              </svg>
+            </div>
+            <div class="import-loading-title">正在导入数据</div>
+            <div class="import-loading-meta" v-if="importLoading.fileName">
+              <span class="file-name" :title="importLoading.fileName">{{ importLoading.fileName }}</span>
+              <span class="file-size-badge">{{ importLoading.fileSize }}</span>
+            </div>
+            <div class="import-loading-stage">
+              <span class="stage-dot"></span>
+              <span>{{ importLoading.stageText }}</span>
             </div>
           </div>
         </div>
@@ -6782,6 +7032,40 @@ body.utools-mode {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.preview-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.preview-sample-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.6875rem;
+  color: #2563eb;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  font-weight: 500;
+}
+
+.dark-mode .preview-sample-badge {
+  color: #60a5fa;
+  background: transparent;
+  border: none;
+}
+
+.spin-animate {
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .preview-copy-btn {
   display: inline-flex;
   align-items: center;
@@ -7241,5 +7525,297 @@ body.utools-mode {
   .ej-modal-footer {
     padding: 0.5rem 0.875rem;
   }
+}
+
+/* ─── 大文件导入全屏毛玻璃 Loading 遮罩（项目统一样式规范 & 多分辨率适配） ─── */
+.import-loading-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.import-loading-backdrop.dark-mode,
+:global(.dark-mode) .import-loading-backdrop {
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.import-loading-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.875rem 1.125rem;
+  width: min(85vw, 13.5rem);
+  box-sizing: border-box;
+  background: var(--bg-panel, #ffffff);
+  border: 1px solid var(--border-color, rgba(148, 163, 184, 0.25));
+  border-radius: 0.75rem;
+  box-shadow: 0 1rem 2.25rem -0.5rem rgba(0, 0, 0, 0.22), 0 0.125rem 0.5rem -0.125rem rgba(0, 0, 0, 0.08);
+  animation: importCardPop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.import-loading-backdrop.dark-mode .import-loading-card,
+:global(.dark-mode) .import-loading-card {
+  background: var(--bg-panel, #313136);
+  border-color: var(--border-color, #404046);
+  box-shadow: 0 1.125rem 2.625rem -0.5rem rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+@keyframes importCardPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.94) translateY(0.375rem);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ─── 蓝色 SVG 螺旋式扩散 Loading 动效 ─── */
+.spiral-loader-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.125rem;
+  height: 3.125rem;
+  margin-bottom: 0.625rem;
+}
+
+.spiral-svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.spiral-group {
+  transform-origin: 32px 32px;
+  animation: spiralSpin 1.6s cubic-bezier(0.35, 0, 0.25, 1) infinite;
+}
+
+@keyframes spiralSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.sp-ray {
+  stroke: #0284c7;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transform-origin: 32px 32px;
+  animation: rayPulse 1.6s ease-in-out infinite alternate;
+}
+
+.import-loading-backdrop.dark-mode .sp-ray,
+:global(.dark-mode) .sp-ray {
+  stroke: #38bdf8;
+  filter: drop-shadow(0 0 0.25rem rgba(56, 189, 248, 0.65));
+}
+
+/* 螺旋射线各角度与透明度衰减梯度 */
+.sp-1  { opacity: 1.00; }
+.sp-2  { opacity: 0.92; }
+.sp-3  { opacity: 0.84; }
+.sp-4  { opacity: 0.76; }
+.sp-5  { opacity: 0.68; }
+.sp-6  { opacity: 0.60; }
+.sp-7  { opacity: 0.52; }
+.sp-8  { opacity: 0.44; }
+.sp-9  { opacity: 0.36; }
+.sp-10 { opacity: 0.28; }
+.sp-11 { opacity: 0.20; }
+.sp-12 { opacity: 0.12; }
+
+@keyframes rayPulse {
+  0% {
+    transform: scale(0.92);
+  }
+  100% {
+    transform: scale(1.08);
+  }
+}
+
+.spiral-arm {
+  stroke: #0284c7;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-dasharray: 28;
+  stroke-dashoffset: 28;
+  animation: armDraw 1.6s ease-in-out infinite alternate;
+}
+
+.import-loading-backdrop.dark-mode .spiral-arm,
+:global(.dark-mode) .spiral-arm {
+  stroke: #5bb4d8;
+  filter: drop-shadow(0 0 0.25rem rgba(91, 180, 216, 0.5));
+}
+
+@keyframes armDraw {
+  0% {
+    stroke-dashoffset: 28;
+    opacity: 0.3;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+}
+
+.spiral-dot {
+  fill: #0284c7;
+  animation: dotBlink 1.6s ease-in-out infinite alternate;
+}
+
+.import-loading-backdrop.dark-mode .spiral-dot,
+:global(.dark-mode) .spiral-dot {
+  fill: #38bdf8;
+  filter: drop-shadow(0 0 0.3125rem #38bdf8);
+}
+
+@keyframes dotBlink {
+  0% { transform: scale(0.8); opacity: 0.7; }
+  100% { transform: scale(1.2); opacity: 1; }
+}
+
+.import-loading-title {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--text-primary, #0f172a);
+  margin-bottom: 0.375rem;
+  text-align: center;
+  line-height: 1.2;
+  letter-spacing: 0.0125rem;
+}
+
+.import-loading-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  max-width: 100%;
+  margin-bottom: 0.375rem;
+  padding: 0.125rem 0.4375rem;
+  background: var(--action-btn-bg, rgba(0, 0, 0, 0.04));
+  border: none;
+  border-radius: 0.25rem;
+  font-size: 0.65rem;
+  box-sizing: border-box;
+}
+
+.import-loading-meta .file-name {
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary, #475569);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.65rem;
+}
+
+.import-loading-meta .file-size-badge {
+  color: var(--primary-color, #0284c7);
+  font-weight: 600;
+  font-size: 0.625rem;
+  flex-shrink: 0;
+}
+
+.import-loading-backdrop.dark-mode .file-size-badge,
+:global(.dark-mode) .file-size-badge {
+  color: #38bdf8;
+}
+
+.import-loading-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3125rem;
+  font-size: 0.65rem;
+  color: var(--text-muted, #8b949e);
+  text-align: center;
+  line-height: 1.2;
+}
+
+.stage-dot {
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 50%;
+  background: #0284c7;
+  animation: stagePulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.import-loading-backdrop.dark-mode .stage-dot,
+:global(.dark-mode) .stage-dot {
+  background: #38bdf8;
+}
+
+
+@keyframes stagePulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+}
+
+/* ─── 响应式低高度屏幕（分屏、嵌入模式、小屏笔记本） ─── */
+@media (max-height: 520px) {
+  .import-loading-card {
+    padding: 0.875rem 1.25rem;
+    border-radius: 0.75rem;
+  }
+  .import-loading-spinner-wrap {
+    width: 2.25rem;
+    height: 2.25rem;
+    margin-bottom: 0.5rem;
+  }
+  .import-loading-spinner {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+  .import-loading-title {
+    font-size: 0.875rem;
+    margin-bottom: 0.375rem;
+  }
+  .import-loading-meta {
+    margin-bottom: 0.5rem;
+    padding: 0.125rem 0.5rem;
+  }
+}
+
+/* ─── 窄屏设备适配 ─── */
+@media (max-width: 420px) {
+  .import-loading-card {
+    width: 100%;
+    padding: 1.125rem 1.25rem;
+  }
+  .import-loading-meta .file-name {
+    max-width: 8rem;
+  }
+}
+
+/* ─── 淡入淡出过渡 ─── */
+.import-loading-fade-enter-active,
+.import-loading-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.import-loading-fade-enter-from,
+.import-loading-fade-leave-to {
+  opacity: 0;
 }
 </style>

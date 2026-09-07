@@ -239,8 +239,8 @@ const viewportHeight = ref(600)
 const containerWidth = ref(800)
 const bufferCount = 10
 
-// Dynamic row height map for wrap mode
-const rowHeightMap = ref(new Map())
+// Dynamic row height map for wrap mode (non-reactive cache to prevent recursive loops)
+const rowHeightMap = new Map()
 const maxLineWidth = ref(800)
 
 const updateDimensions = () => {
@@ -278,7 +278,7 @@ const recalculateMaxLineWidth = () => {
 }
 
 watch([flatRows, isWrap, editorFontSize], () => {
-  rowHeightMap.value.clear()
+  rowHeightMap.clear()
   recalculateMaxLineWidth()
 })
 
@@ -320,7 +320,7 @@ const rowOffsets = computed(() => {
     return offsets
   }
 
-  const map = rowHeightMap.value
+  const map = rowHeightMap
   for (let i = 0; i < count; i++) {
     const row = rows[i]
     const h = map.get(row.id) || estimateRowHeight(row)
@@ -392,28 +392,6 @@ const visibleRows = computed(() => {
     }
   })
 })
-
-// Update measured heights when DOM renders rows in wrap mode
-const rowElementMap = new Map()
-
-const setRowElement = (id, el) => {
-  if (el) {
-    rowElementMap.set(id, el)
-    if (isWrap.value) {
-      const h = el.offsetHeight
-      if (h > 0 && h !== rowHeightMap.value.get(id)) {
-        rowHeightMap.value.set(id, h)
-      }
-    } else {
-      const w = el.scrollWidth + 30
-      if (w > maxLineWidth.value) {
-        maxLineWidth.value = w
-      }
-    }
-  } else {
-    rowElementMap.delete(id)
-  }
-}
 
 // Highlighting & Copy Handlers
 const highlightText = (text, query) => {
@@ -587,7 +565,6 @@ defineExpose({
       <div
         v-for="row in visibleRows"
         :key="row.id"
-        :ref="(el) => setRowElement(row.id, el)"
         class="virtual-tree-row"
         :style="{
           top: `${row.topPosition}px`,

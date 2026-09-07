@@ -48,7 +48,7 @@ $exitCode = $LASTEXITCODE
 
 # 4. Check result
 if ($exitCode -eq 0) {
-    $installer = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+    $installer = Get-ChildItem "src-tauri\target\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     $exe = Get-ChildItem "src-tauri\target\release\easy-json.exe" -ErrorAction SilentlyContinue
     if ($installer) {
         Write-Host "[4/4] Build complete!" -ForegroundColor Green

@@ -561,11 +561,12 @@ const createBaseTheme = () => {
       textAlign: 'right',
       padding: '0 5px 0 3px',
       boxSizing: 'border-box',
+      fontVariantNumeric: 'tabular-nums',
       transition: 'color 0.12s ease'
     },
     '.cm-lineNumbers .cm-gutterElement.cm-activeLineGutter': {
-      fontSize: '1.05em',
-      fontWeight: '600'
+      fontSize: '0.88em',
+      fontWeight: '800'
     },
     '.cm-foldGutter': {
       width: '14px',
@@ -710,8 +711,8 @@ const lightTheme = EditorView.theme({
   '.cm-activeLineGutter': {
     backgroundColor: 'transparent',
     color: '#ea580c',
-    fontWeight: '600',
-    fontSize: '1.05em'
+    fontWeight: '800',
+    fontSize: '0.88em'
   }
 }, { dark: false })
 
@@ -740,8 +741,8 @@ const darkTheme = EditorView.theme({
   '.cm-activeLineGutter': {
     backgroundColor: 'transparent',
     color: '#38bdf8',
-    fontWeight: '600',
-    fontSize: '1.05em'
+    fontWeight: '800',
+    fontSize: '0.88em'
   },
   '.cm-searchMatch': {
     backgroundColor: 'rgba(250, 204, 21, 0.35) !important',
@@ -1411,12 +1412,13 @@ onBeforeUnmount(() => {
   text-align: right !important;
   padding: 0 5px 0 3px !important;
   box-sizing: border-box !important;
+  font-variant-numeric: tabular-nums !important;
   transition: color 0.12s ease !important;
 }
 
 :deep(.cm-lineNumbers .cm-gutterElement.cm-activeLineGutter) {
-  font-size: 1.05em !important;
-  font-weight: 600 !important;
+  font-size: 0.88em !important;
+  font-weight: 800 !important;
 }
 
 :deep(.cm-foldGutter) {

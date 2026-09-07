@@ -181,29 +181,35 @@ export function maskJsonData(data, options = {}) {
       return maskCustomValue(str)
     }
 
+    const len = str.length
+    // 如果长度过短（小于 7），不可能匹配手机号(11)、身份证(15-18)、信用代码(18)、邮箱(>=6)、银行卡(>=15)、护照(>=7)、车牌(>=7)、DSN 等
+    if (len < 7) {
+      return str
+    }
+
     let result = str
 
-    // 2. 数据库连接串 (DSN) 密码脱敏
+    // 2. 数据库连接串 (DSN) 密码脱敏：必定包含协议或特殊凭证关键词
     if (maskDsn) {
-      if (URI_DSN_RE.test(result)) {
+      const hasColon = result.includes(':')
+      const hasAt = result.includes('@')
+      if (hasAt && (result.includes('://') || hasColon)) {
         result = result.replace(URI_DSN_RE, (_, scheme, user) => {
           count++
           return `${scheme}${user}:******@`
         })
-      }
-      if (GO_DSN_RE.test(result)) {
         result = result.replace(GO_DSN_RE, (_, user, pass, tail) => {
           count++
           return `${user}:******${tail}`
         })
+        if (result.includes('oracle') || result.includes('/')) {
+          result = result.replace(ORACLE_DSN_RE, (_, prefix, user, pass, tail) => {
+            count++
+            return `${prefix}${user}/******${tail}`
+          })
+        }
       }
-      if (ORACLE_DSN_RE.test(result)) {
-        result = result.replace(ORACLE_DSN_RE, (_, prefix, user, pass, tail) => {
-          count++
-          return `${prefix}${user}/******${tail}`
-        })
-      }
-      if (KV_DSN_RE.test(result)) {
+      if (/password|pwd|secret/i.test(result)) {
         result = result.replace(KV_DSN_RE, () => {
           count++
           return '******'
@@ -211,16 +217,16 @@ export function maskJsonData(data, options = {}) {
       }
     }
 
-    // 3. 手机号脱敏: 13812345678 -> 138****5678 (11位等长)
-    if (maskPhone && PHONE_RE.test(result)) {
+    // 3. 手机号脱敏: 13812345678 -> 138****5678 (11位等长，必须包含字符 1)
+    if (maskPhone && len >= 11 && result.includes('1')) {
       result = result.replace(PHONE_RE, (_, p1, p2, p3) => {
         count++
         return `${p1}****${p3}`
       })
     }
 
-    // 4. 身份证脱敏: 110101199003072345 -> 110101********2345 (18位等长)
-    if (maskIdCard && ID_CARD_RE.test(result)) {
+    // 4. 身份证脱敏: 110101199003072345 -> 110101********2345 (18位等长，至少15位)
+    if (maskIdCard && len >= 15) {
       result = result.replace(ID_CARD_RE, (_, p1, p2) => {
         count++
         return `${p1}********${p2}`
@@ -228,31 +234,31 @@ export function maskJsonData(data, options = {}) {
     }
 
     // 5. 统一社会信用代码: 91110108MA002A3456 -> 911101********3456 (18位等长)
-    if (maskUsci && USCI_RE.test(result)) {
+    if (maskUsci && len >= 18) {
       result = result.replace(USCI_RE, (m) => {
         count++
         return m.slice(0, 6) + '********' + m.slice(-4)
       })
     }
 
-    // 6. 邮箱脱敏: developer@easyjson.com -> de*****er@easyjson.com (严格 1:1 等长脱敏)
-    if (maskEmail && EMAIL_RE.test(result)) {
+    // 6. 邮箱脱敏: 必须包含 @ 与 . 字符
+    if (maskEmail && result.includes('@') && result.includes('.')) {
       result = result.replace(EMAIL_RE, (_, username, domain) => {
         count++
         return `${maskKeepLength(username)}${domain}`
       })
     }
 
-    // 7. 中国护照号: E12345678 -> E12****78 (等长脱敏)
-    if (maskPassport && PASSPORT_RE.test(result)) {
+    // 7. 中国护照号: E12345678 -> E12****78 (等长脱敏，长度 7~9 位且含护照前缀字母)
+    if (maskPassport && len >= 7 && /[GEPDSCgepdsc]/.test(result)) {
       result = result.replace(PASSPORT_RE, (m) => {
         count++
         return m.slice(0, 2) + '*'.repeat(m.length - 4) + m.slice(-2)
       })
     }
 
-    // 8. 车牌号码: 京A88888 -> 京A***88, 粤B·D12345 -> 粤B·****45 (等长脱敏)
-    if (maskLicensePlate && LICENSE_PLATE_RE.test(result)) {
+    // 8. 车牌号码: 京A88888 -> 京A***88 (包含汉字)
+    if (maskLicensePlate && len >= 7 && /[\u4e00-\u9fa5]/.test(result)) {
       result = result.replace(LICENSE_PLATE_RE, (m) => {
         count++
         const prefixLen = m.includes('·') || m.includes(' ') ? 3 : 2
@@ -260,8 +266,8 @@ export function maskJsonData(data, options = {}) {
       })
     }
 
-    // 9. 银行卡号脱敏（严格结合 BIN 码与 Luhn 模 10 算法，1:1 等长脱敏）
-    if (maskBankCard && BANK_CARD_RE.test(result)) {
+    // 9. 银行卡号脱敏（15~19位纯数字序列，结合 BIN 码与 Luhn 模 10 算法）
+    if (maskBankCard && len >= 15) {
       result = result.replace(BANK_CARD_RE, (match) => {
         if (isValidBankCard(match)) {
           count++
@@ -271,15 +277,15 @@ export function maskJsonData(data, options = {}) {
       })
     }
 
-    // 10. IP 地址脱敏 (IPv4 与 IPv6)
+    // 10. IP 地址脱敏 (IPv4 必须含点，IPv6 必须含冒号)
     if (maskIp) {
-      if (IPV4_RE.test(result)) {
+      if (result.includes('.')) {
         result = result.replace(IPV4_RE, (_, p1) => {
           count++
           return `${p1}*.*`
         })
       }
-      if (IPV6_RE.test(result)) {
+      if (result.includes(':')) {
         result = result.replace(IPV6_RE, (m) => {
           count++
           const parts = m.split(':')
@@ -310,14 +316,20 @@ export function maskJsonData(data, options = {}) {
     }
 
     if (typeof node === 'number' || typeof node === 'bigint') {
+      // 快速数值区间筛选：仅在可能是11位手机号或15~19位银行卡时才做字符串转换与正则，普通数值直接放行
+      const isCandidatePhone = maskPhone && node >= 13000000000 && node <= 19999999999
+      const isCandidateBankCard = maskBankCard && node >= 100000000000000 && node <= 9999999999999999999
+      if (!isCandidatePhone && !isCandidateBankCard) {
+        return node
+      }
       const numStr = String(node)
       // 纯数字形式的手机号 (11位等长)
-      if (maskPhone && /^1[3-9]\d{10}$/.test(numStr)) {
+      if (isCandidatePhone && /^1[3-9]\d{10}$/.test(numStr)) {
         count++
         return `${numStr.slice(0, 3)}****${numStr.slice(7)}`
       }
       // 纯数字形式的银行卡（严格结合 BIN 码与 Luhn 模 10 算法，1:1 等长脱敏）
-      if (maskBankCard && /^\d{15,19}$/.test(numStr) && isValidBankCard(numStr)) {
+      if (isCandidateBankCard && isValidBankCard(numStr)) {
         count++
         return `${numStr.slice(0, 4)}${'*'.repeat(numStr.length - 8)}${numStr.slice(-4)}`
       }

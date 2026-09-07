@@ -47,8 +47,9 @@ const buildTree = (val, keyName = '', path = [], depth = 0) => {
 
   let children = []
   if (isArr) {
-    // 数组：如果是对象数组，提取元素属性或首个元素示例
-    val.forEach((item, idx) => {
+    // 数组：如果是对象数组，大数组最多采样前 5 项即可覆盖其 Schema 字段，秒级建树
+    const sampleItems = val.length > 5 ? val.slice(0, 5) : val
+    sampleItems.forEach((item, idx) => {
       if (item !== null && typeof item === 'object') {
         const itemNode = buildTree(item, `[${idx}]`, currentPath, depth + 1)
         if (itemNode.children && itemNode.children.length > 0) {

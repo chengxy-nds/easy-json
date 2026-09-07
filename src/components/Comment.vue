@@ -49,10 +49,6 @@
             <span class="comment-stats">
               <span class="waline-comment-count" data-path="/comment" /> 条评论
             </span>
-            <span class="comment-stats-divider">·</span>
-            <span class="comment-stats">
-              <span class="waline-pageview-count" data-path="/comment" /> 次浏览
-            </span>
           </div>
         </div>
       </aside>
@@ -76,11 +72,19 @@ defineEmits(['go-back'])
 const props = defineProps({
   path: {
     type: String,
-    default: () => window.location.pathname
+    default: '/comment'
   }
 })
 
 let walineInstance = null
+
+// 拦截第三方 Waline 统计计数类的非关键网络/服务端 500 异常，防止在桌面端弹出红色浮层
+const handleUnhandledRejection = (event) => {
+  const msg = String(event?.reason?.message || event?.reason || '')
+  if (msg.includes('Update counter failed') || msg.includes('counter failed') || msg.includes('column "url" does not exist')) {
+    event.preventDefault()
+  }
+}
 
 const initWaline = () => {
   if (walineInstance) walineInstance.destroy()
@@ -90,7 +94,7 @@ const initWaline = () => {
     serverURL: 'https://easyjsoncomment.xiaofucode.com',
     path: props.path,
     dark: 'html.dark-mode',
-    pageview: true,
+    pageview: false, // 禁用有服务端数据库字段故障的自增计数器，彻底杜绝 500 报错
     comment: true,
     avatar: 'https://cravatar.cn/avatar/',
     locale: {
@@ -105,9 +109,17 @@ const initWaline = () => {
   })
 }
 
-onMounted(() => nextTick(() => initWaline()))
+onMounted(() => {
+  window.addEventListener('unhandledrejection', handleUnhandledRejection)
+  nextTick(() => initWaline())
+})
+
 watch(() => props.path, () => nextTick(() => initWaline()))
-onUnmounted(() => { if (walineInstance) walineInstance.destroy() })
+
+onUnmounted(() => {
+  window.removeEventListener('unhandledrejection', handleUnhandledRejection)
+  if (walineInstance) walineInstance.destroy()
+})
 </script>
 
 <style scoped>

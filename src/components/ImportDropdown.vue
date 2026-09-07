@@ -13,7 +13,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['import-text'])
+const emit = defineEmits(['import-text', 'import-file'])
 const showToast = inject('showToast')
 const autoPaste = inject('autoPaste', ref(false))
 
@@ -287,15 +287,11 @@ const beautify = (text) => {
 
 // 本地文件导入
 const handleFile = (e) => {
-  const file = e.target.files[0]
+  const file = e.target.files?.[0]
+  if (e.target) e.target.value = ''
   if (!file) return
-  const reader = new FileReader()
-  reader.onload = (ev) => {
-    emit('import-text', beautify(ev.target.result))
-    showToast('文件导入成功')
-    panelOpen.value = false
-  }
-  reader.readAsText(file)
+  panelOpen.value = false
+  emit('import-file', file)
 }
 
 // 拖拽文件支持
@@ -312,16 +308,11 @@ const onDrop = (e) => {
   e.preventDefault()
   e.stopPropagation()
   isDragging.value = false
-  const file = e.dataTransfer?.files[0]
+  const file = e.dataTransfer?.files?.[0]
   if (file && (file.type === "application/json" || file.name.endsWith('.json') || file.name.endsWith('.txt'))) {
-    const reader = new FileReader()
-    reader.onload = (ev) => {
-      emit('import-text', beautify(ev.target.result))
-      showToast('文件导入成功')
-      panelOpen.value = false
-    }
-    reader.readAsText(file)
-  } else {
+    panelOpen.value = false
+    emit('import-file', file)
+  } else if (file) {
     showToast('仅支持导入 .json 或 .txt 文件', 'error')
   }
 }
