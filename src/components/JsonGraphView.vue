@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch, inject } from 'vue'
+import { ref, reactive, computed, onMounted, watch, inject, nextTick } from 'vue'
 import { ExternalLink, Image as ImageIcon, Table, GitFork, Copy, ArrowLeft, Minus, Plus, Map as MapIcon } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
@@ -83,12 +83,16 @@ const highlightText = (text, query) => {
 
 const props = defineProps({
   parsedObj: { required: true },
-  hoveredPath: { type: Array, default: null }
+  hoveredPath: { type: Array, default: null },
+  selectedPath: { type: Array, default: null }
 })
 
 const emit = defineEmits(['hover-path', 'click-path'])
 
+let isInternalGraphClick = false
+
 const emitClick = (path, type = 'all') => {
+  isInternalGraphClick = true
   emit('click-path', path, type)
 }
 
@@ -103,6 +107,22 @@ const SWITCH_BAR_H  = 24   // switch bar height in standard card
 const TABLE_TITLE_H = 26   // table node title bar height
 const TABLE_THEAD_H = 24   // table node thead row height
 const TABLE_ROW_H   = 22   // table node row height
+const NODE_MAX_VISIBLE_ROWS = 50 // 节点高度是 50 行的高度，超过 50 行直接开启节点内虚拟滚动
+const VIRTUAL_BUFFER_ROWS = 8   // 虚拟渲染上下缓冲行数
+const MAX_TOTAL_GRAPH_NODES = 200 // 全图最大拓扑节点数量保护，保证流畅渲染
+const nodeScrollState = reactive({})
+
+const getNodeScrollTop = (nodeId) => {
+  return nodeScrollState[nodeId] || 0
+}
+
+const setNodeScrollTop = (nodeId, val) => {
+  nodeScrollState[nodeId] = val
+}
+
+const handleNodeScroll = (nodeId, e) => {
+  setNodeScrollTop(nodeId, e.target.scrollTop)
+}
 
 // ─── Table Mode Control (全局模式 + 单节点覆盖) ──────────────────────────────────
 const globalTableMode = ref(true)
@@ -117,15 +137,51 @@ const isTableModeForNode = (path, isObjArray) => {
   return globalTableMode.value
 }
 
+const findNodeScrollEl = (nodeId) => {
+  if (!containerRef.value) return null
+  const allScrollEls = containerRef.value.querySelectorAll('.table-card-body, .card-entries-viewport')
+  for (const el of allScrollEls) {
+    if (el.getAttribute('data-node-id') === nodeId) {
+      return el
+    }
+  }
+  return null
+}
+
 const toggleNodeTableMode = (path) => {
   const pathKey = JSON.stringify(path)
   const isCurrentlyTable = isTableModeForNode(path, true)
-  nodeTableOverrides.value.set(pathKey, !isCurrentlyTable)
+  const nextMode = !isCurrentlyTable
+
+  // 1. 不可变 Map 替换赋值，彻底激活 Vue 响应式依赖更新！
+  const newMap = new Map(nodeTableOverrides.value)
+  newMap.set(pathKey, nextMode)
+  nodeTableOverrides.value = newMap
+
+  // 2. 关键修复：重置该节点在切片引擎中的旧滚动高度，确保新模式从顶部 (0) 开始切片！
+  setNodeScrollTop(pathKey, 0)
+
+  // 3. 在 nextTick 中，确保新挂载的视口容器 scrollTop 强制归零，彻底杜绝 spacer 悬空导致的白屏！
+  nextTick(() => {
+    const el = findNodeScrollEl(pathKey)
+    if (el) {
+      el.scrollTop = 0
+    }
+  })
 }
 
 const toggleGlobalTableMode = () => {
   globalTableMode.value = !globalTableMode.value
-  nodeTableOverrides.value.clear()
+  nodeTableOverrides.value = new Map() // 新 Map 触发响应式
+  Object.keys(nodeScrollState).forEach(k => { delete nodeScrollState[k] })
+
+  nextTick(() => {
+    if (containerRef.value) {
+      const scrollEls = containerRef.value.querySelectorAll('.table-card-body, .card-entries-viewport')
+      scrollEls.forEach(el => { el.scrollTop = 0 })
+    }
+  })
+
   if (showToast) {
     showToast(globalTableMode.value ? '已启用表格紧凑模式 (行转列)' : '已切换为树形发散模式')
   }
@@ -172,7 +228,10 @@ const isArrayOfObjects = (v) => {
 const getColumnsFromObjectArray = (arr) => {
   const cols = []
   const seen = new Set()
-  for (const item of arr) {
+  // 性能保护采样：前 100 项采样足以覆盖全部数据列，避免数万项全量扫描
+  const sampleLimit = Math.min(arr.length, 100)
+  for (let i = 0; i < sampleLimit; i++) {
+    const item = arr[i]
     if (item && typeof item === 'object' && !Array.isArray(item)) {
       for (const k of Object.keys(item)) {
         if (!seen.has(k)) {
@@ -183,6 +242,105 @@ const getColumnsFromObjectArray = (arr) => {
     }
   }
   return cols
+}
+
+// ─── 卡片内虚拟滚动引擎 (针对海量数据实现 60FPS 极速虚拟切片) ───────────────────
+const getTableVisibleRows = (node) => {
+  if (!node.isVirtualScroll || !node.rawData) {
+    return {
+      rows: node.tableRows,
+      topSpacer: 0,
+      bottomSpacer: 0
+    }
+  }
+
+  const scrollTop = getNodeScrollTop(node.id)
+  const total = node.totalCount
+  const visibleCount = NODE_MAX_VISIBLE_ROWS + VIRTUAL_BUFFER_ROWS * 2
+  const rawStartIndex = Math.max(0, Math.floor(scrollTop / TABLE_ROW_H) - VIRTUAL_BUFFER_ROWS)
+  const maxStartIndex = Math.max(0, total - visibleCount)
+  const startIndex = Math.min(rawStartIndex, maxStartIndex)
+  const endIndex = Math.min(total, startIndex + visibleCount)
+
+  const topSpacer = startIndex * TABLE_ROW_H
+  const bottomSpacer = Math.max(0, (total - endIndex) * TABLE_ROW_H)
+
+  const rawSlice = node.rawData.slice(startIndex, endIndex)
+  const rows = rawSlice.map((item, localIdx) => {
+    const rowIdx = startIndex + localIdx
+    const cells = node.columns.map(col => {
+      const val = item?.[col]
+      const isComplex = val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0)
+      const cellPath = [...node.path, rowIdx, col]
+      const childNodeId = isComplex ? JSON.stringify(cellPath) : null
+      return {
+        col,
+        value: val,
+        valueType: getValueType(val),
+        preview: getPreview(val),
+        isComplex,
+        childNodeId,
+        path: cellPath
+      }
+    })
+    return {
+      rowIdx,
+      path: [...node.path, rowIdx],
+      cells
+    }
+  })
+
+  return {
+    rows,
+    topSpacer,
+    bottomSpacer
+  }
+}
+
+const getCardVisibleEntries = (node) => {
+  if (!node.isVirtualScroll || (!node.rawEntries && !node.rawData)) {
+    return {
+      entries: node.entries,
+      topSpacer: 0,
+      bottomSpacer: 0
+    }
+  }
+
+  const scrollTop = getNodeScrollTop(node.id)
+  const total = node.totalCount
+  const visibleCount = NODE_MAX_VISIBLE_ROWS + VIRTUAL_BUFFER_ROWS * 2
+  const rawStartIndex = Math.max(0, Math.floor(scrollTop / CARD_ROW_H) - VIRTUAL_BUFFER_ROWS)
+  const maxStartIndex = Math.max(0, total - visibleCount)
+  const startIndex = Math.min(rawStartIndex, maxStartIndex)
+  const endIndex = Math.min(total, startIndex + visibleCount)
+
+  const topSpacer = startIndex * CARD_ROW_H
+  const bottomSpacer = Math.max(0, (total - endIndex) * CARD_ROW_H)
+
+  const rawSlice = (node.isArray && node.rawData)
+    ? node.rawData.slice(startIndex, endIndex).map((v, localIdx) => [String(startIndex + localIdx), v])
+    : (node.rawEntries ? node.rawEntries.slice(startIndex, endIndex) : [])
+  const entries = rawSlice.map(([k, v], localIdx) => {
+    const rowIdx = startIndex + localIdx
+    const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
+    const childPath = [...node.path, node.isArray ? Number(k) : k]
+    const childNodeId = isComplex ? JSON.stringify(childPath) : null
+    return {
+      key: k,
+      value: v,
+      isComplex,
+      preview: getPreview(v),
+      valueType: getValueType(v),
+      childNodeId,
+      rowIdx
+    }
+  })
+
+  return {
+    entries,
+    topSpacer,
+    bottomSpacer
+  }
 }
 
 // ─── Recursive Tree Layout Computation ────────────────────────────────────────
@@ -207,26 +365,36 @@ const layout = computed(() => {
       // ─── 场景 A: 对象数组行转列表格节点 (Table Node) ───
       const columns = getColumnsFromObjectArray(currentObj)
       const colWidths = {}
+      // 列宽计算只采样前 60 项
+      const sampleForWidth = currentObj.slice(0, 60)
       columns.forEach(col => {
         let maxLen = col.length
-        currentObj.forEach(item => {
+        sampleForWidth.forEach(item => {
           const val = item?.[col]
           if (val !== undefined && val !== null) {
             const prev = getPreview(val)
             if (prev.length > maxLen) maxLen = prev.length
           }
         })
-        const hasImgOrUrl = currentObj.some(item => isColor(item?.[col]) || isImg(item?.[col]) || isHttpLink(item?.[col]))
+        const hasImgOrUrl = sampleForWidth.some(item => isColor(item?.[col]) || isImg(item?.[col]) || isHttpLink(item?.[col]))
         const extraIconW = (hasImgOrUrl ? 22 : 0) + 24
         colWidths[col] = Math.max(84, Math.min(300, Math.round(maxLen * 7.5 + 20 + extraIconW)))
       })
 
-      const indexColW = Math.max(30, String(currentObj.length).length * 8 + 16)
-      const totalTableW = indexColW + Object.values(colWidths).reduce((a, b) => a + b, 0) + 2
-      const height = TABLE_TITLE_H + TABLE_THEAD_H + currentObj.length * TABLE_ROW_H + 2
-      const width = Math.max(160, totalTableW)
+      const totalCount = currentObj.length
+      const isVirtualScroll = totalCount > NODE_MAX_VISIBLE_ROWS
+      const displayRowsCount = isVirtualScroll ? NODE_MAX_VISIBLE_ROWS : totalCount
 
-      const tableRows = currentObj.map((item, rowIdx) => {
+      const indexColW = Math.max(30, String(totalCount).length * 8 + 16)
+      const scrollbarReserve = isVirtualScroll ? 12 : 0
+      const totalTableW = indexColW + Object.values(colWidths).reduce((a, b) => a + b, 0) + 2
+      const width = Math.max(160, totalTableW + scrollbarReserve)
+
+      // 预生成基础行（用于 <= 50 行展示或前 30 项拓扑分支发散）
+      const sampleCount = Math.min(totalCount, NODE_MAX_VISIBLE_ROWS)
+      const preSampleData = currentObj.slice(0, sampleCount)
+
+      const tableRows = preSampleData.map((item, rowIdx) => {
         const cells = columns.map(col => {
           const val = item?.[col]
           const isComplex = val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0)
@@ -248,6 +416,9 @@ const layout = computed(() => {
           cells
         }
       })
+
+      // 节点高度是 50 行的高度（不足 50 行自适应）
+      const height = TABLE_TITLE_H + TABLE_THEAD_H + displayRowsCount * TABLE_ROW_H + 2
 
       if (!maxColWidths[depth] || width > maxColWidths[depth]) {
         maxColWidths[depth] = width
@@ -273,30 +444,51 @@ const layout = computed(() => {
         depth,
         x: 0,
         y: 0,
-        childrenIds: []
+        childrenIds: [],
+        totalCount,
+        isVirtualScroll
       }
 
       nodesMap.set(nodeId, node)
       if (!nodesByDepth[depth]) nodesByDepth[depth] = []
       nodesByDepth[depth].push(node)
 
-      // Recursively build children for nested complex cells inside table
-      tableRows.forEach(row => {
-        row.cells.forEach(cell => {
-          if (cell.isComplex) {
-            node.childrenIds.push(cell.childNodeId)
-            buildTreeNodes(cell.value, cell.path, cell.col, nodeId, { isTable: true, rowIdx: row.rowIdx }, depth + 1)
+      // Recursively build children for nested complex cells inside table (全量扫描所有行，绝不漏掉中间或任意行的子 json)
+      for (let r = 0; r < totalCount; r++) {
+        if (nodesMap.size >= MAX_TOTAL_GRAPH_NODES) break
+        const item = currentObj[r]
+        if (!item || typeof item !== 'object') continue
+        for (let c = 0; c < columns.length; c++) {
+          const col = columns[c]
+          const val = item[col]
+          const isComplex = val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0)
+          if (isComplex && nodesMap.size < MAX_TOTAL_GRAPH_NODES) {
+            const cellPath = [...path, r, col]
+            const childNodeId = JSON.stringify(cellPath)
+            if (!node.childrenIds.includes(childNodeId)) {
+              node.childrenIds.push(childNodeId)
+            }
+            buildTreeNodes(val, cellPath, col, nodeId, { isTable: true, rowIdx: r }, depth + 1)
           }
-        })
-      })
+        }
+      }
 
     } else {
       // ─── 场景 B: 标准卡片节点 (Standard Card Node) ───
-      const entries = isArray
-        ? currentObj.map((v, i) => [String(i), v])
-        : Object.keys(currentObj).map(k => [k, currentObj[k]])
+      const totalCount = isArray ? currentObj.length : Object.keys(currentObj).length
+      const isVirtualScroll = totalCount > NODE_MAX_VISIBLE_ROWS
+      const displayRowsCount = isVirtualScroll ? NODE_MAX_VISIBLE_ROWS : totalCount
 
-      const cardEntries = entries.map(([k, v], idx) => {
+      const allEntries = isArray
+        ? (totalCount > 1000 ? null : currentObj.map((v, i) => [String(i), v]))
+        : Object.entries(currentObj)
+
+      const sampleCount = Math.min(totalCount, NODE_MAX_VISIBLE_ROWS)
+      const preSampleRaw = (isArray && (!allEntries || totalCount > 1000))
+        ? currentObj.slice(0, sampleCount).map((v, i) => [String(i), v])
+        : allEntries.slice(0, sampleCount)
+
+      const cardEntries = preSampleRaw.map(([k, v], idx) => {
         const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
         const childPath = [...path, isArray ? Number(k) : k]
         const childNodeId = isComplex ? JSON.stringify(childPath) : null
@@ -327,7 +519,7 @@ const layout = computed(() => {
       const width = isArray ? Math.max(minW, Math.min(640, keyW + valW + 20)) : Math.max(minW, Math.min(700, keyW + valW + 28))
       
       const extraBarH = isObjArray ? SWITCH_BAR_H : 0
-      const height = extraBarH + CARD_PAD * 2 + Math.max(cardEntries.length, 1) * CARD_ROW_H
+      const height = extraBarH + CARD_PAD * 2 + Math.max(displayRowsCount, 1) * CARD_ROW_H + 2
 
       if (!maxColWidths[depth] || width > maxColWidths[depth]) {
         maxColWidths[depth] = width
@@ -343,13 +535,17 @@ const layout = computed(() => {
         isTable: false,
         canToggleTable: isObjArray,
         entries: cardEntries,
+        rawEntries: allEntries,
+        rawData: isArray ? currentObj : null,
         width,
         height,
         depth,
         x: 0,
         y: 0,
         keyW,
-        childrenIds: cardEntries.filter(e => e.isComplex).map(e => e.childNodeId)
+        childrenIds: cardEntries.filter(e => e.isComplex).map(e => e.childNodeId),
+        totalCount,
+        isVirtualScroll
       }
 
       nodesMap.set(nodeId, node)
@@ -358,13 +554,51 @@ const layout = computed(() => {
       }
       nodesByDepth[depth].push(node)
 
-      // Recursively build children
-      cardEntries.forEach(entry => {
-        if (entry.isComplex) {
-          const childPath = [...path, isArray ? Number(entry.key) : entry.key]
-          buildTreeNodes(entry.value, childPath, entry.key, nodeId, entry.rowIdx, depth + 1)
+      // Recursively build children (全量扫描所有项，绝不漏掉中间或任意位置的复杂子项)
+      if (!isArray) {
+        // 对象模式：扫描所有属性
+        for (let i = 0; i < allEntries.length; i++) {
+          if (nodesMap.size >= MAX_TOTAL_GRAPH_NODES) break
+          const [k, v] = allEntries[i]
+          const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
+          if (isComplex) {
+            const childPath = [...path, k]
+            const childNodeId = JSON.stringify(childPath)
+            if (!node.childrenIds.includes(childNodeId)) node.childrenIds.push(childNodeId)
+            buildTreeNodes(v, childPath, k, nodeId, i, depth + 1)
+          }
         }
-      })
+      } else {
+        // 数组模式：
+        // 默认发散覆盖一整屏（50 项），且优先发散包含深层嵌套的项或用户当前选中的目标项
+        const selectedChildIdx = (effectiveSelectedPath.value && effectiveSelectedPath.value.length > path.length && path.every((v, idx) => String(v) === String(effectiveSelectedPath.value[idx])))
+          ? Number(effectiveSelectedPath.value[path.length])
+          : -1
+
+        let simpleBranchCount = 0
+        const MAX_SIMPLE_ARRAY_BRANCHES = NODE_MAX_VISIBLE_ROWS // 默认覆盖整屏 50 项，整齐饱满
+
+        for (let i = 0; i < totalCount; i++) {
+          if (nodesMap.size >= MAX_TOTAL_GRAPH_NODES) break
+          const v = currentObj[i]
+          const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
+          if (isComplex) {
+            // 检查当前对象是否包含深层嵌套子结构（如有嵌套数组或对象）
+            const hasDeepChild = typeof v === 'object' && Object.values(v).some(childVal => childVal !== null && typeof childVal === 'object' && (Array.isArray(childVal) ? childVal.length > 0 : Object.keys(childVal).length > 0))
+            const isSelectedBranch = (i === selectedChildIdx)
+
+            if (totalCount > 30 && simpleBranchCount >= MAX_SIMPLE_ARRAY_BRANCHES && !hasDeepChild && !isSelectedBranch) {
+              continue
+            }
+            if (!hasDeepChild && !isSelectedBranch) simpleBranchCount++
+
+            const childPath = [...path, i]
+            const childNodeId = JSON.stringify(childPath)
+            if (!node.childrenIds.includes(childNodeId)) node.childrenIds.push(childNodeId)
+            buildTreeNodes(v, childPath, String(i), nodeId, i, depth + 1)
+          }
+        }
+      }
     }
 
     return node
@@ -394,10 +628,12 @@ const layout = computed(() => {
           let parentRowY
           if (parentNode.isTable && typeof node.parentRowIdx === 'object' && node.parentRowIdx.isTable) {
             const rIdx = node.parentRowIdx.rowIdx ?? 0
-            parentRowY = parentNode.y + TABLE_TITLE_H + TABLE_THEAD_H + rIdx * TABLE_ROW_H + TABLE_ROW_H / 2
+            const rawY = parentNode.y + TABLE_TITLE_H + TABLE_THEAD_H + rIdx * TABLE_ROW_H + TABLE_ROW_H / 2
+            parentRowY = Math.max(parentNode.y + 14, Math.min(parentNode.y + parentNode.height - 14, rawY))
           } else if (typeof node.parentRowIdx === 'number') {
             const parentExtraBarH = parentNode.canToggleTable && !parentNode.isTable ? SWITCH_BAR_H : 0
-            parentRowY = parentNode.y + parentExtraBarH + CARD_PAD + node.parentRowIdx * CARD_ROW_H + CARD_ROW_H / 2
+            const rawY = parentNode.y + parentExtraBarH + CARD_PAD + node.parentRowIdx * CARD_ROW_H + CARD_ROW_H / 2
+            parentRowY = Math.max(parentNode.y + 14, Math.min(parentNode.y + parentNode.height - 14, rawY))
           } else {
             parentRowY = parentNode.y + parentNode.height / 2
           }
@@ -450,12 +686,15 @@ const curves = computed(() => {
       if (parentNode) {
         let x1 = parentNode.x + parentNode.width
         let y1
+        const pScrollTop = getNodeScrollTop(parentNode.id)
         if (parentNode.isTable && typeof node.parentRowIdx === 'object' && node.parentRowIdx.isTable) {
           const rIdx = node.parentRowIdx.rowIdx ?? 0
-          y1 = parentNode.y + TABLE_TITLE_H + TABLE_THEAD_H + rIdx * TABLE_ROW_H + TABLE_ROW_H / 2
+          const rawY = parentNode.y + TABLE_TITLE_H + TABLE_THEAD_H + (rIdx * TABLE_ROW_H - pScrollTop) + TABLE_ROW_H / 2
+          y1 = Math.max(parentNode.y + 14, Math.min(parentNode.y + parentNode.height - 14, rawY))
         } else if (typeof node.parentRowIdx === 'number') {
           const parentExtraBarH = parentNode.canToggleTable && !parentNode.isTable ? SWITCH_BAR_H : 0
-          y1 = parentNode.y + parentExtraBarH + CARD_PAD + node.parentRowIdx * CARD_ROW_H + CARD_ROW_H / 2
+          const rawY = parentNode.y + parentExtraBarH + CARD_PAD + (node.parentRowIdx * CARD_ROW_H - pScrollTop) + CARD_ROW_H / 2
+          y1 = Math.max(parentNode.y + 14, Math.min(parentNode.y + parentNode.height - 14, rawY))
         } else {
           y1 = parentNode.y + parentNode.height / 2
         }
@@ -515,6 +754,8 @@ const originY = ref(0)
 
 const startPan = (e) => {
   if (e.button !== 0) return
+  // 如果点击的目标是在卡片节点内部（如滚动条、按钮、单元格），不触发外部画布的拖拽平移
+  if (e.target && e.target.closest('.graph-node')) return
   isPanning.value = true
   panStartX.value = e.clientX
   panStartY.value = e.clientY
@@ -571,10 +812,21 @@ onMounted(fitToScreen)
 watch(() => props.parsedObj, fitToScreen)
 
 // ─── SelectedPath Anchor & Centering ──────────────────────────────────────────
-const selectedPath = inject('selectedPath', ref(null))
+const injectedSelectedPath = inject('selectedPath', ref(null))
+const effectiveSelectedPath = computed(() => props.selectedPath || injectedSelectedPath.value)
+
+const anchorFlashPaths = ref(new Set())
+let anchorTimer = null
+
+const isAnchorTarget = (path) => {
+  if (anchorFlashPaths.value.size === 0 || !path) return false
+  const pStr = path.map(String).join('/')
+  return anchorFlashPaths.value.has(pStr)
+}
+
 let panAnimId = null
 
-const animatePanTo = (destTx, destTy, duration = 280) => {
+const animatePanTo = (destTx, destTy, duration = 300) => {
   if (panAnimId) cancelAnimationFrame(panAnimId)
   const startTx = tx.value
   const startTy = ty.value
@@ -595,7 +847,7 @@ const animatePanTo = (destTx, destTy, duration = 280) => {
   panAnimId = requestAnimationFrame(step)
 }
 
-const centerOnPath = (path) => {
+const centerOnPath = (path, shouldPan = true) => {
   if (!path || !layout.value || !containerRef.value) return
   const { nodes } = layout.value
 
@@ -604,7 +856,7 @@ const centerOnPath = (path) => {
 
   for (const node of nodes) {
     const np = node.path
-    if (np.length <= path.length && np.every((v, i) => v === path[i])) {
+    if (np.length <= path.length && np.every((v, i) => String(v) === String(path[i]))) {
       if (np.length > maxMatchLen) {
         maxMatchLen = np.length
         matchedNode = node
@@ -614,59 +866,195 @@ const centerOnPath = (path) => {
 
   if (!matchedNode) return
 
-  let targetX = matchedNode.x + matchedNode.width / 2
-  let targetY = matchedNode.y + matchedNode.height / 2
+  // 决定外部画布平移聚焦的目标卡片 (focusNode)：
+  // 规则：
+  // 1. 若选中的是该子节点实体本身（如在左侧 JSON 点击了 {} 或 [] 两边，path.length === matchedNode.path.length），且存在父节点：
+  //    外部画布平移聚焦到其父节点，并在父节点内部滚动定位到产生行！
+  // 2. 只有点击的是该子节点内部的具体属性（path.length > matchedNode.path.length）：
+  //    外部画布才平移聚焦到该子节点卡片！
+  let focusNode = matchedNode
+  if (matchedNode.parentId !== null && path.length === matchedNode.path.length) {
+    const parentNode = nodes.find(n => n.id === matchedNode.parentId)
+    if (parentNode) {
+      focusNode = parentNode
+    }
+  }
 
-  if (matchedNode.isTable) {
-    if (path.length >= matchedNode.path.length + 1) {
-      const rowIdx = Number(path[matchedNode.path.length])
-      if (!isNaN(rowIdx) && rowIdx >= 0 && rowIdx < matchedNode.tableRows.length) {
-        targetY = matchedNode.y + TABLE_TITLE_H + TABLE_THEAD_H + rowIdx * TABLE_ROW_H + TABLE_ROW_H / 2
+  // 记录需要高亮闪烁的所有路径（包括当前目标及祖先节点对应产生行）
+  const flashSet = new Set()
+  flashSet.add(path.map(String).join('/'))
+
+  // 计算目标行索引 (无论是第 0 行还是第 4936 行)
+  let targetRowIdx = -1
+  const childKey = path[matchedNode.path.length]
+
+  if (childKey !== undefined) {
+    if (matchedNode.isTable || matchedNode.isArray) {
+      const r = Number(childKey)
+      if (!isNaN(r) && r >= 0 && r < matchedNode.totalCount) {
+        targetRowIdx = r
+      }
+    } else {
+      const keyStr = String(childKey)
+      if (matchedNode.rawEntries) {
+        targetRowIdx = matchedNode.rawEntries.findIndex(([k]) => String(k) === keyStr)
+      } else if (matchedNode.entries) {
+        targetRowIdx = matchedNode.entries.findIndex(e => String(e.key) === keyStr)
       }
     }
-  } else if (path.length === matchedNode.path.length + 1) {
-    const rowKey = String(path[path.length - 1])
-    const rowIdx = matchedNode.entries.findIndex(e => String(e.key) === rowKey)
-    if (rowIdx !== -1) {
-      const extraBarH = matchedNode.canToggleTable && !matchedNode.isTable ? SWITCH_BAR_H : 0
-      targetY = matchedNode.y + extraBarH + CARD_PAD + rowIdx * CARD_ROW_H + CARD_ROW_H / 2
-    }
   }
 
-  const cw = containerRef.value.clientWidth
-  const ch = containerRef.value.clientHeight
-  const destTx = cw / 2 - targetX * scale.value
-  const destTy = ch * 0.35 - targetY * scale.value
+  // 1. 如果当前目标节点是虚拟滚动节点，内部滚动条自动锚点定位到目标行
+  if (targetRowIdx >= 0 && matchedNode.isVirtualScroll) {
+    const rowH = matchedNode.isTable ? TABLE_ROW_H : CARD_ROW_H
+    const maxScrollTop = Math.max(0, (matchedNode.totalCount - NODE_MAX_VISIBLE_ROWS) * rowH)
+    const targetScrollTop = Math.min(maxScrollTop, Math.max(0, Math.floor((targetRowIdx - 15) * rowH)))
 
-  animatePanTo(destTx, destTy, 280)
+    setNodeScrollTop(matchedNode.id, targetScrollTop)
+
+    nextTick(() => {
+      const scrollEl = findNodeScrollEl(matchedNode.id)
+      if (scrollEl) {
+        scrollEl.scrollTop = targetScrollTop
+        scrollEl.scrollTo({ top: targetScrollTop, behavior: 'smooth' })
+      }
+    })
+  }
+
+  // 2. 向上回溯所有父级虚拟滚动节点，同样自动滚动定位到对应的产生行并高亮
+  let curr = matchedNode
+  while (curr && curr.parentId !== null) {
+    const parentNode = nodes.find(n => n.id === curr.parentId)
+    if (!parentNode) break
+
+    let parentRow = -1
+    if (parentNode.isTable && typeof curr.parentRowIdx === 'object' && curr.parentRowIdx !== null && curr.parentRowIdx.isTable) {
+      parentRow = curr.parentRowIdx.rowIdx ?? -1
+    } else if (typeof curr.parentRowIdx === 'number') {
+      parentRow = curr.parentRowIdx
+    }
+
+    if (parentRow >= 0) {
+      // 标记父节点产生此子节点的行为高亮闪烁
+      flashSet.add([...parentNode.path, parentRow].map(String).join('/'))
+      if (curr.key) {
+        flashSet.add([...parentNode.path, parentRow, curr.key].map(String).join('/'))
+      }
+
+      // 如果父节点是虚拟滚动，驱动父节点内部滚动条自动滚动至该行
+      if (parentNode.isVirtualScroll) {
+        const pRowH = parentNode.isTable ? TABLE_ROW_H : CARD_ROW_H
+        const pMaxScrollTop = Math.max(0, (parentNode.totalCount - NODE_MAX_VISIBLE_ROWS) * pRowH)
+        const pTargetScrollTop = Math.min(pMaxScrollTop, Math.max(0, Math.floor((parentRow - 15) * pRowH)))
+
+        setNodeScrollTop(parentNode.id, pTargetScrollTop)
+
+        nextTick(() => {
+          const pScrollEl = findNodeScrollEl(parentNode.id)
+          if (pScrollEl) {
+            pScrollEl.scrollTop = pTargetScrollTop
+            pScrollEl.scrollTo({ top: pTargetScrollTop, behavior: 'smooth' })
+          }
+        })
+      }
+    }
+
+    curr = parentNode
+  }
+
+  // 触发所有相关位置的呼吸高亮动画
+  anchorFlashPaths.value = flashSet
+  if (anchorTimer) clearTimeout(anchorTimer)
+  anchorTimer = setTimeout(() => {
+    anchorFlashPaths.value.clear()
+  }, 2200)
+
+  // 3. 外部画布平移：将目标卡片聚焦在屏幕主视野
+  if (shouldPan) {
+    const cw = containerRef.value.clientWidth || 800
+    const ch = containerRef.value.clientHeight || 600
+    const s = scale.value
+
+    // X 轴定位：
+    // 若卡片渲染宽度超出或接近视口，左对齐并保留安全边距，避免左侧分栏遮挡；否则水平居中
+    let destTx = cw / 2 - (focusNode.x + focusNode.width / 2) * s
+    if (focusNode.width * s > cw - 80) {
+      destTx = 32 - focusNode.x * s
+    } else {
+      destTx = Math.max(28 - focusNode.x * s, destTx)
+    }
+
+    // Y 轴定位：
+    // 关键修复：卡片高度通常很大（50 行表格约 1150px），如果简单以几何中心对齐屏幕中央，
+    // 卡片顶部（表头、前几行）会被直接顶出屏幕上方天花板！
+    let destTy
+    const cardRenderedH = focusNode.height * s
+    if (cardRenderedH > ch * 0.55) {
+      // 大卡片（高度超过屏幕 55%）：
+      if (targetRowIdx >= 0 && targetRowIdx < 15) {
+        // 1. 目标行在卡片最顶部（如第 0 ~ 14 行）：卡片顶部对齐屏幕上方舒适区域，绝不冲出天花板
+        destTy = Math.max(36, Math.round(ch * 0.1)) - focusNode.y * s
+      } else if (targetRowIdx >= 0 && matchedNode.totalCount && targetRowIdx > matchedNode.totalCount - 30) {
+        // 2. 目标行在卡片最底部（如倒数后 30 行，第 9970 ~ 10000 行）：
+        // 卡片底部对齐屏幕下方舒适区域，保证最后几行 100% 完整落在视野中，绝不掉出屏幕下方
+        const paddingBottom = Math.max(36, Math.round(ch * 0.08))
+        destTy = (ch - paddingBottom) - (focusNode.y + focusNode.height) * s
+      } else {
+        // 3. 目标行在中间：卡片顶部留出安全边距，此时内部虚拟滚动已将目标行定位在卡片可视区中段，正好落在黄金视线中心
+        destTy = Math.max(28, Math.round(ch * 0.08)) - focusNode.y * s
+      }
+    } else {
+      // 普通小卡片：以卡片中心居中偏上（0.38）对齐，同时保证顶部不冲出屏幕
+      destTy = ch * 0.38 - (focusNode.y + focusNode.height / 2) * s
+      destTy = Math.max(28 - focusNode.y * s, destTy)
+    }
+
+    animatePanTo(destTx, destTy, 300)
+  }
 }
 
-watch(selectedPath, (newPath) => {
+watch(effectiveSelectedPath, (newPath) => {
+  const fromInternal = isInternalGraphClick
+  isInternalGraphClick = false
   if (newPath && newPath.length > 0) {
-    centerOnPath(newPath)
+    centerOnPath(newPath, !fromInternal)
   }
-})
+}, { immediate: true })
 
 // ─── Selected & Hover synchronization helpers ─────────────────────────────────
 const selectedType = inject('selectedType', ref('all'))
 
+const isRowSelected = (path) => {
+  const cur = effectiveSelectedPath.value
+  if (!cur || !path || path.length === 0 || path.length > cur.length) return false
+  const match = path.every((v, i) => String(v) === String(cur[i]))
+  if (!match) return false
+
+  // 1. 如果是父级产生行（path.length < cur.length）：无论子节点选的是内部属性还是整个卡片，父产生行必定被整行选中
+  if (path.length < cur.length) return true
+
+  // 2. 如果是当前目标行（path.length === cur.length）：
+  // 当 selectedType 为 'all' 或者整行点击时，选中整行；如果是细分的 'key'/'value'，由单元格各自高亮避免边框嵌套
+  return selectedType.value === 'all'
+}
+
 const isKeySelected = (path) => {
   if (selectedType.value === 'value') return false
-  const cur = selectedPath.value
+  const cur = effectiveSelectedPath.value
   if (!cur || !path || path.length !== cur.length) return false
   return path.every((v, i) => String(v) === String(cur[i]))
 }
 
 const isValSelected = (path) => {
   if (selectedType.value === 'key') return false
-  const cur = selectedPath.value
+  const cur = effectiveSelectedPath.value
   if (!cur || !path || path.length !== cur.length) return false
   return path.every((v, i) => String(v) === String(cur[i]))
 }
 
 const isColSelected = (col, parentPath = []) => {
   if (selectedType.value === 'value') return false
-  const cur = selectedPath.value
+  const cur = effectiveSelectedPath.value
   if (!cur || cur.length < 2) return false
   if (cur.length !== parentPath.length + 2) return false
   for (let i = 0; i < parentPath.length; i++) {
@@ -696,13 +1084,13 @@ const isPathHovered = (path) => {
 }
 
 const isCardHovered = (node) => {
-  const current = props.hoveredPath || selectedPath.value
+  const current = props.hoveredPath || effectiveSelectedPath.value
   if (!current || node.path.length > current.length) return false
   return node.path.every((v, i) => String(v) === String(current[i]))
 }
 
 const isCardSelected = (node) => {
-  const current = props.hoveredPath || selectedPath.value
+  const current = props.hoveredPath || effectiveSelectedPath.value
   if (!current) return false
   if (current.length === 0 && node.path.length === 0) return true
   
@@ -730,7 +1118,7 @@ const getParentPath = (node) => {
 }
 
 const isCurveHovered = (curve) => {
-  const current = props.hoveredPath || selectedPath.value
+  const current = props.hoveredPath || effectiveSelectedPath.value
   if (!current || current.length === 0) return false
   try {
     const nodePath = JSON.parse(curve.id)
@@ -753,8 +1141,8 @@ const graphViewStyle = computed(() => {
   }
 })
 
-// ─── Minimap (右下角交互式小地图) ─────────────────────────────────────────────
-const showMinimap = ref(false)
+// ─── Minimap (右下角交互式小地图，默认开启并支持全分辨率高精缩放) ─────────────
+const showMinimap = ref(true)
 const minimapSvgRef = ref(null)
 const isMinimapDragging = ref(false)
 
@@ -778,14 +1166,27 @@ const viewportBox = computed(() => {
 const handleMinimapPointer = (e) => {
   if (!minimapSvgRef.value || !layout.value || !containerRef.value) return
   const rect = minimapSvgRef.value.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return
+
   const pointerEvent = e.touches && e.touches[0] ? e.touches[0] : e
   const clickX = Math.max(0, Math.min(rect.width, pointerEvent.clientX - rect.left))
   const clickY = Math.max(0, Math.min(rect.height, pointerEvent.clientY - rect.top))
   
-  const scaleX = layout.value.wsW / rect.width
-  const scaleY = layout.value.wsH / rect.height
-  const targetWsX = clickX * scaleX
-  const targetWsY = clickY * scaleY
+  const wsW = layout.value.wsW || 800
+  const wsH = layout.value.wsH || 600
+
+  // 严格适配 SVG preserveAspectRatio="xMidYMid meet" 的 letterbox 留白与真实缩放比
+  const scaleRatio = Math.min(rect.width / wsW, rect.height / wsH)
+  if (scaleRatio <= 0) return
+
+  const renderedW = wsW * scaleRatio
+  const renderedH = wsH * scaleRatio
+  const offsetX = (rect.width - renderedW) / 2
+  const offsetY = (rect.height - renderedH) / 2
+
+  // 将点击坐标精确反算为全图虚拟坐标 (wsX, wsY)
+  const targetWsX = Math.max(0, Math.min(wsW, (clickX - offsetX) / scaleRatio))
+  const targetWsY = Math.max(0, Math.min(wsH, (clickY - offsetY) / scaleRatio))
   
   const cw = containerRef.value.clientWidth || 800
   const ch = containerRef.value.clientHeight || 600
@@ -906,22 +1307,31 @@ const startMinimapDrag = (e) => {
           <div class="table-card-topbar">
             <div class="table-title-group" @click.stop="emitClick(node.path)">
               <span v-if="node.key" class="table-node-key">{{ node.key }}</span>
-              <span class="table-badge">{{ node.tableRows.length }} 项</span>
+              <span class="table-badge">{{ node.totalCount }} 项</span>
             </div>
-            <button
-              class="table-mode-toggle-btn"
-              @click.stop="toggleNodeTableMode(node.path)"
-              data-tooltip="切换为树形发散模式"
-            >
-              <GitFork class="table-btn-icon" />
-              <span>展开树形</span>
-            </button>
+            <div class="table-topbar-actions">
+              <button
+                class="table-mode-toggle-btn"
+                @click.stop="toggleNodeTableMode(node.path)"
+                data-tooltip="切换为树形发散模式"
+              >
+                <GitFork class="table-btn-icon" />
+                <span>展开树形</span>
+              </button>
+            </div>
           </div>
 
           <!-- 2D Data Table Grid -->
-          <div class="table-card-body">
+          <div
+            :key="'table-scroll-' + node.id"
+            class="table-card-body"
+            :class="{ 'is-virtual-scroll': node.isVirtualScroll }"
+            :data-node-id="node.id"
+            @scroll.passive="handleNodeScroll(node.id, $event)"
+            @wheel.stop
+          >
             <table class="graph-inner-table">
-              <thead>
+              <thead class="table-sticky-thead">
                 <tr>
                   <th class="tbl-th tbl-th--index" :style="{ width: node.indexColW + 'px', minWidth: node.indexColW + 'px', maxWidth: node.indexColW + 'px' }">#</th>
                   <th
@@ -956,11 +1366,20 @@ const startMinimapDrag = (e) => {
                 </tr>
               </thead>
               <tbody>
+                <!-- 顶部虚拟垫高 -->
+                <tr v-if="node.isVirtualScroll && getTableVisibleRows(node).topSpacer > 0" :style="{ height: getTableVisibleRows(node).topSpacer + 'px' }" class="virtual-spacer-row">
+                  <td :colspan="node.columns.length + 1" style="padding: 0; border: none; height: inherit;"></td>
+                </tr>
+
                 <tr
-                  v-for="row in node.tableRows"
+                  v-for="row in getTableVisibleRows(node).rows"
                   :key="row.rowIdx"
                   class="tbl-tr"
-                  :class="{ 'is-hovered': isPathHovered(row.path) }"
+                  :class="{
+                    'is-selected': isRowSelected(row.path),
+                    'is-hovered': isPathHovered(row.path),
+                    'is-anchor-target': isAnchorTarget(row.path)
+                  }"
                   :style="{ height: TABLE_ROW_H + 'px' }"
                 >
                   <!-- Row Index -->
@@ -990,6 +1409,7 @@ const startMinimapDrag = (e) => {
                     :class="{
                       'is-selected': isValSelected(cell.path),
                       'is-hovered': isPathHovered(cell.path),
+                      'is-anchor-target': isAnchorTarget(cell.path),
                       'tbl-td--complex': cell.isComplex
                     }"
                     :style="{ width: node.colWidths[cell.col] + 'px', minWidth: node.colWidths[cell.col] + 'px', maxWidth: node.colWidths[cell.col] + 'px' }"
@@ -1040,6 +1460,11 @@ const startMinimapDrag = (e) => {
                     </div>
                   </td>
                 </tr>
+
+                <!-- 底部虚拟垫高 -->
+                <tr v-if="node.isVirtualScroll && getTableVisibleRows(node).bottomSpacer > 0" :style="{ height: getTableVisibleRows(node).bottomSpacer + 'px' }" class="virtual-spacer-row">
+                  <td :colspan="node.columns.length + 1" style="padding: 0; border: none; height: inherit;"></td>
+                </tr>
               </tbody>
             </table>
           </div>
@@ -1047,95 +1472,124 @@ const startMinimapDrag = (e) => {
 
         <!-- ════════════ 2. 常规卡片节点 (Standard Card Node) ════════════ -->
         <template v-else>
-          <!-- Optional array mode switch header for tree arrays of objects -->
-          <div v-if="node.canToggleTable" class="card-array-switch-bar">
-            <span class="card-switch-label">{{ node.isArray ? `[${node.entries.length} 项]` : '' }}</span>
-            <button
-              class="table-mode-toggle-btn card-mini-btn"
-              @click.stop="toggleNodeTableMode(node.path)"
-              data-tooltip="切换为紧凑表格模式"
-            >
-              <Table class="table-btn-icon" />
-              <span>表格化</span>
-            </button>
-          </div>
+          <div class="graph-card-inner">
+            <!-- Optional array mode switch header for tree arrays of objects -->
+            <div v-if="node.canToggleTable" class="card-array-switch-bar">
+              <div class="card-switch-left">
+                <span class="card-switch-label">{{ node.isArray ? `[${node.totalCount} 项]` : `{${node.totalCount} 属性}` }}</span>
+              </div>
+              <div class="card-topbar-actions">
+                <button
+                  class="table-mode-toggle-btn card-mini-btn"
+                  @click.stop="toggleNodeTableMode(node.path)"
+                  data-tooltip="切换为紧凑表格模式"
+                >
+                  <Table class="table-btn-icon" />
+                  <span>表格化</span>
+                </button>
+              </div>
+            </div>
 
-          <div v-if="node.entries.length === 0" class="card-row card-row--empty" :style="{ height: CARD_ROW_H + 'px', padding: '0 8px', display: 'flex', alignItems: 'center' }">
-            <span class="card-key node-key root-key--complex">{{ node.isArray ? '[] (空数组)' : '{} (空对象)' }}</span>
-          </div>
-          <div
-            v-else
-            v-for="entry in node.entries"
-            :key="entry.key"
-            class="card-row"
-            :class="{ 'is-hovered': isPathHovered(getEntryPath(node, entry)), 'card-row--array': node.isArray }"
-            :style="{ height: CARD_ROW_H + 'px' }"
-            @mouseenter="emitHover(getEntryPath(node, entry))"
-            @mouseleave="emitHover(null)"
-            @click.stop="emitClick(getEntryPath(node, entry))"
-          >
-            <span
-              class="card-key node-key"
-              :class="{
-                'is-selected': isKeySelected(getEntryPath(node, entry)),
-                'is-hovered': isPathHovered(getEntryPath(node, entry)),
-                'card-key--index': node.isArray,
-                'root-key--complex': entry.isComplex
-              }"
-              :style="node.isArray ? {} : { width: node.keyW + 'px', minWidth: node.keyW + 'px', maxWidth: node.keyW + 'px' }"
-              @click.stop="emitClick(getEntryPath(node, entry), 'key')"
+            <div
+              :key="'card-scroll-' + node.id"
+              class="card-entries-viewport"
+              :class="{ 'is-virtual-scroll': node.isVirtualScroll }"
+              :data-node-id="node.id"
+              @scroll.passive="handleNodeScroll(node.id, $event)"
+              @wheel.stop
             >
-              <span
-                class="card-key-text"
-                data-tooltip="点击复制键名"
-                @click.stop="handleCopyKey(entry.key); emitClick(getEntryPath(node, entry), 'key')"
-                v-html="highlightText(entry.key, searchQuery)"
-              ></span>
-            </span>
-            <span
-              class="card-val"
-              :class="{
-                'is-selected': isValSelected(getEntryPath(node, entry)),
-                'is-hovered': isPathHovered(getEntryPath(node, entry))
-              }"
-              @click.stop="emitClick(getEntryPath(node, entry), 'value')"
-            >
-              <span
-                v-if="isColor(entry.value)"
-                class="graph-color-badge"
-                :title="`颜色值: ${entry.value}`"
-              >
-                <span class="graph-color-chip-inner" :style="{ backgroundColor: entry.value }"></span>
-              </span>
-              <span
-                v-else-if="isImg(entry.value)"
-                class="graph-img-badge"
-                @mouseenter="(e) => onValMouseEnter(entry.value, e)"
-                @mouseleave="() => onValMouseLeave(entry.value)"
-                data-tooltip="图片链接 (悬停预览)"
-              ><ImageIcon class="img-badge-icon" /></span>
-              <button
-                v-else-if="isHttpLink(entry.value)"
-                class="graph-url-jump-btn"
-                @click.stop="handleOpenUrl(entry.value)"
-                data-tooltip="在浏览器中直接打开链接"
-              >
-                <ExternalLink class="url-jump-icon" />
-              </button>
-              <span
-                class="val-text"
-                :class="[
-                  getValueColorClass(entry.valueType),
-                  `cval-${entry.valueType}`,
-                  entry.valueType === 'boolean' ? (entry.value ? 'cval-boolean-true' : 'cval-boolean-false') : '',
-                  { 'is-image-url': isImg(entry.value), 'is-web-url': isHttpLink(entry.value) }
-                ]"
-                @mouseenter="(e) => onValMouseEnter(entry.value, e)"
-                @mouseleave="() => onValMouseLeave(entry.value)"
-                :data-tooltip="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : (isColor(entry.value) ? `颜色: ${entry.value}，点击复制键值` : '点击复制键值'))"
-                v-html="highlightText(entry.preview, searchQuery)"
-              ></span>
-            </span>
+              <div v-if="node.entries.length === 0 && !node.isVirtualScroll" class="card-row card-row--empty" :style="{ height: CARD_ROW_H + 'px', padding: '0 8px', display: 'flex', alignItems: 'center' }">
+                <span class="card-key node-key root-key--complex">{{ node.isArray ? '[] (空数组)' : '{} (空对象)' }}</span>
+              </div>
+              <template v-else>
+                <!-- 顶部虚拟垫高 -->
+                <div v-if="node.isVirtualScroll && getCardVisibleEntries(node).topSpacer > 0" :style="{ height: getCardVisibleEntries(node).topSpacer + 'px' }"></div>
+
+                <div
+                  v-for="entry in getCardVisibleEntries(node).entries"
+                  :key="entry.key"
+                  class="card-row"
+                  :class="{
+                    'is-selected': isRowSelected(getEntryPath(node, entry)),
+                    'is-hovered': isPathHovered(getEntryPath(node, entry)),
+                    'card-row--array': node.isArray,
+                    'is-anchor-target': isAnchorTarget(getEntryPath(node, entry))
+                  }"
+                  :style="{ height: CARD_ROW_H + 'px' }"
+                  @mouseenter="emitHover(getEntryPath(node, entry))"
+                  @mouseleave="emitHover(null)"
+                  @click.stop="emitClick(getEntryPath(node, entry))"
+                >
+                  <span
+                    class="card-key node-key"
+                    :class="{
+                      'is-selected': isKeySelected(getEntryPath(node, entry)),
+                      'is-hovered': isPathHovered(getEntryPath(node, entry)),
+                      'card-key--index': node.isArray,
+                      'root-key--complex': entry.isComplex
+                    }"
+                    :style="node.isArray ? {} : { width: node.keyW + 'px', minWidth: node.keyW + 'px', maxWidth: node.keyW + 'px' }"
+                    @click.stop="emitClick(getEntryPath(node, entry), 'key')"
+                  >
+                    <span
+                      class="card-key-text"
+                      data-tooltip="点击复制键名"
+                      @click.stop="handleCopyKey(entry.key); emitClick(getEntryPath(node, entry), 'key')"
+                      v-html="highlightText(entry.key, searchQuery)"
+                    ></span>
+                  </span>
+                  <span
+                    class="card-val"
+                    :class="{
+                      'is-selected': isValSelected(getEntryPath(node, entry)),
+                      'is-hovered': isPathHovered(getEntryPath(node, entry))
+                    }"
+                    @click.stop="emitClick(getEntryPath(node, entry), 'value')"
+                  >
+                    <span
+                      v-if="isColor(entry.value)"
+                      class="graph-color-badge"
+                      :title="`颜色值: ${entry.value}`"
+                    >
+                      <span class="graph-color-chip-inner" :style="{ backgroundColor: entry.value }"></span>
+                    </span>
+                    <span
+                      v-else-if="isImg(entry.value)"
+                      class="graph-img-badge"
+                      @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+                      @mouseleave="() => onValMouseLeave(entry.value)"
+                      data-tooltip="图片链接 (悬停预览)"
+                    ><ImageIcon class="img-badge-icon" /></span>
+                    <button
+                      v-else-if="isHttpLink(entry.value)"
+                      class="graph-url-jump-btn"
+                      @click.stop="handleOpenUrl(entry.value)"
+                      data-tooltip="在浏览器中直接打开链接"
+                    >
+                      <ExternalLink class="url-jump-icon" />
+                    </button>
+                    <span
+                      class="val-text"
+                      :class="[
+                        getValueColorClass(entry.valueType),
+                        `cval-${entry.valueType}`,
+                        entry.valueType === 'boolean' ? (entry.value ? 'cval-boolean-true' : 'cval-boolean-false') : '',
+                        { 'is-image-url': isImg(entry.value), 'is-web-url': isHttpLink(entry.value) }
+                      ]"
+                      @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+                      @mouseleave="() => onValMouseLeave(entry.value)"
+                      @click.stop="handleCopyValue(entry.value); emitClick(getEntryPath(node, entry), 'value')"
+                      :data-tooltip="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : (isColor(entry.value) ? `颜色: ${entry.value}，点击复制键值` : '点击复制键值'))"
+                      v-html="highlightText(entry.preview, searchQuery)"
+                    ></span>
+                  </span>
+                </div>
+
+                <!-- 底部虚拟垫高 -->
+                <div v-if="node.isVirtualScroll && getCardVisibleEntries(node).bottomSpacer > 0" :style="{ height: getCardVisibleEntries(node).bottomSpacer + 'px' }"></div>
+              </template>
+
+            </div>
           </div>
         </template>
       </div>
@@ -1147,7 +1601,7 @@ const startMinimapDrag = (e) => {
       <button class="ctrl-btn" @click.stop="zoomOut"    data-tooltip-right="缩小">－</button>
       <button class="ctrl-btn" @click.stop="fitToScreen" data-tooltip-right="适应屏幕">⊡</button>
       <button class="ctrl-btn" @click.stop="toggleWheelMode" :data-tooltip-right="wheelMode === 'zoom' ? '当前模式: 滚轮缩放 (点击切换为滚动)' : '当前模式: 滚轮滚动 (点击切换为缩放)'">
-        {{ wheelMode === 'zoom' ? '🔍' : '↕' }}
+        {{ wheelMode === 'zoom' ? 'Z' : '↕' }}
       </button>
       <button
         class="ctrl-btn"
@@ -1237,6 +1691,45 @@ const startMinimapDrag = (e) => {
 </template>
 
 <style scoped>
+.tbl-tr--truncate {
+  background: var(--bg-item-hover, rgba(0, 0, 0, 0.03));
+}
+.tbl-td--truncate {
+  text-align: center;
+  padding: 0 8px !important;
+  border-top: 1px dashed var(--border-color, rgba(0, 0, 0, 0.12));
+}
+.tbl-expand-more-btn,
+.card-expand-more-btn {
+  width: 100%;
+  height: 100%;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 8px;
+  transition: opacity 0.2s;
+  letter-spacing: 0.01em;
+}
+.tbl-expand-more-btn:hover,
+.card-expand-more-btn:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+.card-row--truncate {
+  padding: 0 8px;
+  background: var(--bg-item-hover, rgba(0, 0, 0, 0.03));
+  border-top: 1px dashed var(--border-color, rgba(0, 0, 0, 0.12));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 /* ── Container ── */
 .graph-view {
   flex: 1;
@@ -1244,8 +1737,7 @@ const startMinimapDrag = (e) => {
   overflow: hidden;
   cursor: grab;
   user-select: none;
-  background-color: var(--bg-app, rgb(252, 252, 252));
-  background-image: radial-gradient(var(--graph-dot-color, rgba(119, 119, 119, 0.22)) 0.75px, transparent 0.55px);
+  background-image: radial-gradient(var(--graph-dot-color, rgba(119, 119, 119, 0.22)) 0.75px, transparent 0.75px);
   background-size: 20px 20px;
   transition: background-color 0.2s ease;
 }
@@ -1452,6 +1944,161 @@ const startMinimapDrag = (e) => {
   box-sizing: border-box;
 }
 
+.table-sticky-thead {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-panel, #ffffff);
+}
+:global(.dark-mode) .table-sticky-thead {
+  background: #232328;
+}
+
+.graph-card-inner {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.card-entries-viewport {
+  flex: 1;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.table-card-body.is-virtual-scroll {
+  overflow-y: auto;
+  overflow-x: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
+}
+
+.card-entries-viewport.is-virtual-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
+}
+
+/* ── 拓扑图节点内虚拟滚动条优化 ── */
+/* 彻底隐藏原生 Windows 滚动条两端的粗笨箭头按钮 (◀ ▶) */
+.table-card-body.is-virtual-scroll::-webkit-scrollbar-button,
+.card-entries-viewport.is-virtual-scroll::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 垂直滚动条保持舒适好拉的 8px，最下方的左右水平滚动条极致收敛为精致轻巧的 5px */
+.table-card-body.is-virtual-scroll::-webkit-scrollbar,
+.card-entries-viewport.is-virtual-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 5px;
+}
+
+.table-card-body.is-virtual-scroll::-webkit-scrollbar-track,
+.card-entries-viewport.is-virtual-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.table-card-body.is-virtual-scroll:hover::-webkit-scrollbar-track,
+.card-entries-viewport.is-virtual-scroll:hover::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.table-card-body.is-virtual-scroll::-webkit-scrollbar-thumb,
+.card-entries-viewport.is-virtual-scroll::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 4px;
+  min-height: 24px;
+  transition: background-color 0.15s ease;
+}
+
+.table-card-body.is-virtual-scroll::-webkit-scrollbar-thumb:hover,
+.card-entries-viewport.is-virtual-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: var(--accent-color, var(--json-key, #6366f1));
+}
+
+.table-card-body.is-virtual-scroll::-webkit-scrollbar-thumb:active,
+.card-entries-viewport.is-virtual-scroll::-webkit-scrollbar-thumb:active {
+  background-color: var(--json-key, #4f46e5);
+}
+
+/* 暗色模式适配 */
+:global(.dark-mode) .table-card-body.is-virtual-scroll,
+:global(.dark-mode) .card-entries-viewport.is-virtual-scroll {
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+
+:global(.dark-mode) .table-card-body.is-virtual-scroll:hover::-webkit-scrollbar-track,
+:global(.dark-mode) .card-entries-viewport.is-virtual-scroll:hover::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:global(.dark-mode) .table-card-body.is-virtual-scroll::-webkit-scrollbar-thumb,
+:global(.dark-mode) .card-entries-viewport.is-virtual-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+}
+
+:global(.dark-mode) .table-card-body.is-virtual-scroll::-webkit-scrollbar-thumb:hover,
+:global(.dark-mode) .card-entries-viewport.is-virtual-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #818cf8;
+}
+
+:global(.dark-mode) .table-card-body.is-virtual-scroll::-webkit-scrollbar-thumb:active,
+:global(.dark-mode) .card-entries-viewport.is-virtual-scroll::-webkit-scrollbar-thumb:active {
+  background-color: #6366f1;
+}
+
+.table-virtual-indicator {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-color, #6366f1);
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+}
+:global(.dark-mode) .table-virtual-indicator {
+  background: rgba(129, 140, 248, 0.2);
+  color: #a5b4fc;
+}
+
+.table-topbar-actions,
+.card-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.card-switch-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.tbl-tr--sticky-foot,
+.card-row--sticky-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
+  background: var(--bg-panel, #ffffff);
+}
+:global(.dark-mode) .tbl-tr--sticky-foot,
+:global(.dark-mode) .card-row--sticky-foot {
+  background: #232328;
+}
+
 .graph-inner-table {
   width: 100%;
   border-collapse: collapse;
@@ -1491,6 +2138,52 @@ const startMinimapDrag = (e) => {
 }
 
 /* ── Selected & Hover Highlight for Table Headers, Table Cells, and Card Keys/Values ── */
+.tbl-tr.is-selected,
+.card-row.is-selected {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.16)) !important;
+  /* box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important; */
+  border-radius: 4px;
+}
+.tbl-tr.is-selected td {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.16)) !important;
+  border-top: 1.5px solid var(--json-key, #6366f1) !important;
+  border-bottom: 1.5px solid var(--json-key, #6366f1) !important;
+}
+.tbl-tr.is-selected td:first-child {
+  border-left: 1.5px solid var(--json-key, #6366f1) !important;
+}
+.tbl-tr.is-selected td:last-child {
+  border-right: 1.5px solid var(--json-key, #6366f1) !important;
+}
+
+:global(.dark-mode) .tbl-tr.is-selected,
+:global(.dark-mode) .card-row.is-selected {
+  background-color: rgba(97, 175, 239, 0.22) !important;
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
+  border-radius: 4px;
+}
+:global(.dark-mode) .tbl-tr.is-selected td {
+  background-color: rgba(97, 175, 239, 0.22) !important;
+  border-top-color: #61afef !important;
+  border-bottom-color: #61afef !important;
+}
+:global(.dark-mode) .tbl-tr.is-selected td:first-child {
+  border-left-color: #61afef !important;
+}
+:global(.dark-mode) .tbl-tr.is-selected td:last-child {
+  border-right-color: #61afef !important;
+}
+
+.tbl-tr.is-selected .tbl-td--index,
+.card-row.is-selected .card-key {
+  color: var(--json-key, #4f46e5) !important;
+  font-weight: 700 !important;
+}
+:global(.dark-mode) .tbl-tr.is-selected .tbl-td--index,
+:global(.dark-mode) .card-row.is-selected .card-key {
+  color: #61afef !important;
+}
+
 .tbl-th.is-selected,
 .tbl-td--index.is-selected,
 .card-key.is-selected {
@@ -1510,14 +2203,16 @@ const startMinimapDrag = (e) => {
 
 .tbl-td:not(.tbl-td--complex).is-selected,
 .card-val.is-selected {
+  padding: 2px 4px;
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
-  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+  box-shadow: inset 0 0 0 1px var(--json-key, #6366f1) !important;
 }
 
 :global(.dark-mode) .tbl-td:not(.tbl-td--complex).is-selected,
 :global(.dark-mode) .card-val.is-selected {
+  padding: 2px 4px;
   background-color: rgba(97, 175, 239, 0.32) !important;
-  box-shadow: inset 0 0 0 1.5px #61afef !important;
+  box-shadow: inset 0 0 0 1px #61afef !important;
 }
 
 .tbl-th.is-hovered,
@@ -1995,24 +2690,25 @@ const startMinimapDrag = (e) => {
 }
 
 .graph-minimap-card {
-  width: clamp(160px, 18vw, 240px);
-  height: clamp(110px, 14vh, 165px);
-  max-width: min(240px, calc(100vw - 32px), calc(100% - 24px));
-  max-height: min(165px, calc(50vh - 32px), calc(50% - 24px));
+  width: clamp(160px, 16vw, 220px);
+  height: clamp(110px, 13vh, 150px);
+  max-width: min(220px, calc(100vw - 32px), calc(100% - 24px));
+  max-height: min(150px, calc(50vh - 32px), calc(50% - 24px));
   background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  backdrop-filter: blur(8px);
 }
 
 :global(.dark-mode) .graph-minimap-card {
-  background: #1e1e24;
-  border-color: #3f4452;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  background: rgba(28, 28, 33, 0.95);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
 }
 
 .minimap-header {
@@ -2079,12 +2775,15 @@ const startMinimapDrag = (e) => {
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: #f8fafc;
+  background-color: #fafbfc;
+  background-image: radial-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 1px);
+  background-size: 8px 8px;
   cursor: crosshair;
   touch-action: none;
 }
 :global(.dark-mode) .minimap-body {
-  background: #18181b;
+  background-color: #141417;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
 }
 
 .minimap-svg {
@@ -2093,48 +2792,78 @@ const startMinimapDrag = (e) => {
   display: block;
 }
 
+/* 连线：轻淡柔和，不抢视觉 */
 .mm-edge {
   fill: none;
-  stroke: #cbd5e1;
-  stroke-width: 2px;
+  stroke: rgba(148, 163, 184, 0.45);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
 }
 :global(.dark-mode) .mm-edge {
-  stroke: #475569;
+  stroke: rgba(255, 255, 255, 0.18);
 }
 .mm-edge.is-active {
-  stroke: #0284c7;
-  stroke-width: 3.5px;
+  stroke: #3b82f6;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
 }
 :global(.dark-mode) .mm-edge.is-active {
-  stroke: #38bdf8;
+  stroke: #60a5fa;
 }
 
+/* 节点：精致半透明卡片剪影，带有轻盈圆角轮廓 */
 .mm-node {
-  fill: #e2e8f0;
-  stroke: #94a3b8;
+  fill: rgba(100, 116, 139, 0.12);
+  stroke: rgba(100, 116, 139, 0.28);
   stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
 }
 :global(.dark-mode) .mm-node {
-  fill: #334155;
-  stroke: #475569;
-}
-.mm-node.is-active {
-  fill: #0284c7;
-  stroke: #0284c7;
-}
-:global(.dark-mode) .mm-node.is-active {
-  fill: #38bdf8;
-  stroke: #38bdf8;
+  fill: rgba(255, 255, 255, 0.08);
+  stroke: rgba(255, 255, 255, 0.16);
 }
 
-.mm-viewport {
-  fill: rgba(2, 132, 199, 0.12);
-  stroke: #0284c7;
-  stroke-width: 3px;
-  cursor: move;
+/* 激活选中的节点：柔和高亮，绝不用实心黑红块 */
+.mm-node.is-active {
+  fill: rgba(59, 130, 246, 0.18);
+  stroke: #3b82f6;
+  stroke-width: 1.5px;
 }
+:global(.dark-mode) .mm-node.is-active {
+  fill: rgba(96, 165, 250, 0.22);
+  stroke: #60a5fa;
+  stroke-width: 1.5px;
+}
+
+/* 视口取景框 (Lens Viewfinder)：现代专业半透明蓝色浮层 */
+.mm-viewport {
+  fill: rgba(59, 130, 246, 0.08);
+  stroke: #3b82f6;
+  stroke-width: 1.5px;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+.mm-viewport:hover {
+  fill: rgba(59, 130, 246, 0.14);
+  stroke: #2563eb;
+}
+.mm-viewport:active {
+  cursor: grabbing;
+  fill: rgba(59, 130, 246, 0.22);
+  stroke: #1d4ed8;
+}
+
 :global(.dark-mode) .mm-viewport {
-  fill: rgba(56, 189, 248, 0.15);
+  fill: rgba(96, 165, 250, 0.1);
+  stroke: #60a5fa;
+}
+:global(.dark-mode) .mm-viewport:hover {
+  fill: rgba(96, 165, 250, 0.18);
+  stroke: #93c5fd;
+}
+:global(.dark-mode) .mm-viewport:active {
+  fill: rgba(96, 165, 250, 0.25);
   stroke: #38bdf8;
 }
 
@@ -2192,6 +2921,45 @@ const startMinimapDrag = (e) => {
   .graph-minimap-card {
     width: clamp(140px, 36vw, 190px);
     height: clamp(95px, 20vh, 130px);
+  }
+}
+
+/* ── 锚点精准定位呼吸闪烁动效 ── */
+@keyframes anchorRowPulse {
+  0% {
+    background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.45)) !important;
+    box-shadow: inset 0 0 0 2px var(--accent-color, #6366f1) !important;
+  }
+  40% {
+    background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.22)) !important;
+    box-shadow: inset 0 0 0 1.5px var(--accent-color, #6366f1) !important;
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.is-anchor-target {
+  animation: anchorRowPulse 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+
+:global(.dark-mode) .is-anchor-target {
+  animation: anchorRowPulseDark 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+
+@keyframes anchorRowPulseDark {
+  0% {
+    background-color: rgba(129, 140, 248, 0.45) !important;
+    box-shadow: inset 0 0 0 2px #818cf8 !important;
+  }
+  40% {
+    background-color: rgba(129, 140, 248, 0.22) !important;
+    box-shadow: inset 0 0 0 1.5px #818cf8 !important;
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: none;
   }
 }
 </style>

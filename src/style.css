@@ -833,8 +833,8 @@ body.vscode-mode .sr-action-btn:hover {
 /* 导航按钮：图标 + 小字标签 */
 .sidebar-nav-btn {
   flex-direction: column;
-  width: clamp(34px, 3.2vw, 35px) !important;
-  height: clamp(36px, 3.6vw, 38px) !important;
+  width: clamp(34px, 3.2vw, 42px) !important;
+  height: clamp(36px, 3.6vw, 45px) !important;
   gap: 4px;
 }
 
@@ -1203,7 +1203,7 @@ html.popup-mode .editor-line {
   line-height: var(--editor-line-height, 20px) !important;
 }
 
-.editor-wrap-mode .tree-wrapper .node-row.primitive > * {
+.editor-wrap-mode .tree-wrapper .node-row.primitive>* {
   display: inline !important;
   vertical-align: baseline !important;
 }

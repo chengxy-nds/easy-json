@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, inject } from 'vue'
+import { ref, computed, watch, inject, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ExternalLink, Copy, Image as ImageIcon } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
@@ -130,48 +130,6 @@ const userToggledPaths = ref(new Map())
 watch(treeExpanded, () => {
   userToggledPaths.value.clear()
 })
-
-watch(currentSelectedPath, (newPath) => {
-  if (!newPath || newPath.length === 0 || props.depth !== 0) return
-
-  // 自动展开目标节点的所有折叠祖先路径
-  for (let i = 1; i <= newPath.length; i++) {
-    const sub = newPath.slice(0, i)
-    const subStr = JSON.stringify(sub)
-    if (userToggledPaths.value.has(subStr) && !userToggledPaths.value.get(subStr)) {
-      userToggledPaths.value.set(subStr, true)
-    }
-  }
-
-  // 视口垂直与水平双向平滑居中锚点
-  setTimeout(() => {
-    const rootWrapper = document.querySelector('.table-view-wrapper:not(.nested-wrapper)') || document.querySelector('.table-view-wrapper')
-    if (!rootWrapper) return
-    const targetStr = JSON.stringify(newPath)
-    let targetEl = rootWrapper.querySelector(`[data-path='${targetStr}']`)
-    if (!targetEl) {
-      for (let i = newPath.length - 1; i >= 1; i--) {
-        const prefixStr = JSON.stringify(newPath.slice(0, i))
-        targetEl = rootWrapper.querySelector(`[data-path='${prefixStr}']`)
-        if (targetEl) break
-      }
-    }
-    if (targetEl) {
-      const pRect = rootWrapper.getBoundingClientRect()
-      const tRect = targetEl.getBoundingClientRect()
-      const diffY = (tRect.top + tRect.height / 2) - (pRect.top + pRect.height / 2)
-      let diffX = 0
-      if (targetEl.tagName === 'TD' || targetEl.tagName === 'TH' || targetEl.classList.contains('val-primitive-wrap')) {
-        diffX = (tRect.left + tRect.width / 2) - (pRect.left + pRect.width / 2)
-      }
-      rootWrapper.scrollBy({
-        top: diffY,
-        left: diffX,
-        behavior: 'smooth'
-      })
-    }
-  }, 50)
-}, { immediate: true, deep: true })
 
 const toggleExpandPath = (path) => {
   const pathStr = JSON.stringify(path)
@@ -366,6 +324,184 @@ const rootTableStyles = computed(() => {
     '--table-min-key-width': `${(110 * s).toFixed(1)}px`
   }
 })
+
+// ─── Virtual Scroll Engine (针对海量数据虚拟化，杜绝 80,000 行卡顿) ───────────
+const scrollContainerRef = ref(null)
+const scrollTop = ref(0)
+const viewportHeight = ref(700)
+const VIRTUAL_THRESHOLD = 60 // 超过 60 行自动开启虚拟滚动，少于 60 行走原本全量保证小数据零开销
+const VIRTUAL_BUFFER = 15    // 上下各缓冲 15 行，避免高速滚动出现白屏
+
+const onWrapperScroll = (e) => {
+  if (props.depth !== 0) return
+  scrollTop.value = e.target.scrollTop
+}
+
+const updateViewportHeight = () => {
+  if (props.depth === 0 && scrollContainerRef.value) {
+    viewportHeight.value = scrollContainerRef.value.clientHeight || 700
+  }
+}
+
+let tableResizeObserver = null
+onMounted(() => {
+  if (props.depth === 0 && scrollContainerRef.value) {
+    updateViewportHeight()
+    tableResizeObserver = new ResizeObserver(() => {
+      updateViewportHeight()
+    })
+    tableResizeObserver.observe(scrollContainerRef.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (tableResizeObserver) {
+    tableResizeObserver.disconnect()
+    tableResizeObserver = null
+  }
+})
+
+// 行高估算：随 tableScale 动态缩放，默认比例约为 30px
+const estimatedRowHeight = computed(() => {
+  const s = tableScale.value || 0.9
+  return Math.max(20, Math.round(30 * s))
+})
+
+// 场景 1 虚拟切片（isRootDirectArrayOfObjects）
+const directTotalRows = computed(() => {
+  return Array.isArray(props.data) ? props.data.length : 0
+})
+
+const isDirectVirtual = computed(() => {
+  return props.depth === 0 && isRootDirectArrayOfObjects.value && directTotalRows.value > VIRTUAL_THRESHOLD
+})
+
+const directStartIndex = computed(() => {
+  if (!isDirectVirtual.value) return 0
+  const idx = Math.floor(scrollTop.value / estimatedRowHeight.value) - VIRTUAL_BUFFER
+  return Math.max(0, idx)
+})
+
+const directEndIndex = computed(() => {
+  if (!isDirectVirtual.value) return directTotalRows.value
+  const count = Math.ceil(viewportHeight.value / estimatedRowHeight.value) + VIRTUAL_BUFFER * 2
+  return Math.min(directTotalRows.value, directStartIndex.value + count)
+})
+
+const visibleDirectData = computed(() => {
+  if (!isDirectVirtual.value) {
+    return Array.isArray(props.data) ? props.data.map((item, idx) => ({ item, idx })) : []
+  }
+  const result = []
+  const start = directStartIndex.value
+  const end = directEndIndex.value
+  const arr = props.data
+  for (let i = start; i < end; i++) {
+    result.push({ item: arr[i], idx: i })
+  }
+  return result
+})
+
+const directTopSpacerHeight = computed(() => {
+  if (!isDirectVirtual.value) return 0
+  return directStartIndex.value * estimatedRowHeight.value
+})
+
+const directBottomSpacerHeight = computed(() => {
+  if (!isDirectVirtual.value) return 0
+  return Math.max(0, (directTotalRows.value - directEndIndex.value) * estimatedRowHeight.value)
+})
+
+// 场景 2 虚拟切片（rootEntries）
+const isEntriesVirtual = computed(() => {
+  return props.depth === 0 && !isRootDirectArrayOfObjects.value && rootEntries.value.length > VIRTUAL_THRESHOLD
+})
+
+const entriesTotalRows = computed(() => rootEntries.value.length)
+
+const entriesStartIndex = computed(() => {
+  if (!isEntriesVirtual.value) return 0
+  const idx = Math.floor(scrollTop.value / estimatedRowHeight.value) - VIRTUAL_BUFFER
+  return Math.max(0, idx)
+})
+
+const entriesEndIndex = computed(() => {
+  if (!isEntriesVirtual.value) return entriesTotalRows.value
+  const count = Math.ceil(viewportHeight.value / estimatedRowHeight.value) + VIRTUAL_BUFFER * 2
+  return Math.min(entriesTotalRows.value, entriesStartIndex.value + count)
+})
+
+const visibleEntries = computed(() => {
+  if (!isEntriesVirtual.value) return rootEntries.value
+  return rootEntries.value.slice(entriesStartIndex.value, entriesEndIndex.value)
+})
+
+const entriesTopSpacerHeight = computed(() => {
+  if (!isEntriesVirtual.value) return 0
+  return entriesStartIndex.value * estimatedRowHeight.value
+})
+
+const entriesBottomSpacerHeight = computed(() => {
+  if (!isEntriesVirtual.value) return 0
+  return Math.max(0, (entriesTotalRows.value - entriesEndIndex.value) * estimatedRowHeight.value)
+})
+
+// ─── 路径追踪、自动祖先展开与虚拟视口居中定位 ──────────────────────────────
+watch(currentSelectedPath, (newPath) => {
+  if (!newPath || newPath.length === 0 || props.depth !== 0) return
+
+  // 自动展开目标节点的所有折叠祖先路径
+  for (let i = 1; i <= newPath.length; i++) {
+    const sub = newPath.slice(0, i)
+    const subStr = JSON.stringify(sub)
+    if (userToggledPaths.value.has(subStr) && !userToggledPaths.value.get(subStr)) {
+      userToggledPaths.value.set(subStr, true)
+    }
+  }
+
+  nextTick(() => {
+    // 虚拟滚动预定位：如果目标属于顶层大数组，先将视口粗定位到目标行附近以触发虚拟行挂载
+    if (props.depth === 0 && typeof newPath[0] === 'number') {
+      const targetIdx = newPath[0]
+      const estRowH = estimatedRowHeight.value || 30
+      const vpHeight = viewportHeight.value || 700
+      const estScrollTop = Math.max(0, targetIdx * estRowH - vpHeight / 2)
+      const rootWrapper = scrollContainerRef.value || document.querySelector('.table-view-wrapper:not(.nested-wrapper)')
+      if (rootWrapper && Math.abs(rootWrapper.scrollTop - estScrollTop) > vpHeight) {
+        rootWrapper.scrollTop = estScrollTop
+      }
+    }
+
+    // 视口垂直与水平双向平滑居中锚点
+    setTimeout(() => {
+      const rootWrapper = scrollContainerRef.value || document.querySelector('.table-view-wrapper:not(.nested-wrapper)') || document.querySelector('.table-view-wrapper')
+      if (!rootWrapper) return
+      const targetStr = JSON.stringify(newPath)
+      let targetEl = rootWrapper.querySelector(`[data-path='${targetStr}']`)
+      if (!targetEl) {
+        for (let i = newPath.length - 1; i >= 1; i--) {
+          const prefixStr = JSON.stringify(newPath.slice(0, i))
+          targetEl = rootWrapper.querySelector(`[data-path='${prefixStr}']`)
+          if (targetEl) break
+        }
+      }
+      if (targetEl) {
+        const pRect = rootWrapper.getBoundingClientRect()
+        const tRect = targetEl.getBoundingClientRect()
+        const diffY = (tRect.top + tRect.height / 2) - (pRect.top + pRect.height / 2)
+        let diffX = 0
+        if (targetEl.tagName === 'TD' || targetEl.tagName === 'TH' || targetEl.classList.contains('val-primitive-wrap')) {
+          diffX = (tRect.left + tRect.width / 2) - (pRect.left + pRect.width / 2)
+        }
+        rootWrapper.scrollBy({
+          top: diffY,
+          left: diffX,
+          behavior: 'smooth'
+        })
+      }
+    }, 50)
+  })
+}, { immediate: true, deep: true })
 </script>
 
 <template>
@@ -375,7 +511,12 @@ const rootTableStyles = computed(() => {
     :style="depth === 0 ? rootTableStyles : undefined"
     @wheel="handleTableWheel"
   >
-    <div class="table-view-wrapper" :class="{ 'nested-wrapper': depth > 0 }">
+    <div
+      ref="scrollContainerRef"
+      class="table-view-wrapper"
+      :class="{ 'nested-wrapper': depth > 0 }"
+      @scroll.passive="onWrapperScroll"
+    >
       <!-- ─── 场景 1: 顶层数据本身就是对象数组 (Direct 2D Data Grid) ─── -->
       <table v-if="isRootDirectArrayOfObjects" class="json-table data-grid-table">
       <thead>
@@ -412,8 +553,13 @@ const rootTableStyles = computed(() => {
         </tr>
       </thead>
       <tbody>
+        <!-- Top Spacer for Virtual Scroll -->
+        <tr v-if="directTopSpacerHeight > 0" class="virtual-spacer-row" :style="{ height: directTopSpacerHeight + 'px' }">
+          <td :colspan="rootDirectColumns.length + 1" class="virtual-spacer-cell"></td>
+        </tr>
+
         <tr
-          v-for="(item, idx) in data"
+          v-for="{ item, idx } in visibleDirectData"
           :key="idx"
           class="json-table-row data-grid-row"
           :data-path="JSON.stringify(getFullPath([idx]))"
@@ -517,14 +663,24 @@ const rootTableStyles = computed(() => {
             <span v-else class="val-empty">-</span>
           </td>
         </tr>
+
+        <!-- Bottom Spacer for Virtual Scroll -->
+        <tr v-if="directBottomSpacerHeight > 0" class="virtual-spacer-row" :style="{ height: directBottomSpacerHeight + 'px' }">
+          <td :colspan="rootDirectColumns.length + 1" class="virtual-spacer-cell"></td>
+        </tr>
       </tbody>
     </table>
 
     <!-- ─── 场景 2: 常规 JSON 对象结构 (统一 2 列主表，支持对象数组行转列) ─── -->
     <table v-else class="json-table main-json-table">
       <tbody>
+        <!-- Top Spacer for Virtual Scroll -->
+        <tr v-if="entriesTopSpacerHeight > 0" class="virtual-spacer-row" :style="{ height: entriesTopSpacerHeight + 'px' }">
+          <td colspan="2" class="virtual-spacer-cell"></td>
+        </tr>
+
         <tr
-          v-for="entry in rootEntries"
+          v-for="entry in visibleEntries"
           :key="entry.key"
           class="json-table-row"
           :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))"
@@ -835,6 +991,10 @@ const rootTableStyles = computed(() => {
             </div>
           </td>
         </tr>
+        <!-- Bottom Spacer for Virtual Scroll -->
+        <tr v-if="entriesBottomSpacerHeight > 0" class="virtual-spacer-row" :style="{ height: entriesBottomSpacerHeight + 'px' }">
+          <td colspan="2" class="virtual-spacer-cell"></td>
+        </tr>
       </tbody>
     </table>
     </div>
@@ -866,6 +1026,19 @@ const rootTableStyles = computed(() => {
 </template>
 
 <style scoped>
+.virtual-spacer-row {
+  pointer-events: none;
+  border: none !important;
+  background: transparent !important;
+}
+
+.virtual-spacer-cell {
+  padding: 0 !important;
+  border: none !important;
+  height: inherit !important;
+  background: transparent !important;
+}
+
 .table-view-root:not(.is-nested-child) {
   position: relative;
   width: 100%;

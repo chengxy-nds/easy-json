@@ -26,6 +26,13 @@ import { maskJsonData } from '../utils/dataMasker.js';
 import { queryJsonPath } from '../utils/jsonPath.js';
 import { isImageUrl } from '../utils/imageDetector.js';
 import { getJsonPathRange } from '../utils/jsonPathRange.js';
+import {
+  saveTabContentToDb,
+  saveAllTabsContentToDb,
+  getAllTabsContentFromDb,
+  deleteTabContentFromDb,
+  cleanOrphanTabsInDb
+} from '../utils/tabStorage.js';
 
 const showToast = inject('showToast')
 const isDark = inject('isDark', ref(true))
@@ -227,6 +234,7 @@ const processImportFile = async (file) => {
     // 6. 等待 CodeMirror 与虚拟树完成首次挂载排版
     await nextTick()
     await new Promise(resolve => setTimeout(resolve, 80))
+    saveFormatterState(true)
 
     showToast(`文件导入成功 (${importLoading.value.fileSize})`)
   } catch (err) {
@@ -246,6 +254,7 @@ const handleImportText = (text) => {
     if (activeTabId.value !== activeTab.value.id) {
       activeTabId.value = activeTab.value.id
     }
+    saveFormatterState(true)
   }
 }
 
@@ -1088,6 +1097,7 @@ const addTab = () => {
   })
   activeTabId.value = newId
   scrollTabsToEnd()
+  saveFormatterState(true)
 }
 
 const closeTab = (id) => {
@@ -1102,6 +1112,8 @@ const closeTab = (id) => {
     }
   }
   tabs.value.splice(index, 1)
+  deleteTabContentFromDb(id)
+  saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
 
@@ -1125,6 +1137,7 @@ watch(incomingExtractText, (text) => {
   })
   activeTabId.value = newId
   scrollTabsToEnd()
+  saveFormatterState(true)
   nextTick(() => applyAutoExtract(tabs.value.find(t => t.id === newId)))
   incomingExtractText.value = null
 }, { immediate: true })
@@ -1135,16 +1148,25 @@ const saveFormatterState = (immediate = false) => {
   if (!canSave) return
   const doSave = () => {
     try {
+      // 1. 保存 tabs 元数据结构到 localStorage (轻量、瞬时可用)
       const snapshot = tabs.value.map(t => ({
         id: t.id,
         title: t.title,
-        // 大文本（> 300KB）避免塞满 localStorage 导致同步写入卡顿或配额报错
-        inputText: (t.inputText && t.inputText.length > 300_000) ? '' : (t.inputText || ''),
+        // <= 100KB 的小文本同步缓存在 localStorage 辅助秒开
+        inputText: (t.inputText && t.inputText.length <= 100_000) ? t.inputText : '',
         viewMode: t.viewMode
       }))
       localStorage.setItem('ej_fmt_tabs', JSON.stringify(snapshot))
       localStorage.setItem('ej_fmt_active', String(activeTabId.value))
-    } catch (e) {}
+
+      // 2. 异步将每个 tab 的完整大文本安全持久化到 IndexedDB (突破 5MB 限制，完美支持 80,000 行大文件)
+      saveAllTabsContentToDb(tabs.value)
+
+      // 3. 及时清理已关闭标签页遗留的过期 IndexedDB 数据
+      cleanOrphanTabsInDb(tabs.value.map(t => t.id))
+    } catch (e) {
+      console.warn('[JsonFormatter] save state error:', e)
+    }
   }
 
   if (immediate) {
@@ -1155,7 +1177,7 @@ const saveFormatterState = (immediate = false) => {
     doSave()
   } else {
     if (saveStateDebounceTimer) clearTimeout(saveStateDebounceTimer)
-    saveStateDebounceTimer = setTimeout(doSave, 800)
+    saveStateDebounceTimer = setTimeout(doSave, 500)
   }
 }
 
@@ -1195,7 +1217,8 @@ const closeLeftTabs = () => {
   if (removed.some(t => t.id === activeTabId.value)) {
     activeTabId.value = tabs.value[0].id
   }
-  saveFormatterState()
+  removed.forEach(t => deleteTabContentFromDb(t.id))
+  saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
 
@@ -1206,20 +1229,24 @@ const closeRightTabs = () => {
   if (removed.some(t => t.id === activeTabId.value)) {
     activeTabId.value = tabs.value[tabs.value.length - 1].id
   }
-  saveFormatterState()
+  removed.forEach(t => deleteTabContentFromDb(t.id))
+  saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
 
 const closeOtherTabs = () => {
   const targetId = tabContextMenu.value.tabId
   if (tabs.value.length <= 1) return
+  const removed = tabs.value.filter(t => t.id !== targetId)
   tabs.value = tabs.value.filter(t => t.id === targetId)
   activeTabId.value = targetId
-  saveFormatterState()
+  removed.forEach(t => deleteTabContentFromDb(t.id))
+  saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
 
 const closeAllTabs = () => {
+  const removed = tabs.value.slice(1)
   tabs.value = [{
     id: tabs.value[0].id,
     title: '格式化 1',
@@ -1234,7 +1261,8 @@ const closeAllTabs = () => {
     extractedFormat: null
   }]
   activeTabId.value = tabs.value[0].id
-  saveFormatterState()
+  removed.forEach(t => deleteTabContentFromDb(t.id))
+  saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
 
@@ -3122,22 +3150,24 @@ const wrapLinesWithHighlight = (html, errorLine, dupLines) => {
 
 const highlightedInput = computed(() => {
   const tab = activeTab.value
-  let html = ''
+  if (!tab?.inputText) return ''
+  // 关键性能优化：左侧已全面采用高性能 CodeMirror 6 虚拟滚动编辑器，旧版 textarea 叠加层在大文本下直接跳过庞大的 DOM 切片与百万行 split 计算
   if (isHeavyInput.value) {
-    html = lightweightHighlight(tab.inputText)
-  } else {
-    const counter = searchQuery.value
-      ? { count: 0, target: currentMatchIndex.value }
-      : null
-    html = applyJsonHighlightWithPath(tab.inputText, counter)
-    if (counter) {
-      totalMatches.value = counter.count
-      if (currentMatchIndex.value >= counter.count && counter.count > 0) {
-        currentMatchIndex.value = 0
-      }
-    } else {
-      totalMatches.value = 0
+    return ''
+  }
+
+  let html = ''
+  const counter = searchQuery.value
+    ? { count: 0, target: currentMatchIndex.value }
+    : null
+  html = applyJsonHighlightWithPath(tab.inputText, counter)
+  if (counter) {
+    totalMatches.value = counter.count
+    if (currentMatchIndex.value >= counter.count && counter.count > 0) {
+      currentMatchIndex.value = 0
     }
+  } else {
+    totalMatches.value = 0
   }
   return wrapLinesWithHighlight(html, tab.errorLine, tab.duplicateLines)
 })
@@ -3260,8 +3290,13 @@ const highlightConverted = (code, format) => {
 }
 
 const highlightedOutput = computed(() => {
+  // 仅在格式转换代码视图开启时才计算，避免拓扑图/表格/树形模式下对超大压缩单行进行无谓的全文正则高亮
+  if (!convertFormat.value) {
+    return ''
+  }
+
   // 转换模式：显示转换后的内容（带语法高亮）
-  if (convertFormat.value && convertedOutput.value) {
+  if (convertedOutput.value) {
     // JSON Schema 输出是合法 JSON，复用 JSON 语法高亮
     if (convertFormat.value === 'jsonschema') {
       if (isHeavy(convertedOutput.value)) return lightweightHighlight(convertedOutput.value)
@@ -3351,25 +3386,66 @@ const handleFormatDirect = () => {
 
 const handleMinifyDirect = () => {
   const tab = activeTab.value
-  if (!tab.inputText.trim()) return
-  try {
-    let obj = safeParse(tab.inputText)
-    tab.inputText = safeStringify(obj)
-    indentSize.value = 'minify'
-    showToast('压缩成功')
-    autoCopyResult(activeTab.value.inputText)
-  } catch (err) {
-    // Try to convert JS object format first
+  if (!tab.inputText?.trim()) return
+
+  // 1. 开启防抖防重入门禁，彻底杜绝连锁 watch 导致的多次全量解析与序列化
+  formatGuard = true
+  if (formatDebounceTimer) {
+    clearTimeout(formatDebounceTimer)
+    formatDebounceTimer = null
+  }
+
+  const doMinify = () => {
     try {
-      const jsonStr = convertJsObjectToJson(tab.inputText)
-      const obj = safeParse(jsonStr)
-      tab.inputText = safeStringify(obj)
+      // 优先复用现有的 parsedObj，避免重复解析
+      let obj = tab.parsedObj
+      if (!obj) {
+        obj = safeParse(tab.inputText)
+      }
+
+      // 避免重复 stringify：若已是紧凑单行形式直接使用
+      const isAlreadyMinified = !tab.inputText.includes('\n')
+      const minified = isAlreadyMinified ? tab.inputText.trim() : safeStringify(obj)
+
+      tab.inputText = minified
+      tab.outputText = minified
+      tab.parsedObj = obj
+      tab.validationError = null
+      tab.errorLine = null
       indentSize.value = 'minify'
+
       showToast('压缩成功')
-    autoCopyResult(activeTab.value.inputText)
-    } catch (e2) {
-      tab.validationError = `压缩失败: ${err.message}`
+      autoCopyResult(minified)
+    } catch (err) {
+      try {
+        const jsonStr = convertJsObjectToJson(tab.inputText)
+        const obj = safeParse(jsonStr)
+        const minified = safeStringify(obj)
+        tab.inputText = minified
+        tab.outputText = minified
+        tab.parsedObj = obj
+        tab.validationError = null
+        tab.errorLine = null
+        indentSize.value = 'minify'
+
+        showToast('压缩成功')
+        autoCopyResult(minified)
+      } catch (e2) {
+        tab.validationError = `压缩失败: ${err.message}`
+      }
+    } finally {
+      saveFormatterState()
+      setTimeout(() => {
+        formatGuard = false
+      }, 100)
     }
+  }
+
+  // 大数据量通过分帧微任务释放主线程，保证界面交互即时呈现，丝滑不卡顿
+  if (tab.inputText.length > 50_000) {
+    setTimeout(doMinify, 16)
+  } else {
+    doMinify()
   }
 }
 
@@ -3906,40 +3982,58 @@ const copyJsonPathResult = () => {
 }
 
 onMounted(() => {
-  // Restore persisted tabs from localStorage
+  // Restore persisted tabs from localStorage & IndexedDB
   let restored = false
   try {
     const savedTabs = localStorage.getItem('ej_fmt_tabs')
     const savedActive = localStorage.getItem('ej_fmt_active')
-    const savedSort = localStorage.getItem('ej_fmt_sort')
     if (savedTabs) {
       const parsed = JSON.parse(savedTabs)
       if (Array.isArray(parsed) && parsed.length > 0) {
-        // 如果所有保存的 tab 内容都为空，视为首次加载，展示示例数据
-        const hasContent = parsed.some(t => t.inputText && t.inputText.trim())
-        if (!hasContent) {
-          restored = false
-        } else {
-          tabs.value = parsed.map(t => ({
-            id: t.id,
-            title: t.title,
-            inputText: t.inputText || '',
-            outputText: '',
-            parsedObj: null,
-            validationError: null,
-            errorLine: null,
-            duplicateLines: [],
-            viewMode: 'tree',
-            convertFormat: null,
-            extractedFormat: null
-          }))
-          nextTabId = Math.max(...parsed.map(t => t.id)) + 1
-          activeTabId.value = savedActive ? Number(savedActive) : tabs.value[0].id
-          restored = true
-        }
+        // 只要用户曾有过保存的 tabs（包括用户主动建立的多个 tab），都完整恢复标签页结构
+        tabs.value = parsed.map(t => ({
+          id: t.id,
+          title: t.title,
+          inputText: t.inputText || '',
+          outputText: '',
+          parsedObj: null,
+          validationError: null,
+          errorLine: null,
+          duplicateLines: [],
+          viewMode: t.viewMode || 'tree',
+          convertFormat: null,
+          extractedFormat: null
+        }))
+        nextTabId = Math.max(...parsed.map(t => t.id)) + 1
+        activeTabId.value = savedActive && parsed.some(t => String(t.id) === String(savedActive))
+          ? Number(savedActive)
+          : tabs.value[0].id
+        restored = true
+
+        // 异步从 IndexedDB 读回全量文本（支持 80,000 行乃至数十万行大文件，彻底突破 localStorage 配额）
+        getAllTabsContentFromDb().then(contentMap => {
+          let hasUpdatedFromDb = false
+          tabs.value.forEach(t => {
+            const dbContent = contentMap.get(String(t.id))
+            if (dbContent && dbContent !== t.inputText) {
+              t.inputText = dbContent
+              hasUpdatedFromDb = true
+            }
+          })
+          if (hasUpdatedFromDb) {
+            // 如果从 IndexedDB 恢复出了真实大文本，立即触发当前活跃 tab 的格式化与解析
+            nextTick(() => {
+              formatJSON()
+            })
+          }
+        }).catch(err => {
+          console.warn('[JsonFormatter] load IndexedDB content error:', err)
+        })
       }
     }
-  } catch (e) {}
+  } catch (e) {
+    console.warn('[JsonFormatter] restore tabs error:', e)
+  }
 
   if (!restored) {
     // 首次启动为空，不清空已有恢复数据
@@ -4322,15 +4416,6 @@ onBeforeUnmount(() => {
               >
                 应用
               </button>
-              <button 
-                class="jp-action-btn" 
-                :disabled="!jsonPathMatches.length" 
-                @click="copyJsonPathResult"
-                data-tooltip-bottom="复制提取结果"
-              >
-                <Copy class="btn-icon-xs" />
-                <span>复制</span>
-              </button>
               <button class="jp-close-btn" @click="showJsonPathBar = false" data-tooltip-bottom="关闭">
                 <X class="btn-icon-xs" />
               </button>
@@ -4591,6 +4676,7 @@ onBeforeUnmount(() => {
               v-else-if="activeTab.viewMode === 'graph' && activeTab.parsedObj"
               :parsedObj="activeTab.parsedObj"
               :hoveredPath="hoveredPath"
+              :selectedPath="selectedPath"
               @hover-path="setHoveredPath"
               @click-path="handlePathClick"
               @mouseenter="activeScrollTarget = 'right'"

@@ -177,6 +177,12 @@ const goToChangelog = () => {
 }
 
 const currentTab = ref('format') // 'format' | 'compare'
+const hasLoadedCompare = ref(currentTab.value === 'compare')
+watch(currentTab, (val) => {
+  if (val === 'compare') {
+    hasLoadedCompare.value = true
+  }
+})
 
 const setTab = (tab) => {
   currentTab.value = tab
@@ -683,6 +689,20 @@ onMounted(() => {
 
   applyEditorStyles()
   document.addEventListener('click', onDocumentClick)
+
+  // 空闲时预热 JsonComparer，保证首次切换零等待
+  const preloadComparer = () => {
+    if (!hasLoadedCompare.value) {
+      hasLoadedCompare.value = true
+    }
+  }
+  if (typeof window !== 'undefined') {
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(preloadComparer, { timeout: 2500 })
+    } else {
+      setTimeout(preloadComparer, 1200)
+    }
+  }
 })
 
 onBeforeUnmount(() => {
@@ -989,9 +1009,14 @@ onBeforeUnmount(() => {
         :duration="400"
         :extraScale="1.0"
       >
-        <KeepAlive>
-          <component :is="currentTab === 'format' ? JsonFormatter : JsonComparer" class="fade-in" />
-        </KeepAlive>
+        <div class="main-tab-wrapper">
+          <div class="main-tab-pane" :class="{ 'is-hidden': currentTab !== 'format' }">
+            <JsonFormatter />
+          </div>
+          <div v-if="hasLoadedCompare" class="main-tab-pane" :class="{ 'is-hidden': currentTab !== 'compare' }">
+            <JsonComparer />
+          </div>
+        </div>
       </ClickSpark>
     </main>
 
@@ -1020,8 +1045,27 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.fade-in {
-  animation: fadeIn 0.15s ease forwards;
+.main-tab-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.main-tab-pane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  contain: layout size;
+}
+
+.main-tab-pane.is-hidden {
+  visibility: hidden !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+  opacity: 0 !important;
+  transform: translate3d(-99999px, 0, 0) !important;
 }
 
 /* Toast Styles (Sonner-like Stacked Notifications) */

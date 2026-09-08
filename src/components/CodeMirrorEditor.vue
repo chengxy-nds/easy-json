@@ -49,7 +49,8 @@ import {
   foldedRanges,
   bracketMatching,
   indentOnInput,
-  syntaxTree
+  syntaxTree,
+  ensureSyntaxTree
 } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
@@ -67,12 +68,14 @@ import {
 // Helper to compute JSONPath from AST at cursor position
 const getJsonPathAtPos = (state, pos) => {
   try {
-    const tree = syntaxTree(state)
+    const tree = ensureSyntaxTree(state, pos + 50, 100) || syntaxTree(state)
     let node = tree.resolveInner(pos, 1)
     if (!node || node.name === 'JsonText') {
       node = tree.resolveInner(pos, -1)
     }
-    if (!node) return { path: null, type: null }
+    if (!node || node.name === 'JsonText') {
+      return { path: null, type: null }
+    }
 
     let targetType = 'value'
     if (node.name === 'PropertyName') {
@@ -172,6 +175,8 @@ const treeExpanded = inject('treeExpanded', ref(true))
 const editorContainerRef = ref(null)
 let editorView = null
 let isInternalFoldSync = false
+let isExternalSelectionSync = false
+let externalSelectionTimer = null
 
 // Floating copy selection pill state
 const floatingCopyVisible = ref(false)
@@ -292,6 +297,11 @@ const indentWrapPlugin = ViewPlugin.fromClass(
         while (pos <= to) {
           const line = view.state.doc.lineAt(pos)
           const lineText = line.text
+          // 性能保护：压缩单行或无前导缩进的超长行直接跳过，零开销
+          if (lineText.length > 2000 || (!lineText.startsWith(' ') && !lineText.startsWith('\t'))) {
+            pos = line.to + 1
+            continue
+          }
           let indent = 0
           for (let i = 0; i < lineText.length; i++) {
             if (lineText[i] === ' ') {
@@ -833,6 +843,9 @@ const initCodeMirror = () => {
           if (sel.empty) {
             hideFloatingCopy()
           }
+          if (isExternalSelectionSync) {
+            return
+          }
           const pos = sel.empty ? sel.head : Math.min(sel.anchor, sel.head)
           const line = update.state.doc.lineAt(pos)
           const { path, type } = getJsonPathAtPos(update.state, pos)
@@ -1061,17 +1074,26 @@ const goToMatch = (targetIndex) => {
 
 const scrollToLine = (lineNumber) => {
   if (!editorView) return
-  const total = editorView.state.doc.lines
-  const target = Math.max(1, Math.min(lineNumber, total))
-  const line = editorView.state.doc.line(target)
-  editorView.dispatch({
-    selection: { anchor: line.from },
-    effects: [
-      EditorView.scrollIntoView(line.from, { y: 'center' }),
-      setFocusEffect.of(true)
-    ]
-  })
-  editorView.focus()
+  isExternalSelectionSync = true
+  if (externalSelectionTimer) clearTimeout(externalSelectionTimer)
+  try {
+    const total = editorView.state.doc.lines
+    const target = Math.max(1, Math.min(lineNumber, total))
+    const line = editorView.state.doc.line(target)
+    editorView.dispatch({
+      selection: { anchor: line.from },
+      effects: [
+        EditorView.scrollIntoView(line.from, { y: 'center' }),
+        setFocusEffect.of(true)
+      ]
+    })
+    editorView.focus()
+  } finally {
+    externalSelectionTimer = setTimeout(() => {
+      isExternalSelectionSync = false
+      externalSelectionTimer = null
+    }, 100)
+  }
 }
 
 const focus = () => {
@@ -1089,22 +1111,31 @@ const getSelectionRange = () => {
 
 const setSelectionRange = (start, end, options = { showCopyPill: true }) => {
   if (!editorView) return
-  const len = editorView.state.doc.length
-  const from = Math.max(0, Math.min(start, len))
-  const to = Math.max(from, Math.min(end, len))
-  editorView.dispatch({
-    selection: { anchor: from, head: to },
-    effects: [
-      EditorView.scrollIntoView(from, { y: 'center' }),
-      setFocusEffect.of(true)
-    ]
-  })
-  editorView.focus()
+  isExternalSelectionSync = true
+  if (externalSelectionTimer) clearTimeout(externalSelectionTimer)
+  try {
+    const len = editorView.state.doc.length
+    const from = Math.max(0, Math.min(start, len))
+    const to = Math.max(from, Math.min(end, len))
+    editorView.dispatch({
+      selection: { anchor: from, head: to },
+      effects: [
+        EditorView.scrollIntoView(from, { y: 'center' }),
+        setFocusEffect.of(true)
+      ]
+    })
+    editorView.focus()
 
-  if (options?.showCopyPill !== false && from !== to) {
-    setTimeout(() => {
-      showFloatingCopy()
-    }, 50)
+    if (options?.showCopyPill !== false && from !== to) {
+      setTimeout(() => {
+        showFloatingCopy()
+      }, 50)
+    }
+  } finally {
+    externalSelectionTimer = setTimeout(() => {
+      isExternalSelectionSync = false
+      externalSelectionTimer = null
+    }, 100)
   }
 }
 
@@ -1374,6 +1405,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (copyTimeoutId) clearTimeout(copyTimeoutId)
   if (autoHideTimeoutId) clearTimeout(autoHideTimeoutId)
+  if (externalSelectionTimer) clearTimeout(externalSelectionTimer)
   if (editorView) {
     if (editorView.scrollDOM) {
       editorView.scrollDOM.removeEventListener('scroll', handleEditorScrollDOM)
