@@ -26,9 +26,12 @@ const detectIsTauri = () => {
 const isTauri = ref(detectIsTauri())
 const currentView = ref(isTauri.value ? 'editor' : 'home') // 'home' | 'editor' | 'test' | 'comment' | 'changelog'
 const hasLoadedHome = ref(currentView.value === 'home')
+const hasLoadedEditor = ref(currentView.value === 'editor')
 watch(currentView, (val) => {
   if (val === 'home') {
     hasLoadedHome.value = true
+  } else if (val === 'editor') {
+    hasLoadedEditor.value = true
   }
 })
 const isPopup = ref(false)
@@ -140,6 +143,7 @@ const openInTab = () => {
 }
 
 const goToApp = () => {
+  hasLoadedEditor.value = true
   currentView.value = 'editor'
   localStorage.setItem('ej_view', 'editor')
   if (window.location.pathname !== '/') {
@@ -690,17 +694,20 @@ onMounted(() => {
   applyEditorStyles()
   document.addEventListener('click', onDocumentClick)
 
-  // 空闲时预热 JsonComparer，保证首次切换零等待
-  const preloadComparer = () => {
+  // 空闲时预热 Editor 和 JsonComparer，保证首次从首页进入编辑器零等待秒开
+  const preloadEditorAndComparer = () => {
+    if (!hasLoadedEditor.value) {
+      hasLoadedEditor.value = true
+    }
     if (!hasLoadedCompare.value) {
       hasLoadedCompare.value = true
     }
   }
   if (typeof window !== 'undefined') {
     if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(preloadComparer, { timeout: 2500 })
+      window.requestIdleCallback(preloadEditorAndComparer, { timeout: 2000 })
     } else {
-      setTimeout(preloadComparer, 1200)
+      setTimeout(preloadEditorAndComparer, 1000)
     }
   }
 })
@@ -764,8 +771,12 @@ onBeforeUnmount(() => {
 
   <ChangelogView v-else-if="currentView === 'changelog'" @go-back="goToHome" />
 
-  <!-- Editor View -->
-  <div v-else-if="currentView === 'editor'" class="app-layout">
+  <!-- Editor View (全局单例常驻保活，支持后台空闲预热，秒级切换零卡顿) -->
+  <div
+    v-if="hasLoadedEditor"
+    v-show="currentView === 'editor'"
+    class="app-layout"
+  >
     <!-- Left Sidebar -->
     <aside class="app-sidebar">
       <div class="sidebar-top">

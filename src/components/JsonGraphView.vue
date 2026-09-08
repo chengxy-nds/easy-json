@@ -2156,21 +2156,21 @@ const startMinimapDrag = (e) => {
   border-right: 1.5px solid var(--json-key, #6366f1) !important;
 }
 
-:global(.dark-mode) .tbl-tr.is-selected,
-:global(.dark-mode) .card-row.is-selected {
+:global(.dark-mode .graph-view .tbl-tr.is-selected),
+:global(.dark-mode .graph-view .card-row.is-selected) {
   background-color: rgba(97, 175, 239, 0.22) !important;
   box-shadow: inset 0 0 0 1.5px #61afef !important;
   border-radius: 4px;
 }
-:global(.dark-mode) .tbl-tr.is-selected td {
+:global(.dark-mode .graph-view .tbl-tr.is-selected td) {
   background-color: rgba(97, 175, 239, 0.22) !important;
   border-top-color: #61afef !important;
   border-bottom-color: #61afef !important;
 }
-:global(.dark-mode) .tbl-tr.is-selected td:first-child {
+:global(.dark-mode .graph-view .tbl-tr.is-selected td:first-child) {
   border-left-color: #61afef !important;
 }
-:global(.dark-mode) .tbl-tr.is-selected td:last-child {
+:global(.dark-mode .graph-view .tbl-tr.is-selected td:last-child) {
   border-right-color: #61afef !important;
 }
 
@@ -2179,8 +2179,8 @@ const startMinimapDrag = (e) => {
   color: var(--json-key, #4f46e5) !important;
   font-weight: 700 !important;
 }
-:global(.dark-mode) .tbl-tr.is-selected .tbl-td--index,
-:global(.dark-mode) .card-row.is-selected .card-key {
+:global(.dark-mode .graph-view .tbl-tr.is-selected .tbl-td--index),
+:global(.dark-mode .graph-view .card-row.is-selected .card-key) {
   color: #61afef !important;
 }
 
@@ -2193,9 +2193,9 @@ const startMinimapDrag = (e) => {
   box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
 }
 
-:global(.dark-mode) .tbl-th.is-selected,
-:global(.dark-mode) .tbl-td--index.is-selected,
-:global(.dark-mode) .card-key.is-selected {
+:global(.dark-mode .graph-view .tbl-th.is-selected),
+:global(.dark-mode .graph-view .tbl-td--index.is-selected),
+:global(.dark-mode .graph-view .card-key.is-selected) {
   background-color: rgba(97, 175, 239, 0.32) !important;
   color: #61afef !important;
   box-shadow: inset 0 0 0 1.5px #61afef !important;
@@ -2208,8 +2208,8 @@ const startMinimapDrag = (e) => {
   box-shadow: inset 0 0 0 1px var(--json-key, #6366f1) !important;
 }
 
-:global(.dark-mode) .tbl-td:not(.tbl-td--complex).is-selected,
-:global(.dark-mode) .card-val.is-selected {
+:global(.dark-mode .graph-view .tbl-td:not(.tbl-td--complex).is-selected),
+:global(.dark-mode .graph-view .card-val.is-selected) {
   padding: 2px 4px;
   background-color: rgba(97, 175, 239, 0.32) !important;
   box-shadow: inset 0 0 0 1px #61afef !important;

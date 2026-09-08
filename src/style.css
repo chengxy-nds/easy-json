@@ -1779,7 +1779,7 @@ mark.search-match-current {
   display: flex;
   height: clamp(28px, 2.2vw, 30px);
   border-bottom: 1px solid var(--border-color);
-  background-color: var(--bg-app);
+  background-color: var(--bg-panel);
   padding: 0;
   margin-bottom: 0;
   flex-shrink: 0;

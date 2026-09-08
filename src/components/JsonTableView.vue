@@ -1515,11 +1515,11 @@ watch(currentSelectedPath, (newPath) => {
   box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
 }
 
-:global(.dark-mode) .root-key-cell.is-selected,
-:global(.dark-mode) .inner-key-cell.is-selected,
-:global(.dark-mode) .grid-index-cell.is-selected,
-:global(.dark-mode) .grid-col-header.is-selected,
-:global(.dark-mode) .inner-grid-th.is-selected {
+:global(.dark-mode .table-view-root .root-key-cell.is-selected),
+:global(.dark-mode .table-view-root .inner-key-cell.is-selected),
+:global(.dark-mode .table-view-root .grid-index-cell.is-selected),
+:global(.dark-mode .table-view-root .grid-col-header.is-selected),
+:global(.dark-mode .table-view-root .inner-grid-th.is-selected) {
   background-color: rgba(97, 175, 239, 0.32) !important;
   color: #61afef !important;
   box-shadow: inset 0 0 0 1.5px #61afef !important;
@@ -1532,9 +1532,9 @@ watch(currentSelectedPath, (newPath) => {
   box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
 }
 
-:global(.dark-mode) .value-cell:not(.value-cell--complex).is-selected,
-:global(.dark-mode) .inner-grid-td:not(.value-cell--complex).is-selected,
-:global(.dark-mode) .inner-val-cell:not(.value-cell--complex).is-selected {
+:global(.dark-mode .table-view-root .value-cell:not(.value-cell--complex).is-selected),
+:global(.dark-mode .table-view-root .inner-grid-td:not(.value-cell--complex).is-selected),
+:global(.dark-mode .table-view-root .inner-val-cell:not(.value-cell--complex).is-selected) {
   background-color: rgba(97, 175, 239, 0.32) !important;
   box-shadow: inset 0 0 0 1.5px #61afef !important;
 }
