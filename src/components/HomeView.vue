@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, FileCode, Layers, Table2, Network, ListTree,
   ClipboardPaste, HelpCircle, Chrome, Laptop, Terminal, MessageCircle,
   Check, Plus, X, ArrowUpDown, MousePointerClick, RefreshCw,
-  Sun, Moon
+  Sun, Moon, FlaskConical
 } from 'lucide-vue-next'
 
 const isDark = inject('isDark')
@@ -247,6 +247,23 @@ port = 3306`,
     name: 'Go map',
     raw: `map[string]any{"code":200,"data":nil,"ok":true}`,
     format: 'Go map'
+  },
+  protobuf: {
+    name: 'Protobuf / gRPC',
+    raw: `user {
+  id: 10001
+  name: "xiaofu"
+  roles {
+    id: 1
+    name: "admin"
+  }
+}`,
+    format: 'Protobuf'
+  },
+  jwt: {
+    name: 'JWT Token',
+    raw: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
+    format: 'JWT'
   }
 }
 
@@ -363,6 +380,8 @@ const formatCards = [
   { key: 'mongoShell', name: 'MongoDB Shell', desc: '转换 ObjectId、ISODate、NumberLong 等 MongoDB 特有类型为标准 JSON。' },
   { key: 'unescapeJson', name: '转义 JSON 字符串', desc: '自动识别双编码 JSON 字符串，剥离外层引号和转义，提取内层真实 JSON。' },
   { key: 'goMap', name: 'Go map 语法', desc: '识别 Go map[string]any 格式，剥离类型前缀，nil→null，直接转为标准 JSON。' },
+  { key: 'protobuf', name: 'Protobuf / gRPC', desc: '解析 gRPC / Protobuf TextFormat 调试输出，支持嵌套 Message、repeated 字段数组聚合。' },
+  { key: 'jwt', name: 'JWT Token', desc: '粘贴三段式 JWT 字符串或 Bearer 头，自动 Base64Url 解码并格式化 Header、Payload 及签名。' },
   { key: 'log', name: '混杂日志文本', desc: '扫描混杂文本，从包含任意字符的日志中抓取并剥离出嵌套的 JSON。' }
 ]
 
@@ -528,6 +547,10 @@ onBeforeUnmount(() => {
               <MessageCircle :size="15" class="home-nav-link-icon" />
               评论
             </a>
+            <a class="cursor-target home-nav-link" @click.prevent="$emit('go-to-test')" href="#">
+              <FlaskConical :size="15" class="home-nav-link-icon" />
+              示例
+            </a>
           </div>
 
           <!-- Right: CTA + GitHub -->
@@ -567,7 +590,7 @@ onBeforeUnmount(() => {
             <span class="hero-title-sub">给开发者的桌面工具箱</span>
           </h1>
           <p class="hero-subtitle">
-            丢进来 Lombok toString、Python dict、YAML、CSV 甚至一坨日志，直接吐出标准 JSON。支持语义级 Diff、四种视图、多 Tab 工作区，完全离线，数据不出本机。
+            <span class="hero-sub-part">丢进来 Lombok toString、Python dict、YAML、CSV 甚至一坨日志，直接吐出标准 JSON。</span><span class="hero-sub-part">支持语义级 Diff、四种视图、多 Tab 工作区，完全离线，数据不出本机。</span>
           </p>
           <div class="hero-actions">
             <div class="hero-download-wrap">
@@ -656,7 +679,7 @@ onBeforeUnmount(() => {
         <!-- ─── Supported Formats Showroom Grid ─── -->
         <section id="formats" class="formats-section">
           <div class="section-header">
-            <h2 class="section-title">智能提取 · 支持 100+ 种格式</h2>
+            <h2 class="section-title">支持 110 种格式</h2>
             <p class="section-subtitle-small">粘贴即解析，不用手动剥离引号、去掉日志前缀，直接扔进来就行：</p>
           </div>
           <div class="formats-grid">
@@ -1208,7 +1231,7 @@ onBeforeUnmount(() => {
 
 /* ═══ HERO ═══ */
 .hero-section{position:relative;width:100%;max-width:100%;min-height:37rem;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 24px 120px;box-sizing:border-box}@media(max-width:960px){.hero-section{min-height:auto;padding:24px 16px 64px}}
-.hero-content-inner{display:flex;flex-direction:column;align-items:center;width:max-content;max-width:860px;position:relative;z-index:1}
+.hero-content-inner{display:flex;flex-direction:column;align-items:center;width:100%;max-width:min(92vw, 860px);position:relative;z-index:1}
 /* hero-right-lanyard: layout placeholder only — actual canvas is fixed full-viewport */
 .hero-right-lanyard{
   position: absolute;
@@ -1263,7 +1286,18 @@ body.utools-mode .hero-badge {
 .dark-mode .badge-divider{color:rgba(255,255,255,0.12)}
 .hero-title{font-size:var(--hero-title-fs);font-weight:600;letter-spacing:-0.04em;line-height:1.1;color:var(--text-primary);margin-bottom:18px;max-width:860px}
 .hero-title-sub{font-size:var(--hero-sub-fs);font-weight:500;color:var(--text-secondary);letter-spacing:-0.01em}
-.hero-subtitle{font-size:clamp(14px,1.2vw,18px);color:var(--text-secondary);max-width:680px;line-height:1.7;margin-bottom:36px;font-weight:400}
+.hero-subtitle{font-size:clamp(13.5px,1.15vw,17.5px);color:var(--text-secondary);width:100%;max-width:min(90vw, 760px);line-height:1.75;margin-bottom:36px;font-weight:400;text-wrap:balance}
+.hero-sub-part{display:inline-block}
+@media (min-width: 1440px){
+  .hero-subtitle{max-width:800px;font-size:17px;line-height:1.8}
+}
+@media (max-width: 1100px){
+  .hero-subtitle{max-width:min(92vw, 680px);font-size:15px}
+}
+@media (max-width: 768px){
+  .hero-subtitle{max-width:100%;font-size:14px;line-height:1.65;margin-bottom:28px}
+  .hero-sub-part{display:inline}
+}
 .hero-actions{display:flex;align-items:center;gap:12px}
 .hero-cta{font-size:var(--hero-cta-fs);height:42px;padding:0 28px;border-radius:8px;gap:8px}
 .btn-arrow{width:14px;height:14px;transition:transform 0.2s ease}

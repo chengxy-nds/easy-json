@@ -50,41 +50,71 @@ export const stripJsonComments = (text) => {
 
 // ═══ MongoDB Shell 类型 → 标准 JSON ═══
 // 将 MongoDB Shell 输出中的特殊类型转为标准 JSON 值
+// 支持双引号/单引号实参，以及 MongoDB Shell 特有的无引号 Key、单引号数组项等 JS 对象字面量语法
 export const tryMongoShellToJson = (text) => {
+  if (!text || typeof text !== 'string') return null
   const trimmed = text.trim()
-  // 检测 MongoDB 类型特征
-  const mongoTypes = /\b(ObjectId|ISODate|NumberLong|NumberInt|NumberDecimal|BinData|Timestamp|DBRef|UUID|MinKey|MaxKey)\(/g
+  // 检测 MongoDB 类型特征：必须包含常见的 BSON 类型标识，否则零耗时退出，绝不影响其他 Case
+  const mongoTypes = /\b(ObjectId|ISODate|NumberLong|NumberInt|NumberDecimal|Decimal128|Int32|Long|BinData|Timestamp|DBRef|UUID|MinKey|MaxKey)\(/g
   if (!mongoTypes.test(trimmed)) return null
   mongoTypes.lastIndex = 0
 
   try {
     let cleaned = trimmed
 
-    // ObjectId("...") → "..."
-    cleaned = cleaned.replace(/ObjectId\("([^"]*)"\)/g, '"$1"')
-    // ISODate("...") → "..."
-    cleaned = cleaned.replace(/ISODate\("([^"]*)"\)/g, '"$1"')
-    // NumberLong(123) → 123  (also handles "123" arg)
-    cleaned = cleaned.replace(/NumberLong\("?(\d+)"?\)/g, '$1')
-    // NumberInt(123) → 123
-    cleaned = cleaned.replace(/NumberInt\("?(\d+)"?\)/g, '$1')
-    // NumberDecimal("99.99") → 99.99
-    cleaned = cleaned.replace(/NumberDecimal\("?([\d.]+)"?\)/g, '$1')
-    // BinData(0, "...") → "..."
-    cleaned = cleaned.replace(/BinData\(\d+,\s*"([^"]*)"\)/g, '"$1"')
-    // Timestamp(123, 456) → 123  (取第一个参数)
+    // ObjectId('...') 或 ObjectId("...") → "..."
+    cleaned = cleaned.replace(/ObjectId\(['"]([^'"]*)['"]\)/g, '"$1"')
+    // ISODate('...') 或 ISODate("...") → "..."
+    cleaned = cleaned.replace(/ISODate\(['"]([^'"]*)['"]\)/g, '"$1"')
+    // NumberLong(123) 或 NumberLong("123") → 123
+    cleaned = cleaned.replace(/NumberLong\(['"]?(-?\d+)['"]?\)/g, '$1')
+    // NumberInt(123) 或 NumberInt("123") → 123
+    cleaned = cleaned.replace(/NumberInt\(['"]?(-?\d+)['"]?\)/g, '$1')
+    // NumberDecimal("99.99") 或 '99.99' → 99.99
+    cleaned = cleaned.replace(/NumberDecimal\(['"]?([\d.]+)['"]?\)/g, '$1')
+    // Decimal128("99.99")
+    cleaned = cleaned.replace(/Decimal128\(['"]?([\d.]+)['"]?\)/g, '$1')
+    // Int32(123), Long(123)
+    cleaned = cleaned.replace(/Int32\(['"]?(-?\d+)['"]?\)/g, '$1')
+    cleaned = cleaned.replace(/Long\(['"]?(-?\d+)['"]?\)/g, '$1')
+    // BinData(0, "...")
+    cleaned = cleaned.replace(/BinData\(\d+,\s*['"]([^'"]*)['"]\)/g, '"$1"')
+    // Timestamp(123, 456) → 123
     cleaned = cleaned.replace(/Timestamp\((\d+),\s*\d+\)/g, '$1')
     // DBRef("col", "id") → "id"
-    cleaned = cleaned.replace(/DBRef\("[^"]*",\s*"([^"]*)"\)/g, '"$1"')
-    // UUID("...") → "..."
-    cleaned = cleaned.replace(/UUID\("([^"]*)"\)/g, '"$1"')
+    cleaned = cleaned.replace(/DBRef\(['"][^'"]*['"],\s*['"]([^'"]*)['"]\)/g, '"$1"')
+    // UUID("...")
+    cleaned = cleaned.replace(/UUID\(['"]([^'"]*)['"]\)/g, '"$1"')
     // MinKey → null, MaxKey → null
     cleaned = cleaned.replace(/\bMinKey\b/g, 'null')
     cleaned = cleaned.replace(/\bMaxKey\b/g, 'null')
 
-    // 尝试解析
-    safeParse(cleaned)
-    return cleaned
+    // 1. 优先尝试标准 JSON 解析（如果是带双引号的标准 key）
+    try {
+      const parsed = safeParse(cleaned)
+      if (parsed && typeof parsed === 'object') {
+        return safeStringify(parsed, null, 2)
+      }
+    } catch (_) {}
+
+    // 2. 尝试无引号 key 补双引号解析
+    try {
+      const withQuotes = convertJsUnquotedKeys(cleaned)
+      const parsed = safeParse(withQuotes)
+      if (parsed && typeof parsed === 'object') {
+        return safeStringify(parsed, null, 2)
+      }
+    } catch (_) {}
+
+    // 3. 尝试宽松 JS 语法解析（支持单引号字符串、无引号 key、尾逗号等典型 mongosh 输出）
+    try {
+      const parsed = safeParseJsLike(cleaned)
+      if (parsed && typeof parsed === 'object') {
+        return safeStringify(parsed, null, 2)
+      }
+    } catch (_) {}
+
+    return null
   } catch (e) { return null }
 }
 
@@ -1020,7 +1050,9 @@ export const scanBraces = (text, openChar, closeChar) => {
 
     if (end !== -1) {
       const candidate = text.substring(start, end + 1)
-      const result = tryParseCandidate(candidate)
+      let result = tryParseCandidate(candidate)
+      if (!result) result = tryChineseQuotesJson(candidate)
+      if (!result) result = tryProtobufTextToJson(candidate)
       if (result) matches.push({ text: result, start })
     }
     index = start + 1
@@ -1460,9 +1492,437 @@ export const tryRepairJson = (text) => {
   return null
 }
 
+// ═══ 中文全角引号 / 标点 JSON 独立解析 Case ═══
+// 处理因从聊天软件（微信、飞书、钉钉等）或排版文档复制导致的中文全角双引号（“ ” 〝 〞）、弯单引号（‘ ’）及全角冒号/逗号问题
+export const tryChineseQuotesJson = (text) => {
+  if (!text || typeof text !== 'string') return null
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  // 1. 严格前置守卫：必须包含全角标点字符，否则零耗时直接退出，绝不影响其他 Case
+  const hasChinesePunct = /[\u201C\u201D\u301D\u301E\u2018\u2019\uFF1A\uFF0C\uFF5B\uFF5D\u3010\u3011\uFF3B\uFF3D]/.test(trimmed)
+  if (!hasChinesePunct) return null
+
+  // 2. 具备基本对象或数组开闭结构（兼容全角与半角括号）
+  const hasBrackets = /[\{\[\uFF5B\u3010\uFF3B]/.test(trimmed) && /[\}\]\uFF5D\u3011\uFF3D]/.test(trimmed)
+  if (!hasBrackets) return null
+
+  // 3. 规范化全角符号为标准 JSON 符号
+  const normalized = trimmed
+    .replace(/[\u201C\u201D\u301D\u301E]/g, '"') // 全角双引号 “ ” 〝 〞 -> "
+    .replace(/[\u2018\u2019]/g, "'")             // 全角单引号 ‘ ’ -> '
+    .replace(/[\uFF1A]/g, ':')                   // 全角冒号 ： -> :
+    .replace(/[\uFF0C]/g, ',')                   // 全角逗号 ， -> ,
+    .replace(/[\uFF5B]/g, '{')                   // 全角 ｛ -> {
+    .replace(/[\uFF5D]/g, '}')                   // 全角 ｝ -> }
+    .replace(/[\u3010\uFF3B]/g, '[')             // 全角 【 ［ -> [
+    .replace(/[\u3011\uFF3D]/g, ']')             // 全角 】 ］ -> ]
+
+  // 4. 优先尝试安全标准 JSON 解析
+  try {
+    const parsed = safeParse(normalized)
+    if (parsed && typeof parsed === 'object') {
+      return safeStringify(parsed, null, 2)
+    }
+  } catch (_) {}
+
+  // 5. 尝试候选解析器（支持无引号 key、单引号等）
+  try {
+    const candidateResult = tryParseCandidate(normalized)
+    if (candidateResult) {
+      const parsed = safeParse(candidateResult)
+      if (parsed && typeof parsed === 'object') {
+        return safeStringify(parsed, null, 2)
+      }
+    }
+  } catch (_) {}
+
+  // 6. 结合残缺修复再次尝试
+  try {
+    const repaired = tryRepairJson(normalized)
+    if (repaired) {
+      const parsed = safeParse(repaired)
+      if (parsed && typeof parsed === 'object') {
+        return safeStringify(parsed, null, 2)
+      }
+    }
+  } catch (_) {}
+
+  return null
+}
+
+// ═══ cURL 命令请求参数独立提取 Case ═══
+// 支持提取 cURL 命令中的 --data-raw, --data, -d, --data-binary, --data-urlencode 等携带的 JSON 数据体，
+// 或在 GET 请求无 body 时自动提取 URL 查询参数为 JSON。
+export const tryCurlCommandToJson = (text) => {
+  if (!text || typeof text !== 'string') return null
+  const trimmed = text.trim()
+  // 1. 严格前置守卫：必须以 curl 或 curl.exe 开头，否则 0 耗时直接退出，绝不影响其他任何 Case
+  if (!/^\s*curl(\.exe)?\s+/i.test(trimmed)) return null
+
+  // 2. 清理多行换行续行符（\ 换行、^ 换行、` 换行）
+  const cleaned = trimmed
+    .replace(/\\\r?\n/g, ' ')
+    .replace(/\^\r?\n/g, ' ')
+    .replace(/`\r?\n/g, ' ')
+
+  // 3. 正则匹配数据参数体（兼容 --data-raw '...', -d "...", --data $'...' 等各种包裹形式）
+  const bodyCandidates = []
+  const dataRe = /(?:--data-raw|--data-binary|--data-ascii|--data-urlencode|--data|-d)\s+(?:\$'((?:\\.|[^'])*)'|'((?:\\.|[^'])*)'|"((?:\\.|[^"])*)"|(\S+))/gi
+
+  let dm
+  while ((dm = dataRe.exec(cleaned)) !== null) {
+    const rawVal = dm[1] ?? dm[2] ?? dm[3] ?? dm[4]
+    if (rawVal) bodyCandidates.push(rawVal)
+  }
+
+  // 4. 逐一尝试将候选数据解析为 JSON
+  for (const candidate of bodyCandidates) {
+    let raw = candidate.trim()
+    if (raw.includes('\\"')) {
+      raw = raw.replace(/\\"/g, '"')
+    }
+
+    // A. 优先尝试标准 JSON 解析
+    try {
+      const parsed = safeParse(raw)
+      if (parsed && typeof parsed === 'object') {
+        return safeStringify(parsed, null, 2)
+      }
+    } catch (_) {}
+
+    // B. 尝试候选解析器（支持无引号 key、单引号等宽松 JS 对象）
+    try {
+      const candidateResult = tryParseCandidate(raw)
+      if (candidateResult) {
+        const parsed = safeParse(candidateResult)
+        if (parsed && typeof parsed === 'object') {
+          return safeStringify(parsed, null, 2)
+        }
+      }
+    } catch (_) {}
+
+    // C. 尝试中文引号/全角标点解析
+    try {
+      const zhResult = tryChineseQuotesJson(raw)
+      if (zhResult) return zhResult
+    } catch (_) {}
+
+    // D. 尝试 URL 查询字符串解析（如 a=1&b=2）
+    try {
+      const qsResult = tryQueryStringToJson(raw)
+      if (qsResult) return qsResult
+    } catch (_) {}
+  }
+
+  // 5. 若未显式提供 body（如常见 GET 请求），尝试从 URL 的查询参数提取
+  if (bodyCandidates.length === 0) {
+    const urlMatch = cleaned.match(/(?:'|")(https?:\/\/[^'"]+)(?:'|")|https?:\/\/[^\s'"]+/i)
+    if (urlMatch) {
+      const fullUrl = urlMatch[1] ?? urlMatch[0]
+      const qIdx = fullUrl.indexOf('?')
+      if (qIdx !== -1) {
+        const queryStr = fullUrl.slice(qIdx + 1)
+        if (queryStr) {
+          const qsResult = tryQueryStringToJson(queryStr)
+          if (qsResult) return qsResult
+        }
+      }
+    }
+  }
+
+  return null
+}
+
+// ═══ gRPC / Protobuf 文本格式（TextFormat / DebugString）独立提取 Case ═══
+// 支持将 Protobuf 调试输出（如 user { id: 10001 name: "xiaofu" roles { ... } }）解析为标准 JSON，
+// 并自动聚合同名 repeated 字段为数组。
+export const tryProtobufTextToJson = (text) => {
+  if (!text || typeof text !== 'string') return null
+  const trimmed = text.trim()
+  if (!trimmed) return null
+
+  // 1. 严格特征前置守卫：
+  // - 不能以 JSON/数组定界符 { 或 [ 开头（避免拦截普通 JSON/JS 对象/数组）
+  // - 必须包含 Protobuf 独有的消息块结构：标识符后直接接 { 或 < （例如 user { 或 roles <）
+  if (/^\s*[\{\[]/.test(trimmed)) return null
+  if (!/\b[a-zA-Z_]\w*\s*[\{<]/.test(trimmed)) return null
+
+  // 2. 清除 # 单行注释（忽略字符串内部的 #）
+  const lines = trimmed.split(/\r?\n/)
+  const noComments = lines
+    .map(line => {
+      const idx = line.indexOf('#')
+      if (idx === -1) return line
+      let inQuote = false
+      let quoteChar = ''
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i]
+        if ((c === '"' || c === "'") && (i === 0 || line[i - 1] !== '\\')) {
+          if (!inQuote) { inQuote = true; quoteChar = c }
+          else if (c === quoteChar) inQuote = false
+        }
+        if (c === '#' && !inQuote) return line.substring(0, i)
+      }
+      return line
+    })
+    .join('\n')
+    .trim()
+
+  if (!noComments) return null
+
+  // 第一个有效非空字符必须是合法标识符（不能是时间戳、IP、日志前缀等）
+  if (!/^[a-zA-Z_]\w*/.test(noComments)) return null
+
+  // 3. Tokenizer 识别标识符、标点、字符串、数值、布尔值
+  const tokens = []
+  const tokenRe = /\s*(?:([{}<>[\]:,;])|("(\\.|[^"])*")|('(\\.|[^'])*')|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|0x[\da-fA-F]+)|(true|false)|([a-zA-Z_]\w*))/g
+  let match
+  let lastIndex = 0
+
+  while ((match = tokenRe.exec(noComments)) !== null) {
+    // 严格检查是否有不能识别的字符（如 = 或其他非 Protobuf 标点）
+    const tokenStart = match.index
+    const prefix = noComments.substring(lastIndex, tokenStart).trim()
+    if (prefix.length > 0) {
+      return null
+    }
+    lastIndex = tokenRe.lastIndex
+
+    if (match[1]) {
+      tokens.push({ type: 'punct', val: match[1] })
+    } else if (match[2]) {
+      try {
+        tokens.push({ type: 'string', val: JSON.parse(match[2]) })
+      } catch (_) {
+        tokens.push({ type: 'string', val: match[2].slice(1, -1) })
+      }
+    } else if (match[4]) {
+      tokens.push({ type: 'string', val: match[4].slice(1, -1) })
+    } else if (match[6]) {
+      const numStr = match[6]
+      const n = numStr.startsWith('0x') ? parseInt(numStr, 16) : parseFloat(numStr)
+      tokens.push({ type: 'number', val: isNaN(n) ? numStr : n })
+    } else if (match[7]) {
+      tokens.push({ type: 'boolean', val: match[7] === 'true' })
+    } else if (match[8]) {
+      tokens.push({ type: 'ident', val: match[8] })
+    }
+  }
+
+  // 检查尾部是否有未匹配的字符
+  if (noComments.substring(lastIndex).trim().length > 0) {
+    return null
+  }
+
+  if (tokens.length === 0) return null
+
+  // 4. 递归解析 Message 结构
+  let pos = 0
+
+  const parseMessage = (endPunct = null) => {
+    const obj = {}
+    let hasKeys = false
+
+    while (pos < tokens.length) {
+      const t = tokens[pos]
+
+      if (endPunct && t.type === 'punct' && t.val === endPunct) {
+        pos++
+        return obj
+      }
+
+      // 允许字段之间的可选分隔符逗号或分号
+      if (t.type === 'punct' && (t.val === ',' || t.val === ';')) {
+        pos++
+        continue
+      }
+
+      // 期望字段名必须为 ident
+      if (t.type !== 'ident') {
+        return null
+      }
+
+      const key = t.val
+      pos++
+      hasKeys = true
+
+      // 可选冒号
+      if (pos < tokens.length && tokens[pos].type === 'punct' && tokens[pos].val === ':') {
+        pos++
+      }
+
+      // 解析值
+      let val = undefined
+      if (pos < tokens.length) {
+        const next = tokens[pos]
+        if (next.type === 'punct' && (next.val === '{' || next.val === '<')) {
+          // 嵌套子 Message
+          const closePunct = next.val === '{' ? '}' : '>'
+          pos++
+          const child = parseMessage(closePunct)
+          if (child === null) return null
+          val = child
+        } else if (next.type === 'punct' && next.val === '[') {
+          // 内联列表 [a, b]
+          pos++
+          const list = []
+          while (pos < tokens.length && !(tokens[pos].type === 'punct' && tokens[pos].val === ']')) {
+            if (tokens[pos].type === 'punct' && tokens[pos].val === ',') { pos++; continue }
+            list.push(tokens[pos].val)
+            pos++
+          }
+          if (pos >= tokens.length || tokens[pos].val !== ']') return null
+          pos++
+          val = list
+        } else if (next.type === 'string' || next.type === 'number' || next.type === 'boolean') {
+          val = next.val
+          pos++
+          // 连续字符串自动拼接
+          while (pos < tokens.length && tokens[pos].type === 'string' && typeof val === 'string') {
+            val += tokens[pos].val
+            pos++
+          }
+        } else if (next.type === 'ident') {
+          // 枚举或标识符常量
+          val = next.val === 'null' ? null : next.val
+          pos++
+        } else {
+          return null
+        }
+      } else {
+        return null
+      }
+
+      // repeated 字段自动聚合为数组
+      if (val !== undefined) {
+        if (key in obj) {
+          if (Array.isArray(obj[key])) {
+            obj[key].push(val)
+          } else {
+            obj[key] = [obj[key], val]
+          }
+        } else {
+          obj[key] = val
+        }
+      }
+    }
+
+    if (endPunct) {
+      return null
+    }
+
+    return hasKeys ? obj : null
+  }
+
+  try {
+    const result = parseMessage(null)
+    if (pos === tokens.length && result && typeof result === 'object' && Object.keys(result).length > 0) {
+      return safeStringify(result, null, 2)
+    }
+  } catch (_) {}
+
+  return null
+}
+
+// Base64Url 安全解码（处理 UTF-8 字符）
+const decodeBase64Url = (str) => {
+  try {
+    let base64 = str.replace(/-/g, '+').replace(/_/g, '/')
+    while (base64.length % 4) {
+      base64 += '='
+    }
+    if (typeof atob === 'function') {
+      const binary = atob(base64)
+      const bytes = Uint8Array.from(binary, c => c.charCodeAt(0))
+      return new TextDecoder('utf-8').decode(bytes)
+    } else if (typeof Buffer !== 'undefined') {
+      return Buffer.from(base64, 'base64').toString('utf8')
+    }
+  } catch (_) {
+    return null
+  }
+  return null
+}
+
+// ═══ JWT (JSON Web Token) 独立提取 Case ═══
+// 支持将 JWT（包括纯 Token、Bearer 前缀、Authorization 头等）自动解析为 Header、Payload、Signature
+export const tryJwtToJson = (text) => {
+  if (!text || typeof text !== 'string') return null
+  let trimmed = text.trim()
+  if (!trimmed) return null
+
+  // 避免拦截以 { 或 [ 开头的常规 JSON/数组
+  if (/^\s*[\{\[]/.test(trimmed)) return null
+
+  // 剥离外层引号（如 "eyJhbGci..."）
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    trimmed = trimmed.slice(1, -1).trim()
+  }
+
+  // 剥离 Bearer / Authorization 前缀
+  trimmed = trimmed.replace(/^(?:Authorization:\s*)?Bearer\s+/i, '').trim()
+
+  // 1. 优先尝试整体为 JWT
+  let tokenCandidate = trimmed
+
+  // 2. 若整体包含其他内容（如日志行），尝试匹配明显的 JWT 结构子串
+  if (!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/.test(tokenCandidate)) {
+    const jwtMatch = trimmed.match(/\b(eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*)\b/)
+    if (jwtMatch) {
+      tokenCandidate = jwtMatch[1]
+    } else {
+      return null
+    }
+  }
+
+  const parts = tokenCandidate.split('.')
+  if (parts.length !== 3) return null
+
+  const [headerB64, payloadB64, signature] = parts
+  if (!headerB64 || !payloadB64) return null
+
+  // 严格字符集校验
+  if (!/^[A-Za-z0-9_-]+$/.test(headerB64) || !/^[A-Za-z0-9_-]+$/.test(payloadB64)) return null
+  if (signature && !/^[A-Za-z0-9_-]+$/.test(signature)) return null
+
+  const headerStr = decodeBase64Url(headerB64)
+  const payloadStr = decodeBase64Url(payloadB64)
+  if (!headerStr || !payloadStr) return null
+
+  let headerObj, payloadObj
+  try {
+    headerObj = safeParse(headerStr)
+    payloadObj = safeParse(payloadStr)
+  } catch (_) {
+    return null
+  }
+
+  // Header 必须是对象，且具备 JWT 核心特征字段（alg 或 typ）
+  if (!headerObj || typeof headerObj !== 'object' || Array.isArray(headerObj)) return null
+  if (!payloadObj || typeof payloadObj !== 'object') return null
+  if (!('alg' in headerObj || 'typ' in headerObj)) return null
+
+  const result = {
+    header: headerObj,
+    payload: payloadObj,
+    signature: signature || ''
+  }
+
+  return safeStringify(result, null, 2)
+}
+
 // 主提取函数，返回 { json, format } 或抛异常
 export const extractJsonFromText = (text) => {
   let trimmed = text.trim()
+
+  // ── Pre-process: cURL 命令请求体/参数提取 ──
+  const curlResult = tryCurlCommandToJson(trimmed)
+  if (curlResult) return { json: curlResult, format: 'cURL 参数' }
+
+  // ── Pre-process: JWT (JSON Web Token) 自动解析 ──
+  const jwtResult = tryJwtToJson(trimmed)
+  if (jwtResult) return { json: jwtResult, format: 'JWT' }
 
   // ── Pre-process: 剥离 Markdown 代码围栏 ``` ... ``` ──
   // 标准格式：围栏独占一行（有换行分隔）
@@ -1499,8 +1959,10 @@ export const extractJsonFromText = (text) => {
   const isPythonWrapper = /^(OrderedDict|defaultdict)\s*\(/i.test(trimmed)
   if (jsonpMatch && !isPythonWrapper) {
     const inner = jsonpMatch[1].trim()
-    const jsonpResult = tryParseCandidate(inner)
-    if (jsonpResult) return { json: jsonpResult, format: 'JS 对象' }
+    if (/^[\{\[]/.test(inner)) {
+      const jsonpResult = tryParseCandidate(inner)
+      if (jsonpResult) return { json: jsonpResult, format: 'JS 对象' }
+    }
   }
 
   // ── Pre-process: JSONC/JSON5 注释剥离后再解析 ──
@@ -1526,6 +1988,14 @@ export const extractJsonFromText = (text) => {
     try { if (tryRubyHashToJson(trimmed)) return { json: directResult, format: 'Ruby Hash' } } catch (e) {}
     return { json: directResult, format: 'JS 对象' }
   }
+
+  // ── 智能提取独立 Case: 中文全角引号 / 标点 JSON ──
+  const chineseQuotesResult = tryChineseQuotesJson(trimmed)
+  if (chineseQuotesResult) return { json: chineseQuotesResult, format: '中文引号 JSON' }
+
+  // ── 智能提取独立 Case: gRPC / Protobuf 调试输出 ──
+  const protobufResult = tryProtobufTextToJson(trimmed)
+  if (protobufResult) return { json: protobufResult, format: 'Protobuf' }
 
   // ── 再尝试 XML ──
   const xmlResult = tryXmlToJson(text)
@@ -1583,5 +2053,5 @@ export const extractJsonFromText = (text) => {
     return { json: all[0].text, format: '混合文本' }
   }
 
-  throw new Error('未能在文本中定位到任何有效的 JSON / JS / TS / Java / Python / Ruby / Go map / XML / YAML / TOML / Markdown Table / CSV / Query String / Properties / PHP / MongoDB / 转义 JSON 结构。')
+  throw new Error('未能在文本中定位到任何有效的 JSON / JS / TS / Java / Python / Ruby / Go map / XML / YAML / TOML / Markdown Table / CSV / Query String / Properties / PHP / MongoDB / Protobuf / JWT / 转义 JSON 结构。')
 }

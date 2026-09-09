@@ -8,7 +8,8 @@ for (const tc of testFixtures) {
   try {
     const { json, format } = extractJsonFromText(tc.input)
     const parsed = JSON.parse(json)
-    const formatOk = format.includes(tc.expectFormat) || tc.expectFormat.includes(format)
+    const expectedFormats = tc.expectFormat.split('|')
+    const formatOk = expectedFormats.some(ef => format.includes(ef) || ef.includes(format))
     const keysOk = !tc.expectKeys || tc.expectKeys.every(k => k in parsed)
     if (formatOk && keysOk) {
       pass++

@@ -20,13 +20,22 @@
       <!-- 左侧介绍卡片 -->
       <aside class="comment-sidebar">
         <div class="comment-card">
-          <div class="comment-card-icon">
-            <MessageCircle :size="28" />
+          <div class="comment-card-header">
+            <div class="comment-card-icon">
+              <MessageCircle :size="24" />
+            </div>
+            <div class="comment-card-title-group">
+              <div class="comment-card-title-row">
+                <h1 class="comment-card-title">畅所欲言</h1>
+                <span class="comment-stats-badge">
+                  <span class="waline-comment-count" data-path="/comment" /> 条评论
+                </span>
+              </div>
+              <p class="comment-card-desc">
+                欢迎你对 <strong>easyJSON</strong> 提出任何想法、建议或反馈。支持 Markdown 语法，可以贴代码、放链接。
+              </p>
+            </div>
           </div>
-          <h1 class="comment-card-title">畅所欲言</h1>
-          <p class="comment-card-desc">
-            欢迎你对 <strong>easyJSON</strong> 提出任何想法、建议或反馈。支持 Markdown 语法，可以贴代码、放链接。
-          </p>
           <div class="comment-card-features">
             <div class="comment-feature-item">
               <Check :size="14" class="comment-feature-check" />
@@ -193,52 +202,82 @@ onUnmounted(() => {
   max-width: 1100px;
   width: 100%;
   margin: 0 auto;
-  padding: 32px 24px;
-  gap: 32px;
+  padding: clamp(16px, 2.5vw, 28px) clamp(12px, 2vw, 24px);
+  gap: clamp(16px, 2vw, 28px);
   align-items: flex-start;
+  box-sizing: border-box;
 }
 
 /* ─── 左侧卡片 ─── */
 .comment-sidebar {
-  width: 280px;
+  width: clamp(230px, 26vw, 280px);
   flex-shrink: 0;
   position: sticky;
-  top: 32px;
+  top: 24px;
 }
 .comment-card {
   background: var(--bg-panel);
   border-radius: 12px;
-  padding: 28px 24px;
+  padding: clamp(16px, 2vw, 24px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
   transition: all 0.3s ease;
+  border: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 .comment-card:hover {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.04);
 }
+
+.comment-card-header {
+  display: flex;
+  flex-direction: column;
+}
 .comment-card-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   background: linear-gradient(135deg, #2563eb, #4fc1ff);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+  flex-shrink: 0;
+}
+.comment-card-title-group {
+  display: flex;
+  flex-direction: column;
+}
+.comment-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 .comment-card-title {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
-  margin: 0 0 8px;
+  margin: 0;
   letter-spacing: -0.02em;
+}
+.comment-stats-badge {
+  display: none;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-app);
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
 }
 .comment-card-desc {
   font-size: 13px;
-  line-height: 1.65;
+  line-height: 1.6;
   color: var(--text-secondary);
-  margin: 0 0 20px;
+  margin: 0 0 16px;
 }
 .comment-card-desc strong {
   color: var(--text-primary);
@@ -247,7 +286,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 18px;
 }
 .comment-feature-item {
   display: flex;
@@ -261,7 +300,7 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .comment-card-footer {
-  padding-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--border-color);
 }
 .comment-stats {
@@ -279,9 +318,11 @@ onUnmounted(() => {
   min-width: 0;
   background: var(--bg-panel);
   border-radius: 12px;
-  padding: 32px;
+  padding: clamp(16px, 2.5vw, 28px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
   transition: all 0.3s ease;
+  border: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 .comment-content:hover {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.04);
@@ -607,11 +648,138 @@ onUnmounted(() => {
   text-align: center !important;
 }
 
-/* ─── 响应式 ─── */
-@media (max-width: 780px) {
-  .comment-main { flex-direction: column; padding: 16px; gap: 16px; }
-  .comment-sidebar { width: 100%; position: static; }
-  .comment-content { padding: 20px; }
+/* ─── 响应式与客户端模式适配 ─── */
+@media (max-width: 920px) {
+  .comment-main {
+    flex-direction: column;
+    padding: 14px clamp(10px, 2vw, 16px);
+    gap: 14px;
+  }
+  .comment-sidebar {
+    width: 100%;
+    position: static;
+  }
+  .comment-card {
+    padding: 14px 16px;
+  }
+  .comment-card-header {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+  .comment-card-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    margin-bottom: 0;
+  }
+  .comment-card-title-group {
+    flex: 1;
+    min-width: 0;
+  }
+  .comment-card-title-row {
+    margin-bottom: 2px;
+  }
+  .comment-card-title {
+    font-size: 15px;
+  }
+  .comment-stats-badge {
+    display: inline-flex;
+  }
+  .comment-card-desc {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .comment-card-features {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+    margin: 10px 0 0;
+    padding-top: 10px;
+    border-top: 1px dashed var(--border-color);
+  }
+  .comment-feature-item {
+    font-size: 11.5px;
+  }
+  .comment-card-footer {
+    display: none;
+  }
+  .comment-content {
+    padding: 18px 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .comment-topbar {
+    height: 44px;
+  }
+  .comment-topbar-inner {
+    padding: 0 12px;
+  }
+  .comment-topbar-spacer {
+    width: 48px;
+  }
+  .comment-main {
+    padding: 10px 8px;
+    gap: 10px;
+  }
+  .comment-card {
+    padding: 12px 14px;
+    border-radius: 10px;
+  }
+  .comment-card-features {
+    display: none;
+  }
+  .comment-content {
+    padding: 12px 10px;
+    border-radius: 10px;
+  }
+  :deep(.wl-header .wl-header-item) {
+    flex: 1 1 100% !important;
+  }
+  :deep(.wl-footer) {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  :deep(.wl-actions) {
+    flex-wrap: wrap !important;
+  }
+}
+
+/* ─── 桌面客户端专用适配 (Desktop Client / uTools / VSCode / Tauri / Popup) ─── */
+body.utools-mode .comment-main,
+body.tauri-mode .comment-main,
+body.vscode-mode .comment-main,
+html.popup-mode .comment-main {
+  max-width: 100%;
+  padding: 14px 16px;
+  gap: 14px;
+}
+
+body.utools-mode .comment-topbar-inner,
+body.tauri-mode .comment-topbar-inner,
+body.vscode-mode .comment-topbar-inner,
+html.popup-mode .comment-topbar-inner {
+  max-width: 100%;
+  padding: 0 16px;
+}
+
+/* 客户端中小窗模式下优先采用单列横向轻量排布 */
+@media (max-width: 960px) {
+  body.utools-mode .comment-main,
+  body.tauri-mode .comment-main,
+  body.vscode-mode .comment-main,
+  html.popup-mode .comment-main {
+    flex-direction: column;
+  }
+  body.utools-mode .comment-sidebar,
+  body.tauri-mode .comment-sidebar,
+  body.vscode-mode .comment-sidebar,
+  html.popup-mode .comment-sidebar {
+    width: 100%;
+    position: static;
+  }
 }
 </style>
 

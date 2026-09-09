@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
-import { Play, CheckCircle, XCircle, ChevronDown, ChevronRight, RotateCcw, Clipboard, ClipboardCheck } from 'lucide-vue-next'
+import { Play, CheckCircle, XCircle, ChevronDown, ChevronRight, RotateCcw, Clipboard, ClipboardCheck, ArrowLeft } from 'lucide-vue-next'
 import { testFixtures, testCategories } from '../utils/testFixtures.js'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
 import { safeParse } from '../utils/jsonBigInt.js'
@@ -88,25 +88,32 @@ function getStatus(id) {
 <template>
   <div class="test-page">
     <header class="test-header">
-      <div class="test-header-left">
-        <button class="test-back-btn" @click="emit('go-back')">← 返回</button>
-        <h1 class="test-title">JSON 提取测试</h1>
-        <span class="test-count">{{ testFixtures.length }} 个用例</span>
-      </div>
-      <div class="test-header-right">
-        <div class="test-stats" v-if="stats.ran > 0">
-          <span class="stat-pass">✓ {{ stats.pass }}</span>
-          <span class="stat-fail" v-if="stats.fail > 0">✗ {{ stats.fail }}</span>
-          <span class="stat-total">/ {{ stats.total }}</span>
+      <div class="test-header-inner">
+        <div class="test-header-left">
+          <button class="test-back-btn" @click="emit('go-back')" title="返回主页">
+            <ArrowLeft :size="16" />
+            <span>返回</span>
+          </button>
+          <h1 class="test-title">JSON 提取测试</h1>
+          <span class="test-count">{{ testFixtures.length }} 个用例</span>
         </div>
-        <button class="test-action-btn reset-btn" @click="resetAll" :disabled="isRunningAll">
-          <RotateCcw :size="14" /> 重置
-        </button>
-        <button class="test-action-btn run-all-btn" @click="runAll" :disabled="isRunningAll">
-          <Play :size="14" /> {{ isRunningAll ? '运行中...' : '全部运行' }}
-        </button>
+        <div class="test-header-right">
+          <div class="test-stats" v-if="stats.ran > 0">
+            <span class="stat-pass">✓ {{ stats.pass }}</span>
+            <span class="stat-fail" v-if="stats.fail > 0">✗ {{ stats.fail }}</span>
+            <span class="stat-total">/ {{ stats.total }}</span>
+          </div>
+          <button class="test-action-btn reset-btn" @click="resetAll" :disabled="isRunningAll">
+            <RotateCcw :size="14" /> 重置
+          </button>
+          <button class="test-action-btn run-all-btn" @click="runAll" :disabled="isRunningAll">
+            <Play :size="14" /> {{ isRunningAll ? '运行中...' : '全部运行' }}
+          </button>
+        </div>
       </div>
     </header>
+
+    <main class="test-main">
 
     <div class="test-filters">
       <button
@@ -199,7 +206,8 @@ function getStatus(id) {
         </div>
       </div>
     </div>
-  </div>
+  </main>
+</div>
 </template>
 
 <style scoped>
@@ -209,33 +217,54 @@ function getStatus(id) {
   color: var(--text-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   padding: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .test-header {
   position: sticky;
   top: 0;
   z-index: 10;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-color);
+}
+.test-header-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border-color);
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 12px 24px;
 }
 .test-header-left { display: flex; align-items: center; gap: 12px; }
 .test-header-right { display: flex; align-items: center; gap: 10px; }
 
 .test-back-btn {
-  background: none;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  padding: 4px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 12px;
+  border: none;
+  background-color: var(--action-btn-bg);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  font-family: var(--font-sans);
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
-  transition: all 0.15s;
+  height: 28px;
+  transition: transform 0.1s ease, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
-.test-back-btn:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+.test-back-btn:hover {
+  background-color: var(--bg-app);
+  border-color: var(--border-color-active);
+}
+.test-back-btn:active {
+  transform: scale(0.96);
+}
 
 .test-title { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.02em; color: var(--text-primary); }
 .test-count { font-size: 12px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
@@ -265,12 +294,21 @@ function getStatus(id) {
 .reset-btn { background: transparent; color: var(--text-secondary); }
 .reset-btn:hover:not(:disabled) { color: var(--text-primary); }
 
+.test-main {
+  flex: 1;
+  max-width: 1100px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px 24px 48px;
+}
+
 .test-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 12px 24px;
+  padding: 0 0 16px;
   border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
 }
 
 .filter-chip {
@@ -288,7 +326,7 @@ function getStatus(id) {
 .filter-chip:hover { border-color: var(--text-secondary); color: var(--text-primary); }
 .filter-chip.active { background: #388bfd26; border-color: #388bfd; color: #58a6ff; }
 
-.test-list { padding: 12px 24px; display: flex; flex-direction: column; gap: 4px; }
+.test-list { padding: 0; display: flex; flex-direction: column; gap: 6px; }
 
 .test-card {
   border: 1px solid var(--border-color);

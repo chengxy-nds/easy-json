@@ -635,6 +635,16 @@ port = 3306`,
     input: '{"id": UUID("550e8400-e29b-41d4-a716-446655440000"), "min": MinKey, "max": MaxKey, "ref": DBRef("users", "abc123")}',
     expectFormat: 'MongoDB', expectKeys: ['id', 'min', 'max', 'ref'],
   },
+  {
+    id: 'mongo-5', category: 'MongoDB', label: 'mongosh 无引号 Key + 单引号参数',
+    input: `{
+  _id: ObjectId('66d123456789abcdef012345'),
+  createdAt: ISODate('2026-09-09T10:20:00Z'),
+  userId: NumberLong(10001),
+  tags: [ 'java', 'redis' ]
+}`,
+    expectFormat: 'MongoDB', expectKeys: ['_id', 'createdAt', 'userId', 'tags'],
+  },
 
   // ═══ 18. 转义 JSON (3) ═══
   {
@@ -700,6 +710,75 @@ port = 3306`,
     id: 'repair-5', category: '自动修复', label: '深层嵌套截断',
     input: '{"a":{"b":{"c":[1,2,3',
     expectFormat: '自动修复', expectKeys: ['a'],
+  },
+
+  // ═══ 21. 中文全角标点 JSON (2) ═══
+  {
+    id: 'zh-quote-1', category: '中文引号JSON', label: '电商订单列表 (中文引号+半角混用)',
+    input: '{“orderId”:“1463456465456456”,“orderItemList”:[{“id”:“123”,“sku”:“ABCDEFG”,“link”:“https://picui.ogmua.cn/s1/2026/09/01/6a969def1708a.webp",“name”:“商品2”},{“id”:“158778789743”,“sku”:“HKJJFOIJDJ”,“link”:“https://picui.ogmua.cn/s1/2026/09/01/6a969def1708a.webp”,“name”:“商品2”},{“id”:“489789435465465”,“sku”:“JHIOFJLKJLKSJIOHUE”,“link”:“https://picui.ogmua.cn/s1/2026/09/01/6a969def1708a.webp”,“name”:“商品3”},{“id”:“7987846546546874984”,“sku”:“JIOJFIOJOENP”,“link”:“https://picui.ogmua.cn/s1/2026/09/01/6a969def1708a.webp”,“name”:"商品4”}]}',
+    expectFormat: '中文引号', expectKeys: ['orderId', 'orderItemList'],
+  },
+  {
+    id: 'zh-quote-2', category: '中文引号JSON', label: '全角括号与冒号',
+    input: '｛“title”：“测试数据”，“count”：100，“items”：［“苹果”，“香蕉”］｝',
+    expectFormat: '中文引号', expectKeys: ['title', 'count', 'items'],
+  },
+
+  // ═══ 22. cURL 命令参数提取 (2) ═══
+  {
+    id: 'curl-1', category: 'cURL', label: '标准 POST 带 --data-raw',
+    input: `curl 'https://api.xxx.com/order' \\
+  -H 'content-type: application/json' \\
+  --data-raw '{"userId":10001,"items":[{"id":1,"name":"商品1"}]}'`,
+    expectFormat: 'cURL', expectKeys: ['userId', 'items'],
+  },
+  {
+    id: 'curl-2', category: 'cURL', label: '多行 -d 紧凑参数',
+    input: `curl -X POST https://api.xxx.com/login -H "Content-Type: application/json" -d "{\\"username\\":\\"admin\\",\\"password\\":\\"123456\\"}"`,
+    expectFormat: 'cURL', expectKeys: ['username', 'password'],
+  },
+
+  // ═══ 23. gRPC / Protobuf 调试输出 (2) ═══
+  {
+    id: 'pb-1', category: 'Protobuf', label: '嵌套 Message 结构 (用户用例)',
+    input: `user {
+  id: 10001
+  name: "xiaofu"
+  roles {
+    id: 1
+    name: "admin"
+  }
+}`,
+    expectFormat: 'Protobuf', expectKeys: ['user'],
+  },
+  {
+    id: 'pb-2', category: 'Protobuf', label: 'repeated 字段自动聚合数组与枚举',
+    input: `id: 10002
+name: "xiaofu"
+status: ACTIVE
+tags: "java"
+tags: "redis"
+roles {
+  id: 1
+  name: "admin"
+}
+roles {
+  id: 2
+  name: "editor"
+}`,
+    expectFormat: 'Protobuf', expectKeys: ['id', 'name', 'status', 'tags', 'roles'],
+  },
+
+  // ═══ 24. JWT (JSON Web Token) (2) ═══
+  {
+    id: 'jwt-1', category: 'JWT', label: '标准三段式 JWT Token (用户用例)',
+    input: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c',
+    expectFormat: 'JWT', expectKeys: ['header', 'payload', 'signature'],
+  },
+  {
+    id: 'jwt-2', category: 'JWT', label: 'Bearer 前缀与 UTF-8 中文字段',
+    input: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoi5bCP5aSrIiwicm9sZSI6IueuoeeQhuWRmCJ9.dGVzdHNpZw',
+    expectFormat: 'JWT', expectKeys: ['header', 'payload', 'signature'],
   },
 ]
 

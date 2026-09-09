@@ -214,13 +214,22 @@ const toggleVersion = (version) => {
       <!-- 左侧介绍卡片 -->
       <aside class="cl-sidebar">
         <div class="cl-card">
-          <div class="cl-card-icon">
-            <History :size="28" />
+          <div class="cl-card-header">
+            <div class="cl-card-icon">
+              <History :size="24" />
+            </div>
+            <div class="cl-card-title-group">
+              <div class="cl-card-title-row">
+                <h1 class="cl-card-title">更新记录</h1>
+                <span class="cl-stats-badge">
+                  {{ changelog.length }} 个版本
+                </span>
+              </div>
+              <p class="cl-card-desc">
+                记录 <strong>easyJSON</strong> 每个版本的更新内容，包括新功能、问题修复与体验优化。
+              </p>
+            </div>
           </div>
-          <h1 class="cl-card-title">更新记录</h1>
-          <p class="cl-card-desc">
-            记录 <strong>easyJSON</strong> 每个版本的更新内容，包括新功能、问题修复与体验优化。
-          </p>
           <div class="cl-card-stats">
             <div class="cl-stat-item">
               <span class="cl-stat-num">{{ changelog.length }}</span>
@@ -408,52 +417,82 @@ const toggleVersion = (version) => {
   max-width: 1100px;
   width: 100%;
   margin: 0 auto;
-  padding: 32px 24px;
-  gap: 32px;
+  padding: clamp(16px, 2.5vw, 28px) clamp(12px, 2vw, 24px);
+  gap: clamp(16px, 2vw, 28px);
   align-items: flex-start;
+  box-sizing: border-box;
 }
 
 /* ─── 左侧卡片 ─── */
 .cl-sidebar {
-  width: 280px;
+  width: clamp(230px, 26vw, 280px);
   flex-shrink: 0;
   position: sticky;
-  top: 32px;
+  top: 24px;
 }
 .cl-card {
   background: var(--bg-panel);
   border-radius: 12px;
-  padding: 28px 24px;
+  padding: clamp(16px, 2vw, 24px);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
   transition: all 0.3s ease;
+  border: 1px solid var(--border-color);
+  box-sizing: border-box;
 }
 .cl-card:hover {
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.04);
 }
+
+.cl-card-header {
+  display: flex;
+  flex-direction: column;
+}
 .cl-card-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
   background: linear-gradient(135deg, var(--primary-color), #4fc1ff);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   box-shadow: 0 4px 12px var(--primary-light);
+  flex-shrink: 0;
+}
+.cl-card-title-group {
+  display: flex;
+  flex-direction: column;
+}
+.cl-card-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
 }
 .cl-card-title {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
-  margin: 0 0 8px;
+  margin: 0;
   letter-spacing: -0.02em;
+}
+.cl-stats-badge {
+  display: none;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-app);
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
 }
 .cl-card-desc {
   font-size: 13px;
-  line-height: 1.65;
+  line-height: 1.6;
   color: var(--text-secondary);
-  margin: 0 0 24px;
+  margin: 0 0 16px;
 }
 .cl-card-desc strong {
   color: var(--text-primary);
@@ -462,7 +501,7 @@ const toggleVersion = (version) => {
   display: flex;
   align-items: center;
   gap: 0;
-  padding-top: 16px;
+  padding-top: 14px;
   border-top: 1px solid var(--border-color);
 }
 .cl-stat-item {
@@ -680,19 +719,58 @@ const toggleVersion = (version) => {
   opacity: 0.5;
 }
 
-/* ─── 响应式 ─── */
-@media (max-width: 780px) {
+/* ─── 响应式与客户端模式适配 ─── */
+@media (max-width: 920px) {
   .cl-main {
     flex-direction: column;
-    padding: 16px;
-    gap: 16px;
+    padding: 14px clamp(10px, 2vw, 16px);
+    gap: 14px;
   }
   .cl-sidebar {
     width: 100%;
     position: static;
   }
+  .cl-card {
+    padding: 14px 16px;
+  }
+  .cl-card-header {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+  }
+  .cl-card-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    margin-bottom: 0;
+  }
+  .cl-card-title-group {
+    flex: 1;
+    min-width: 0;
+  }
+  .cl-card-title-row {
+    margin-bottom: 2px;
+  }
+  .cl-card-title {
+    font-size: 15px;
+  }
+  .cl-stats-badge {
+    display: inline-flex;
+  }
+  .cl-card-desc {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .cl-card-stats {
+    display: none;
+  }
+  .cl-entry {
+    gap: 12px;
+  }
   .cl-timeline-node {
     width: 16px;
+    padding-top: 20px;
   }
   .cl-dot {
     width: 10px;
@@ -701,6 +779,86 @@ const toggleVersion = (version) => {
   .cl-dot.is-latest {
     width: 12px;
     height: 12px;
+  }
+  .cl-entry-header {
+    padding: 14px 16px;
+  }
+  .cl-entry-body {
+    padding: 0 16px 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  .cl-topbar {
+    height: 44px;
+  }
+  .cl-topbar-inner {
+    padding: 0 12px;
+  }
+  .cl-topbar-spacer {
+    width: 48px;
+  }
+  .cl-main {
+    padding: 10px 8px;
+    gap: 10px;
+  }
+  .cl-card {
+    padding: 12px 14px;
+    border-radius: 10px;
+  }
+  .cl-entry {
+    gap: 8px;
+  }
+  .cl-timeline-node {
+    width: 14px;
+    padding-top: 18px;
+  }
+  .cl-entry-header {
+    padding: 12px 12px;
+  }
+  .cl-entry-body {
+    padding: 0 12px 14px;
+  }
+  .cl-version-badge {
+    font-size: 12px;
+  }
+  .cl-date {
+    font-size: 11px;
+  }
+}
+
+/* ─── 桌面客户端专用适配 (Desktop Client / uTools / VSCode / Tauri / Popup) ─── */
+body.utools-mode .cl-main,
+body.tauri-mode .cl-main,
+body.vscode-mode .cl-main,
+html.popup-mode .cl-main {
+  max-width: 100%;
+  padding: 14px 16px;
+  gap: 14px;
+}
+
+body.utools-mode .cl-topbar-inner,
+body.tauri-mode .cl-topbar-inner,
+body.vscode-mode .cl-topbar-inner,
+html.popup-mode .cl-topbar-inner {
+  max-width: 100%;
+  padding: 0 16px;
+}
+
+/* 客户端中小窗模式下优先采用单列轻量横向卡片 */
+@media (max-width: 960px) {
+  body.utools-mode .cl-main,
+  body.tauri-mode .cl-main,
+  body.vscode-mode .cl-main,
+  html.popup-mode .cl-main {
+    flex-direction: column;
+  }
+  body.utools-mode .cl-sidebar,
+  body.tauri-mode .cl-sidebar,
+  body.vscode-mode .cl-sidebar,
+  html.popup-mode .cl-sidebar {
+    width: 100%;
+    position: static;
   }
 }
 </style>

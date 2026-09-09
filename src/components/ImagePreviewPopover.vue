@@ -56,6 +56,14 @@ const resetZoom = () => {
   zoomScale.value = 1
 }
 
+const toggleZoom = () => {
+  if (zoomScale.value === 1) {
+    zoomScale.value = 2
+  } else {
+    zoomScale.value = 1
+  }
+}
+
 const handleKeyDown = (e) => {
   if (showZoomModal.value && e.key === 'Escape') {
     closeZoomModal()
@@ -336,14 +344,18 @@ const onPopoverLeave = () => {
             <span class="state-text">图片无法直接预览</span>
           </div>
 
-          <!-- 真实图片（带 no-referrer 规避大部分防盗链） -->
-          <div class="image-wrapper" :class="{ 'img-loaded': !isLoading && !isError }">
+          <!-- 真实图片（带 no-referrer 规避大部分防盗链，支持双击放大） -->
+          <div
+            class="image-wrapper"
+            :class="{ 'img-loaded': !isLoading && !isError }"
+            @dblclick.stop="openZoomModal"
+          >
             <img
               ref="imgElRef"
               :src="url"
               referrerpolicy="no-referrer"
-              crossorigin="anonymous"
               alt="Preview"
+              title="双击全屏放大查看"
               @load="handleImageLoad"
               @error="handleImageError"
             />
@@ -393,10 +405,11 @@ const onPopoverLeave = () => {
           <img
             :src="url"
             referrerpolicy="no-referrer"
-            crossorigin="anonymous"
             class="zoom-image"
             :style="{ transform: `scale(${zoomScale})` }"
             alt="Enlarged preview"
+            title="双击切换放大 / 还原"
+            @dblclick.stop="toggleZoom"
           />
         </div>
       </div>
@@ -542,6 +555,11 @@ const onPopoverLeave = () => {
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
   transition: transform 0.2s ease;
+  cursor: zoom-in;
+}
+
+.image-wrapper img:hover {
+  transform: scale(1.025);
 }
 
 .state-container {
@@ -692,6 +710,7 @@ const onPopoverLeave = () => {
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: center center;
+  cursor: zoom-in;
 }
 
 .modal-fade-enter-active,
