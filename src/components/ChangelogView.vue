@@ -11,6 +11,31 @@ const emit = defineEmits(['go-back'])
 
 const changelog = [
   {
+    version: 'v1.0.7',
+    date: '2026-09-09',
+    sections: [
+      {
+        icon: Sparkles,
+        title: '功能新增',
+        iconClass: 'cl-section-sparkle',
+        items: [
+          '支持 cURL、MongoDB、gRPC/Protobuf 及 JWT 智能提取',
+          '新增「示例」入口与 JSON 提取测试实验室'
+        ]
+      },
+      {
+        icon: Zap,
+        title: '体验优化',
+        iconClass: 'cl-section-zap',
+        items: [
+          '多分辨率与桌面客户端（uTools / Tauri）自适应适配',
+          '规范统一各二级页面的返回导航与版心居中体验',
+          '图片预览弹窗支持双击放大'
+        ]
+      }
+    ]
+  },
+  {
     version: 'v1.0.6',
     date: '2026-09-07',
     sections: [
