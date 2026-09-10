@@ -1,12 +1,18 @@
 <script setup>
 import { ref, computed, watch, inject, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ChevronDown, ChevronRight, ExternalLink, Image as ImageIcon } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, ExternalLink, Image as ImageIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, Volume2, Video as VideoIcon, KeyRound, FileCode, Code2, CalendarClock } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
+import { detectTimestamp, detectUnicode, detectNestedJson, getFormatNow } from '../utils/capsuleDetector.js'
+import { detectMedia, detectJwt, detectBase64Text, detectUrlEncoded, detectCron, detectHtml } from '../utils/advancedDetectors.js'
 
 const props = defineProps({
   data: {
     required: true
+  },
+  rawInput: {
+    type: String,
+    default: ''
   },
   hoveredPath: {
     type: Array,
@@ -21,12 +27,15 @@ const props = defineProps({
 const emit = defineEmits(['scroll', 'hover-path', 'click-path', 'toggle-fold'])
 
 // Injected properties
+const isDark = inject('isDark', ref(true))
 const treeExpanded = inject('treeExpanded', ref(true))
 const showToast = inject('showToast', (msg) => console.log(msg))
 const searchQuery = inject('searchQuery', ref(''))
 const setHoveredPath = inject('setHoveredPath', null)
 const setSelectedPath = inject('setSelectedPath', null)
 const imagePreview = inject('imagePreview', null)
+const smartPreview = inject('smartPreview', null)
+const openNestedJsonTab = inject('openNestedJsonTab', null)
 
 const editorFontSize = inject('editorFontSize', ref(13))
 const editorWordWrap = inject('editorWordWrap', ref('wrap'))
@@ -41,6 +50,11 @@ const editorLineHeight = computed(() => {
 // Expanded state tracking using a Set of node path keys
 const expandedKeys = ref(new Set())
 const collapsedKeys = ref(new Set())
+// 嵌套 JSON 局部展开状态管理
+const expandedNestedKeys = ref(new Set())
+watch(() => props.data, () => {
+  expandedNestedKeys.value.clear()
+})
 
 // Helper to generate unique ID for a path
 const getPathId = (path) => {
@@ -147,6 +161,7 @@ const setNodeFold = (path, isFolded) => {
 }
 
 // Tree Flattening Engine: converts arbitrary nested JSON into a 1D flat list of visible rows
+// Tree Flattening Engine: converts arbitrary nested JSON into a 1D flat list of visible rows (极速轻量平铺引擎，保障10万行秒开)
 const flatRows = computed(() => {
   const rootData = props.data
   if (rootData === undefined) return []
@@ -155,13 +170,17 @@ const flatRows = computed(() => {
 
   const traverse = (val, name, path, depth, isLast) => {
     const id = getPathId(path)
-    const isObj = val !== null && typeof val === 'object'
-    const isArr = Array.isArray(val)
+    // 惰性检测：只有用户主动点击展开过该嵌套节点时，才需要将其作为子树展开
+    const isNestedExpanded = expandedNestedKeys.value.size > 0 && expandedNestedKeys.value.has(id) && typeof val === 'string'
+    const nestedData = isNestedExpanded ? detectNestedJson(val) : null
+    const isObj = (val !== null && typeof val === 'object') || (isNestedExpanded && nestedData)
+    const targetVal = isNestedExpanded && nestedData ? nestedData.parsed : val
+    const isArr = Array.isArray(targetVal)
 
     if (isObj) {
       const isExpanded = isNodeExpanded(id, depth)
-      const keys = isArr ? null : Object.keys(val)
-      const childCount = isArr ? val.length : keys.length
+      const keys = isArr ? null : Object.keys(targetVal)
+      const childCount = isArr ? targetVal.length : keys.length
 
       // Opening bracket row
       rows.push({
@@ -169,22 +188,25 @@ const flatRows = computed(() => {
         path,
         depth,
         name,
-        value: val,
+        value: targetVal,
         type: isArr ? 'array' : 'object',
         isExpanded,
         childCount,
-        isLast
+        isLast,
+        isNestedExpanded: !!isNestedExpanded,
+        rawNestedValue: isNestedExpanded ? val : undefined,
+        nestedJsonData: nestedData
       })
 
       if (isExpanded) {
         if (isArr) {
-          for (let i = 0; i < val.length; i++) {
-            traverse(val[i], undefined, [...path, i], depth + 1, i === val.length - 1)
+          for (let i = 0; i < targetVal.length; i++) {
+            traverse(targetVal[i], undefined, [...path, i], depth + 1, i === targetVal.length - 1)
           }
         } else {
           for (let i = 0; i < keys.length; i++) {
             const k = keys[i]
-            traverse(val[k], k, [...path, k], depth + 1, i === keys.length - 1)
+            traverse(targetVal[k], k, [...path, k], depth + 1, i === keys.length - 1)
           }
         }
 
@@ -201,7 +223,7 @@ const flatRows = computed(() => {
         })
       }
     } else {
-      // Primitive value row
+      // Primitive value row: 保持极速轻量平铺，不在全量遍历中做重型探测（重型胶囊探测惰性延迟到可见行）
       const isColor = typeof val === 'string' && isColorValue(val)
       const isImg = typeof val === 'string' && !isColor && isImageUrl(val)
       const isUrl = typeof val === 'string' && !isColor && !isImg && isHttpUrl(val)
@@ -239,15 +261,106 @@ const viewportHeight = ref(600)
 const containerWidth = ref(800)
 const bufferCount = 10
 
-// Dynamic row height map for wrap mode (non-reactive cache to prevent recursive loops)
+// Dynamic row height map for wrap mode (non-reactive cache with version trigger)
 const rowHeightMap = new Map()
+const rowHeightVersion = ref(0)
 const maxLineWidth = ref(800)
+let rafId = null
+let updateTimer = null
+
+const scheduleOffsetsUpdate = () => {
+  const totalCount = flatRows.value.length
+  if (totalCount > 2000) {
+    if (updateTimer !== null) return
+    updateTimer = setTimeout(() => {
+      updateTimer = null
+      rowHeightVersion.value++
+    }, 100)
+    return
+  }
+  if (rafId !== null) return
+  rafId = requestAnimationFrame(() => {
+    rafId = null
+    rowHeightVersion.value++
+  })
+}
+
+// 真实 DOM 元素尺寸测量与监听器
+let rowResizeObserver = null
+
+const measureElement = (el, rowId) => {
+  if (!el || !rowId || !isWrap.value) return
+  const rectH = el.getBoundingClientRect().height
+  const h = Math.round(rectH || el.offsetHeight)
+  if (h > 0) {
+    const oldH = rowHeightMap.get(rowId)
+    if (oldH === undefined || Math.abs(oldH - h) >= 1) {
+      rowHeightMap.set(rowId, h)
+      scheduleOffsetsUpdate()
+    }
+  }
+}
+
+// 自定义指令 v-row-measure，用于精准跟踪挂载与可见行高度
+const vRowMeasure = {
+  mounted(el, binding) {
+    if (!binding.value) return
+    el.__rowId = binding.value
+    if (rowResizeObserver && isWrap.value) {
+      rowResizeObserver.observe(el)
+    }
+    measureElement(el, binding.value)
+  },
+  updated(el, binding) {
+    if (!binding.value) return
+    el.__rowId = binding.value
+    measureElement(el, binding.value)
+  },
+  unmounted(el) {
+    if (rowResizeObserver) {
+      rowResizeObserver.unobserve(el)
+    }
+    el.__rowId = null
+  }
+}
+
+const initRowObserver = () => {
+  if (typeof ResizeObserver !== 'undefined') {
+    rowResizeObserver = new ResizeObserver((entries) => {
+      if (!isWrap.value) return
+      let changed = false
+      for (const entry of entries) {
+        const id = entry.target.__rowId
+        if (!id) continue
+        const rectH = entry.borderBoxSize?.[0]?.blockSize || entry.target.getBoundingClientRect().height
+        const h = Math.round(rectH || entry.target.offsetHeight)
+        if (h > 0) {
+          const oldH = rowHeightMap.get(id)
+          if (oldH === undefined || Math.abs(oldH - h) >= 1) {
+            rowHeightMap.set(id, h)
+            changed = true
+          }
+        }
+      }
+      if (changed) {
+        scheduleOffsetsUpdate()
+      }
+    })
+  }
+}
 
 const updateDimensions = () => {
   if (containerRef.value) {
     viewportHeight.value = containerRef.value.clientHeight || 600
-    containerWidth.value = containerRef.value.clientWidth || 800
-    recalculateMaxLineWidth()
+    const newW = containerRef.value.clientWidth || 800
+    if (Math.abs(containerWidth.value - newW) > 2) {
+      containerWidth.value = newW
+      if (isWrap.value) {
+        rowHeightMap.clear()
+        scheduleOffsetsUpdate()
+      }
+      recalculateMaxLineWidth()
+    }
   }
 }
 
@@ -258,10 +371,37 @@ const recalculateMaxLineWidth = () => {
   }
   let maxW = containerWidth.value
   const rows = flatRows.value
+  const total = rows.length
+  if (total === 0) return
+
   const fontSize = Number(editorFontSize.value) || 13
   const charWidth = fontSize * 0.62
 
-  for (let i = 0; i < rows.length; i++) {
+  // 大文件模式（行数 > 2000）：快速采样前中后行，毫秒级确定合理滚动宽度，杜绝10万行全量阻塞
+  if (total > 2000) {
+    const step = Math.max(1, Math.floor(total / 100))
+    const checkRow = (r) => {
+      if (!r) return
+      const depthW = r.depth * 14 + 32
+      const nameW = r.name ? String(r.name).length * charWidth + 16 : 0
+      let valW = 0
+      if (r.value !== null && r.value !== undefined) {
+        valW = Math.min(1200, String(r.value).length * charWidth + 20)
+      } else if (r.type === 'object' || r.type === 'array') {
+        valW = 100
+      }
+      const totalW = depthW + nameW + valW + 30
+      if (totalW > maxW) maxW = totalW
+    }
+    const sampleLimit = Math.min(100, total)
+    for (let i = 0; i < sampleLimit; i++) checkRow(rows[i])
+    for (let i = Math.max(0, total - sampleLimit); i < total; i++) checkRow(rows[i])
+    for (let i = sampleLimit; i < total - sampleLimit; i += step) checkRow(rows[i])
+    maxLineWidth.value = Math.ceil(maxW)
+    return
+  }
+
+  for (let i = 0; i < total; i++) {
     const r = rows[i]
     const depthW = r.depth * 14 + 32
     const nameW = r.name ? String(r.name).length * charWidth + 16 : 0
@@ -279,27 +419,37 @@ const recalculateMaxLineWidth = () => {
 
 watch([flatRows, isWrap, editorFontSize], () => {
   rowHeightMap.clear()
+  scheduleOffsetsUpdate()
   recalculateMaxLineWidth()
 })
 
 const onScroll = (e) => {
   scrollTop.value = e.target.scrollTop
+  if (activeTimeMenu.value) activeTimeMenu.value = null
+  if (activeNestedMenu.value) activeNestedMenu.value = null
   emit('scroll', e)
 }
 
-// Estimate height for unmeasured rows in wrap mode
+// Estimate height for unmeasured rows in wrap mode (极速估算，无任何字符级循环，O(1)秒级处理10万行)
 const estimateRowHeight = (row) => {
   const lh = editorLineHeight.value
   if (!isWrap.value) return lh
 
   if (row.type === 'primitive') {
+    const val = row.value
+    if (val === null || val === undefined) return lh
+    const strVal = typeof val === 'string' ? val : String(val)
+    // 快速短路：98% 字段长度小于 60，不可能发生换行，直接返回单行高度
+    if (strVal.length < 60) return lh
+
     const fontSize = Number(editorFontSize.value) || 13
     const charWidth = fontSize * 0.62
     const nameLen = row.name ? String(row.name).length + 3 : 0
-    const valLen = row.value !== null && row.value !== undefined ? String(row.value).length + 2 : 4
-    const totalLen = nameLen + valLen
-    const availWidth = Math.max(120, containerWidth.value - (row.depth * 14 + 36))
-    const charsPerLine = Math.max(12, Math.floor(availWidth / charWidth))
+    const totalLen = nameLen + strVal.length + 2
+
+    // 扣除层级缩进、图标、行右内边距以及垂直滚动条（约14px）
+    const availWidth = Math.max(100, containerWidth.value - (row.depth * 14 + 50))
+    const charsPerLine = Math.max(10, Math.floor(availWidth / charWidth))
     const lines = Math.max(1, Math.ceil(totalLen / charsPerLine))
     return lines * lh
   }
@@ -308,6 +458,8 @@ const estimateRowHeight = (row) => {
 
 // Prefix sum of row offsets for variable row height support in wrap mode
 const rowOffsets = computed(() => {
+  // 依赖版本触发器，确保测量到真实 DOM 高度后能响应式更新所有后续行的 topPosition
+  const _ = rowHeightVersion.value
   const rows = flatRows.value
   const count = rows.length
   const offsets = new Float64Array(count + 1)
@@ -381,12 +533,72 @@ const endIndex = computed(() => {
   return Math.min(total, result + bufferCount)
 })
 
+// 惰性富化检测：仅在行进入视口时，才对这 30~50 行进行智能数据胶囊探测（毫秒级完成，不影响大数据平铺）
+const enrichVisibleRow = (row) => {
+  if (row.type !== 'primitive') return row
+  const val = row.value
+  const isColor = row.isColorValue
+  const mediaData = typeof val === 'string' && !isColor ? detectMedia(val) : null
+  const isImg = typeof val === 'string' && !isColor && !mediaData && (row.isImageValue || isImageUrl(val))
+  const isUrl = typeof val === 'string' && !isColor && !mediaData && !isImg && (row.isOtherUrlValue || isHttpUrl(val))
+
+  const timeData = detectTimestamp(val)
+  const unicodeData = detectUnicode(val, props.rawInput, row.path)
+  const nestedJsonData = detectNestedJson(val)
+
+  let base64Data = null
+  let urlEncodedData = null
+  let displayVal = val
+
+  if (typeof val === 'string' && !isColor && !mediaData && !isImg && !nestedJsonData) {
+    base64Data = detectBase64Text(val)
+    if (base64Data) {
+      displayVal = base64Data.decoded
+    } else {
+      urlEncodedData = detectUrlEncoded(val)
+      if (urlEncodedData) {
+        displayVal = urlEncodedData.decoded
+      }
+    }
+  }
+
+  const isImgVal = typeof displayVal === 'string' && !isColor && !mediaData && isImageUrl(displayVal)
+  const isUrlVal = typeof displayVal === 'string' && !isColor && !mediaData && !isImgVal && isHttpUrl(displayVal)
+
+  let cronData = null
+  if (typeof val === 'string' && !isColor && !mediaData && !isImg && !nestedJsonData && !base64Data && !urlEncodedData) {
+    cronData = detectCron(val)
+  }
+
+  let smartData = null
+  if (typeof val === 'string' && !isColor && !mediaData && !isImg && !nestedJsonData && !base64Data && !urlEncodedData && !cronData) {
+    smartData = detectJwt(val) || detectHtml(val)
+  }
+
+  return {
+    ...row,
+    displayValue: displayVal,
+    isImageValue: isImgVal,
+    isOtherUrlValue: isUrlVal,
+    mediaData,
+    cronData,
+    smartData,
+    base64Data,
+    urlEncodedData,
+    timeData,
+    unicodeData,
+    nestedJsonData
+  }
+}
+
 const visibleRows = computed(() => {
   const offsets = rowOffsets.value
-  return flatRows.value.slice(startIndex.value, endIndex.value).map((row, idx) => {
+  const slice = flatRows.value.slice(startIndex.value, endIndex.value)
+  return slice.map((row, idx) => {
     const actualIdx = startIndex.value + idx
+    const enriched = enrichVisibleRow(row)
     return {
-      ...row,
+      ...enriched,
       actualIndex: actualIdx,
       topPosition: offsets[actualIdx]
     }
@@ -417,7 +629,7 @@ const highlightKey = (name) => {
 }
 
 const formatPrimitiveValue = (val) => {
-  if (typeof val === 'string') return `"${val}"`
+  if (typeof val === 'string') return JSON.stringify(val)
   if (val === null) return 'null'
   return String(val)
 }
@@ -448,8 +660,12 @@ const handleCopyValue = (val, path) => {
   let text = ''
   if (typeof val === 'object' && val !== null) {
     text = safeStringify(val, null, 2)
+  } else if (typeof val === 'string') {
+    text = val
+  } else if (val === null) {
+    text = 'null'
   } else {
-    text = typeof val === 'string' ? val : String(val ?? '')
+    text = String(val)
   }
   
   navigator.clipboard.writeText(text).then(() => {
@@ -467,16 +683,285 @@ const handleOpenUrl = (url) => {
   }
 }
 
-const onValMouseEnter = (v, e) => {
-  if (typeof v === 'string' && isImageUrl(v) && imagePreview) {
-    imagePreview.show(v, e.currentTarget)
+const handleCopyTime = (timeStr) => {
+  if (!timeStr) return
+  navigator.clipboard.writeText(timeStr).then(() => {
+    if (showToast) {
+      showToast(`已复制时间: ${timeStr}`)
+    }
+  })
+}
+
+// 时间戳复制菜单气泡状态与悬停控制
+const activeTimeMenu = ref(null)
+let timeMenuTimer = null
+const currentNowStr = ref('')
+let nowTimer = null
+
+const startNowTimer = () => {
+  currentNowStr.value = getFormatNow()
+  if (!nowTimer) {
+    nowTimer = setInterval(() => {
+      currentNowStr.value = getFormatNow()
+    }, 1000)
+  }
+}
+
+const stopNowTimer = () => {
+  if (nowTimer) {
+    clearInterval(nowTimer)
+    nowTimer = null
+  }
+}
+
+watch(activeTimeMenu, (val) => {
+  if (!val) {
+    stopNowTimer()
+  }
+})
+
+const openTimeMenu = (timeData, event) => {
+  if (!timeData || !event || !event.currentTarget) return
+  startNowTimer()
+  const rect = event.currentTarget.getBoundingClientRect()
+  const popWidth = 290
+  const popHeight = timeData.isIso ? 180 : 155
+  const padding = 12
+
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  // 水平视口边缘保护（适配各种屏幕宽度与缩放）
+  let left = Math.max(padding, Math.min(viewportWidth - popWidth - padding, rect.left))
+
+  // 垂直方向智能自适应（底部空间不足自动翻转至上方）
+  const spaceBelow = viewportHeight - rect.bottom
+  const spaceAbove = rect.top
+
+  let top = 0
+  if (spaceBelow >= popHeight + 10 || spaceBelow >= spaceAbove) {
+    top = rect.bottom + 6
+    if (top + popHeight > viewportHeight - padding) {
+      top = Math.max(padding, viewportHeight - popHeight - padding)
+    }
+  } else {
+    top = Math.max(padding, rect.top - popHeight - 6)
+  }
+
+  activeTimeMenu.value = {
+    top,
+    left,
+    timeData
+  }
+}
+
+const onTimeBadgeEnter = (timeData, event) => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+  openTimeMenu(timeData, event)
+}
+
+const onTimeBadgeLeave = () => {
+  timeMenuTimer = setTimeout(() => {
+    activeTimeMenu.value = null
+  }, 220)
+}
+
+const onPopoverEnter = () => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+}
+
+const onPopoverLeave = () => {
+  timeMenuTimer = setTimeout(() => {
+    activeTimeMenu.value = null
+  }, 220)
+}
+
+const copyTimeFormat = (val, label) => {
+  if (!val) return
+  navigator.clipboard.writeText(String(val)).then(() => {
+    if (showToast) {
+      showToast(`已复制${label}: ${val}`)
+    }
+    activeTimeMenu.value = null
+  })
+}
+
+const closeTimeMenu = () => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+  stopNowTimer()
+  activeTimeMenu.value = null
+}
+
+const handleCopyUnicode = (unicodeData) => {
+  if (!unicodeData) return
+  const text = unicodeData.originalUnicode
+  navigator.clipboard.writeText(text).then(() => {
+    if (showToast) {
+      showToast(`已复制 Unicode 原文: ${text}`)
+    }
+  })
+}
+
+const handleCopyRaw = (rawVal, label = '原值') => {
+  if (rawVal === undefined || rawVal === null) return
+  const text = String(rawVal)
+  navigator.clipboard.writeText(text).then(() => {
+    if (showToast) {
+      showToast(`已复制 ${label}`)
+    }
+  })
+}
+
+// 嵌套 JSON 悬浮操作菜单与展开/收起控制
+const activeNestedMenu = ref(null)
+let nestedMenuTimer = null
+
+const openNestedMenu = (row, event) => {
+  const target = event.currentTarget || event.target
+  if (!target) return
+
+  const rect = target.getBoundingClientRect()
+  const popWidth = 190
+  const popHeight = 36
+  const padding = 10
+  const viewportWidth = window.innerWidth || 1200
+  const viewportHeight = window.innerHeight || 800
+
+  let left = rect.left
+  if (left + popWidth > viewportWidth - padding) {
+    left = Math.max(padding, viewportWidth - popWidth - padding)
+  }
+
+  const spaceBelow = viewportHeight - rect.bottom
+  let top = 0
+  if (spaceBelow >= popHeight + 6) {
+    top = rect.bottom + 4
+  } else {
+    top = Math.max(padding, rect.top - popHeight - 4)
+  }
+
+  activeNestedMenu.value = {
+    top,
+    left,
+    row,
+    isExpanded: expandedNestedKeys.value.has(row.id)
+  }
+}
+
+const onNestedBadgeEnter = (row, event) => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+  openNestedMenu(row, event)
+}
+
+const onNestedBadgeLeave = () => {
+  nestedMenuTimer = setTimeout(() => {
+    activeNestedMenu.value = null
+  }, 220)
+}
+
+const onNestedPopoverEnter = () => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+}
+
+const onNestedPopoverLeave = () => {
+  nestedMenuTimer = setTimeout(() => {
+    activeNestedMenu.value = null
+  }, 220)
+}
+
+const toggleNestedExpand = (row) => {
+  if (!row) return
+  if (expandedNestedKeys.value.has(row.id)) {
+    expandedNestedKeys.value.delete(row.id)
+    if (showToast) {
+      showToast('已还原为转义字符串')
+    }
+  } else {
+    expandedNestedKeys.value.add(row.id)
+    if (collapsedKeys.value.has(row.id)) {
+      collapsedKeys.value.delete(row.id)
+    }
+    expandedKeys.value.add(row.id)
+    if (showToast) {
+      showToast('已转义展开为子树')
+    }
+  }
+  activeNestedMenu.value = null
+}
+
+const handleOpenInNewTab = (row) => {
+  if (!row) return
+  const val = row.rawNestedValue || row.value
+  const title = row.name || '嵌套 JSON'
+  if (openNestedJsonTab) {
+    openNestedJsonTab(val, title)
+  } else {
+    try {
+      const parsed = typeof val === 'string' ? JSON.parse(val.trim()) : val
+      navigator.clipboard.writeText(safeStringify(parsed, null, 2))
+      if (showToast) {
+        showToast('已复制解开后的嵌套 JSON 内容')
+      }
+    } catch (e) {}
+  }
+  activeNestedMenu.value = null
+}
+
+const closeNestedMenu = () => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+  activeNestedMenu.value = null
+}
+
+const onValMouseEnter = (v, e, row) => {
+  if (typeof v === 'string') {
+    const media = row?.mediaData || detectMedia(v)
+    if (media && imagePreview) {
+      imagePreview.show(media.url || v, e.currentTarget)
+      return
+    }
+    if (isImageUrl(v) && imagePreview) {
+      imagePreview.show(v, e.currentTarget)
+      return
+    }
+    const smart = row?.smartData || detectJwt(v) || detectHtml(v)
+    if (smart && smartPreview) {
+      smartPreview.show(smart, e.currentTarget)
+      return
+    }
   }
 }
 
 const onValMouseLeave = (v) => {
-  if (typeof v === 'string' && isImageUrl(v) && imagePreview) {
-    imagePreview.hide()
+  if (imagePreview) imagePreview.hide()
+  if (smartPreview) smartPreview.hide()
+}
+
+const onSmartMouseEnter = (smartData, e) => {
+  if (smartPreview && smartData) {
+    smartPreview.show(smartData, e.currentTarget)
   }
+}
+
+const onSmartMouseLeave = () => {
+  if (smartPreview) smartPreview.hide()
 }
 
 const onKeyMouseEnter = (path) => {
@@ -501,19 +986,48 @@ let resizeObserver = null
 
 onMounted(() => {
   updateDimensions()
+  initRowObserver()
   if (containerRef.value) {
     resizeObserver = new ResizeObserver(() => {
       updateDimensions()
     })
     resizeObserver.observe(containerRef.value)
   }
+  document.addEventListener('click', closeTimeMenu)
+  document.addEventListener('click', closeNestedMenu)
+  window.addEventListener('resize', closeTimeMenu)
+  window.addEventListener('resize', closeNestedMenu)
 })
 
 onBeforeUnmount(() => {
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+  if (updateTimer !== null) {
+    clearTimeout(updateTimer)
+    updateTimer = null
+  }
+  if (rowResizeObserver) {
+    rowResizeObserver.disconnect()
+    rowResizeObserver = null
+  }
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
   }
+  document.removeEventListener('click', closeTimeMenu)
+  document.removeEventListener('click', closeNestedMenu)
+  window.removeEventListener('resize', closeTimeMenu)
+  window.removeEventListener('resize', closeNestedMenu)
 })
 
 // Expose container and DOM compatibility getters/methods for external scrolling sync
@@ -565,6 +1079,7 @@ defineExpose({
       <div
         v-for="row in visibleRows"
         :key="row.id"
+        v-row-measure="row.id"
         class="virtual-tree-row"
         :style="{
           top: `${row.topPosition}px`,
@@ -605,6 +1120,16 @@ defineExpose({
               v-html="highlightKey(row.name)"
             ></span>
             <span v-if="row.name !== undefined && row.name !== null" class="node-colon">:</span>
+            <!-- 嵌套 JSON 展开状态徽标 -->
+            <span
+              v-if="row.isNestedExpanded"
+              class="tree-nested-badge is-expanded"
+              @click.stop="toggleNestedExpand(row)"
+              @mouseenter="onNestedBadgeEnter(row, $event)"
+              @mouseleave="onNestedBadgeLeave"
+            >
+              <Braces class="capsule-icon" />
+            </span>
             <span
               class="node-bracket"
               @click.stop="handleCopyValue(row.value, row.path)"
@@ -659,18 +1184,35 @@ defineExpose({
             ></span>
             <span v-if="row.name !== undefined && row.name !== null" class="node-colon">:</span>
 
-            <!-- Color chip badge / Image preview badge / URL open button -->
+            <!-- Color chip badge / Image preview badge / Media badges / URL open button / Smart Capsules -->
             <span
               v-if="row.isColorValue"
               class="tree-color-badge"
-              :title="`颜色值: ${row.value}`"
             >
               <span class="tree-color-chip-inner" :style="{ backgroundColor: row.value }"></span>
             </span>
             <span
+              v-else-if="row.mediaData?.mediaType === 'audio'"
+              class="tree-img-badge tree-audio-badge"
+              @mouseenter="onValMouseEnter(row.value, $event, row)"
+              @mouseleave="onValMouseLeave(row.value)"
+              data-tooltip="音频直链 (悬停试听)"
+            >
+              <Volume2 class="img-badge-icon" />
+            </span>
+            <span
+              v-else-if="row.mediaData?.mediaType === 'video'"
+              class="tree-img-badge tree-video-badge"
+              @mouseenter="onValMouseEnter(row.value, $event, row)"
+              @mouseleave="onValMouseLeave(row.value)"
+              data-tooltip="视频直链 (悬停播放)"
+            >
+              <VideoIcon class="img-badge-icon" />
+            </span>
+            <span
               v-else-if="row.isImageValue"
               class="tree-img-badge"
-              @mouseenter="onValMouseEnter(row.value, $event)"
+              @mouseenter="onValMouseEnter(row.value, $event, row)"
               @mouseleave="onValMouseLeave(row.value)"
               data-tooltip="图片链接 (悬停预览)"
             >
@@ -685,20 +1227,211 @@ defineExpose({
               <ExternalLink class="url-jump-icon" />
             </button>
 
-            <!-- Value Text -->
-            <span
-              :class="[row.valueClass, 'copyable-value', { 'is-image-url': row.isImageValue, 'is-web-url': row.isOtherUrlValue }]"
+            <!-- 智能数据胶囊 (仅保留复杂结构：JWT, HTML) -->
+            <button
+              v-if="row.smartData"
+              class="tree-capsule-badge"
+              :class="{
+                'tree-jwt-badge': row.smartData.isJwt,
+                'tree-html-badge': row.smartData.isHtml
+              }"
+              @mouseenter="onSmartMouseEnter(row.smartData, $event)"
+              @mouseleave="onSmartMouseLeave"
+              @click.stop="onSmartMouseEnter(row.smartData, $event)"
+              :data-tooltip="row.smartData.isJwt ? 'JWT Token (悬停解码)' : 'HTML 代码 (悬停预览)'"
+            >
+              <KeyRound v-if="row.smartData.isJwt" class="capsule-icon" />
+              <span class="capsule-text">
+                {{ row.smartData.isJwt ? 'JWT' : 'HTML' }}
+              </span>
+            </button>
+
+            <!-- Cron 表达式胶囊 (图标不加 tooltip，点击正常复制) -->
+            <button
+              v-if="row.cronData"
+              class="tree-capsule-badge tree-cron-badge"
               @click.stop="handleCopyValue(row.value, row.path)"
-              @mouseenter="onValMouseEnter(row.value, $event)"
+            >
+              <CalendarClock class="capsule-icon" />
+              <span class="capsule-text">CRON</span>
+            </button>
+
+            <!-- Base64 Badge (点击复制 Base64 原值) -->
+            <span
+              v-if="row.base64Data"
+              class="tree-inline-badge tree-b64-badge"
+              @click.stop="handleCopyRaw(row.value, 'Base64 原值')"
+              data-tooltip="点击复制 Base64 原值"
+            >
+              <span class="capsule-symbol">B64</span>
+            </span>
+
+            <!-- URL 编码 Badge (点击复制 URL 编码原值) -->
+            <span
+              v-if="row.urlEncodedData"
+              class="tree-inline-badge tree-urldec-badge"
+              @click.stop="handleCopyRaw(row.value, 'URL 编码原值')"
+              data-tooltip="点击复制 URL 编码原值"
+            >
+              <span class="capsule-symbol">%</span>
+            </span>
+
+            <!-- Timestamp Badge (直接展示东八区时间，悬停出现浮窗，点击亦可打开) -->
+            <button
+              v-if="row.timeData"
+              class="tree-capsule-badge tree-time-badge"
+              @mouseenter="onTimeBadgeEnter(row.timeData, $event)"
+              @mouseleave="onTimeBadgeLeave"
+              @click.stop="openTimeMenu(row.timeData, $event)"
+            >
+              <Clock class="capsule-icon" />
+              <span class="capsule-text">{{ row.timeData.beijingStr }}</span>
+            </button>
+
+            <!-- Unicode Badge (无 tooltip，仅保留图标，点击复制原文，与图片 URL 图标一致) -->
+            <span
+              v-if="row.unicodeData"
+              class="tree-unicode-badge"
+              @click.stop="handleCopyUnicode(row.unicodeData)"
+            >
+              <span class="capsule-symbol">\u</span>
+            </span>
+
+            <!-- Nested JSON Badge (悬停出现操作按钮：转义展开 / 新 Tab 打开) -->
+            <span
+              v-if="row.nestedJsonData"
+              class="tree-nested-badge"
+              @click.stop="toggleNestedExpand(row)"
+              @mouseenter="onNestedBadgeEnter(row, $event)"
+              @mouseleave="onNestedBadgeLeave"
+            >
+              <Braces class="capsule-icon" />
+            </span>
+
+            <!-- Value Text (直接展示解码后的内容，点击复制解码值) -->
+            <span
+              :class="[row.valueClass, 'copyable-value', { 'is-image-url': row.isImageValue || !!row.mediaData, 'is-web-url': row.isOtherUrlValue }]"
+              @click.stop="handleCopyValue(row.displayValue, row.path)"
+              @mouseenter="onValMouseEnter(row.value, $event, row)"
               @mouseleave="onValMouseLeave(row.value)"
-              :data-tooltip="row.isImageValue ? '悬停预览图片，点击复制键值' : (row.isOtherUrlValue ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值')"
-              v-html="highlightPrimitiveValue(row.value)"
+              :data-tooltip="row.cronData ? `${row.cronData.translation}` : (row.mediaData?.mediaType === 'audio' ? '音频直链 (悬停试听，点击复制)' : (row.mediaData?.mediaType === 'video' ? '视频直链 (悬停播放，点击复制)' : (row.isImageValue ? '图片链接 (悬停预览，点击复制)' : (row.isOtherUrlValue ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值'))))"
+              v-html="highlightPrimitiveValue(row.displayValue)"
             ></span>
             <span v-if="!row.isLast" class="node-comma">,</span>
           </div>
         </template>
       </div>
     </div>
+
+    <!-- Timestamp Copy Menu Popover (配色风格与图片预览弹窗完全一致) -->
+    <Teleport to="body">
+      <Transition name="popover-fade">
+        <div
+          v-if="activeTimeMenu"
+          class="time-capsule-popover"
+          :class="{ 'is-dark': isDark }"
+          :style="{ top: `${activeTimeMenu.top}px`, left: `${activeTimeMenu.left}px` }"
+          @mouseenter="onPopoverEnter"
+          @mouseleave="onPopoverLeave"
+          @click.stop
+        >
+          <div class="popover-header">
+            <div class="badge-group">
+              <span class="type-badge">{{ activeTimeMenu.timeData.badgeLabel || '时间戳' }}</span>
+              <span class="dimension-badge">{{ activeTimeMenu.timeData.type }}</span>
+            </div>
+            <button class="icon-action-btn" @click="activeTimeMenu = null" title="关闭">
+              <X class="action-icon" />
+            </button>
+          </div>
+          <div class="time-popover-body">
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.rawStr, activeTimeMenu.timeData.isIso ? '原始时间' : '时间戳')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">{{ activeTimeMenu.timeData.isIso ? '原始时间' : '原始时间戳' }}</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.rawStr }}</span>
+              </div>
+            </div>
+            <div
+              v-if="activeTimeMenu.timeData.isIso"
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.timeMsStr, '毫秒时间戳')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">毫秒时间戳</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.timeMsStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(currentNowStr, '当前本机时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">当前本机时间</span>
+                <span class="time-val">{{ currentNowStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.beijingStr, '东八区时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">东八区时间 (UTC+8)</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.beijingStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.utcStr, 'UTC 时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">UTC 国际时间</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.utcStr }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Nested JSON Actions Popover (悬浮操作菜单：转义展开 / 新 Tab 打开) -->
+    <Teleport to="body">
+      <Transition name="popover-fade">
+        <div
+          v-if="activeNestedMenu"
+          class="nested-capsule-popover"
+          :class="{ 'is-dark': isDark }"
+          :style="{ top: `${activeNestedMenu.top}px`, left: `${activeNestedMenu.left}px` }"
+          @mouseenter="onNestedPopoverEnter"
+          @mouseleave="onNestedPopoverLeave"
+          @click.stop
+        >
+          <button
+            class="nested-action-btn primary"
+            :class="{ 'is-expanded': activeNestedMenu.isExpanded }"
+            @click.stop="toggleNestedExpand(activeNestedMenu.row)"
+          >
+            <FoldVertical v-if="activeNestedMenu.isExpanded" class="btn-icon" />
+            <UnfoldVertical v-else class="btn-icon" />
+            <span>{{ activeNestedMenu.isExpanded ? '还原收起' : '转义展开' }}</span>
+          </button>
+          <button
+            class="nested-action-btn secondary"
+            @click.stop="handleOpenInNewTab(activeNestedMenu.row)"
+          >
+            <ExternalLink class="btn-icon" />
+            <span>新tab打开</span>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -967,8 +1700,8 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 13px;
-  height: 13px;
+  width: 0.78rem;
+  height: 0.78rem;
   margin-right: 5px;
   vertical-align: -1.5px;
   border-radius: 3px;
@@ -1008,9 +1741,11 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
+  width: 0.88rem;
+  height: 0.88rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
   background-color: rgba(56, 189, 248, 0.15);
   color: #38bdf8;
   margin-right: 4px;
@@ -1026,10 +1761,11 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  border: none;
+  width: 0.88rem;
+  height: 0.88rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
   background: transparent;
   color: var(--primary-color, #38bdf8);
   margin-right: 4px;
@@ -1046,6 +1782,260 @@ defineExpose({
   width: 11px;
   height: 11px;
 }
+
+/* ── Smart Capsules (Timestamp, Unicode, Nested JSON) ── */
+.tree-capsule-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.1rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  padding: 0 4px;
+  margin-right: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  line-height: 1;
+  user-select: none;
+  transition: all 0.15s ease;
+  vertical-align: middle;
+}
+
+.tree-capsule-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 时间戳徽标 (绿色系) */
+.tree-time-badge {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  gap: 3px;
+}
+.tree-time-badge:hover {
+  background-color: rgba(16, 185, 129, 0.22);
+  color: #059669;
+}
+:global(.dark-mode) .tree-time-badge {
+  background-color: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.35);
+}
+:global(.dark-mode) .tree-time-badge:hover {
+  background-color: rgba(16, 185, 129, 0.28);
+  color: #6ee7b7;
+}
+
+/* 音视频媒体徽标 */
+.tree-audio-badge {
+  background-color: rgba(236, 72, 153, 0.15) !important;
+  color: #ec4899 !important;
+}
+.tree-video-badge {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+  color: #f97316 !important;
+}
+
+/* 智能胶囊配色 */
+.tree-jwt-badge {
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  border-color: rgba(99, 102, 241, 0.25);
+  gap: 3px;
+}
+:global(.dark-mode) .tree-jwt-badge {
+  background-color: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+}
+
+.tree-b64-badge {
+  background-color: rgba(14, 165, 233, 0.12);
+  color: #0284c7;
+  border-color: rgba(14, 165, 233, 0.25);
+  gap: 3px;
+}
+:global(.dark-mode) .tree-b64-badge {
+  background-color: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+}
+
+.tree-urldec-badge {
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  border-color: rgba(245, 158, 11, 0.25);
+  gap: 3px;
+}
+:global(.dark-mode) .tree-urldec-badge {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.tree-cron-badge {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  border-color: rgba(16, 185, 129, 0.25);
+  gap: 3px;
+}
+:global(.dark-mode) .tree-cron-badge {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.tree-html-badge {
+  background-color: rgba(244, 63, 94, 0.12);
+  color: #e11d48;
+  border-color: rgba(244, 63, 94, 0.25);
+  gap: 3px;
+}
+:global(.dark-mode) .tree-html-badge {
+  background-color: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+}
+
+/* Unicode 徽标 (无边框，与图片 URL 图标完全一致) */
+.tree-unicode-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  background-color: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+  margin-right: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+  user-select: none;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  vertical-align: middle;
+}
+.tree-unicode-badge:hover {
+  transform: scale(1.08);
+  background-color: rgba(168, 85, 247, 0.25);
+  color: #9333ea;
+}
+:global(.dark-mode) .tree-unicode-badge {
+  background-color: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+}
+/* Base64 & URL 编码行内图标徽标 (点击复制原值) */
+.tree-inline-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.1rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  margin-right: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0 4px;
+  line-height: 1;
+  user-select: none;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  vertical-align: middle;
+}
+.tree-inline-badge:hover {
+  transform: scale(1.08);
+}
+.tree-b64-badge {
+  background-color: rgba(217, 119, 6, 0.15);
+  color: #d97706;
+}
+.tree-b64-badge:hover {
+  background-color: rgba(217, 119, 6, 0.25);
+  color: #b45309;
+}
+:global(.dark-mode) .tree-b64-badge {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+:global(.dark-mode) .tree-b64-badge:hover {
+  background-color: rgba(245, 158, 11, 0.35);
+  color: #fef08a;
+}
+
+.tree-urldec-badge {
+  background-color: rgba(2, 132, 199, 0.15);
+  color: #0284c7;
+}
+.tree-urldec-badge:hover {
+  background-color: rgba(2, 132, 199, 0.25);
+  color: #0369a1;
+}
+:global(.dark-mode) .tree-urldec-badge {
+  background-color: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+:global(.dark-mode) .tree-urldec-badge:hover {
+  background-color: rgba(56, 189, 248, 0.35);
+  color: #bae6fd;
+}
+
+
+/* 嵌套 JSON 徽标 (无边框，与图片 URL 图标完全一致) */
+.tree-nested-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  margin-right: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+  user-select: none;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  vertical-align: middle;
+}
+.tree-nested-badge:hover {
+  transform: scale(1.08);
+  background-color: rgba(245, 158, 11, 0.25);
+  color: #d97706;
+}
+:global(.dark-mode) .tree-nested-badge {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+:global(.dark-mode) .tree-nested-badge:hover {
+  background-color: rgba(245, 158, 11, 0.35);
+  color: #fde68a;
+}
+
+.capsule-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.capsule-symbol {
+  font-family: var(--font-mono, monospace);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1;
+}
+
+.capsule-text {
+  font-size: 11px;
+  max-width: none;
+  overflow: visible;
+  white-space: nowrap;
+}
+
 
 :deep(.search-match) {
   background-color: rgba(234, 179, 8, 0.35);

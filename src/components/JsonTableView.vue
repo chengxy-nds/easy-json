@@ -1,12 +1,17 @@
 <script setup>
 import { ref, computed, watch, inject, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ExternalLink, Copy, Image as ImageIcon } from 'lucide-vue-next'
+import { ExternalLink, Copy, Image as ImageIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, Volume2, Video as VideoIcon, KeyRound, FileCode, Code2, CalendarClock } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
+import { detectTimestamp, detectUnicode, detectNestedJson, getFormatNow } from '../utils/capsuleDetector.js'
+import { detectMedia, detectJwt, detectBase64Text, detectUrlEncoded, detectCron, detectHtml } from '../utils/advancedDetectors.js'
 
 const searchQuery = inject('searchQuery', ref(''))
 const imagePreview = inject('imagePreview', null)
+const smartPreview = inject('smartPreview', null)
 const showToast = inject('showToast', null)
+const isDark = inject('isDark', ref(true))
+const openNestedJsonTab = inject('openNestedJsonTab', null)
 
 const handleCopyKey = (key) => {
   if (key === null || key === undefined) return
@@ -19,7 +24,15 @@ const handleCopyKey = (key) => {
 
 const handleCopyValue = (val) => {
   if (val === null || val === undefined) return
-  const str = typeof val === 'object' ? safeStringify(val, null, 2) : String(val)
+  const disp = getDisplayValue(val)
+  let str = ''
+  if (typeof disp === 'object') {
+    str = safeStringify(disp, null, 2)
+  } else if (typeof disp === 'string' && detectNestedJson(disp)) {
+    str = JSON.stringify(disp)
+  } else {
+    str = String(disp)
+  }
   navigator.clipboard.writeText(str).then(() => {
     if (showToast) {
       showToast(`已复制键值: ${str.length > 30 ? str.slice(0, 30) + '...' : str}`)
@@ -52,8 +65,42 @@ const handleCopyColumn = (arr, colKey) => {
 }
 
 const isColor = (v) => typeof v === 'string' && isColorValue(v)
-const isImg = (v) => typeof v === 'string' && !isColor(v) && isImageUrl(v)
-const isHttpLink = (v) => typeof v === 'string' && !isColor(v) && !isImg(v) && isHttpUrl(v)
+const getMediaData = (v) => typeof v === 'string' && !isColor(v) ? detectMedia(v) : null
+const isAudio = (v) => getMediaData(v)?.mediaType === 'audio'
+const isVideo = (v) => getMediaData(v)?.mediaType === 'video'
+const isImg = (v) => typeof v === 'string' && !isColor(v) && !getMediaData(v) && isImageUrl(v)
+const isHttpLink = (v) => typeof v === 'string' && !isColor(v) && !getMediaData(v) && !isImg(v) && isHttpUrl(v)
+
+const getBase64Data = (v) => {
+  if (typeof v !== 'string' || isColor(v) || getMediaData(v) || detectNestedJson(v)) return null
+  return detectBase64Text(v)
+}
+
+const getUrlEncodedData = (v) => {
+  if (typeof v !== 'string' || isColor(v) || getMediaData(v) || detectNestedJson(v)) return null
+  if (detectBase64Text(v)) return null
+  return detectUrlEncoded(v)
+}
+
+const getDisplayValue = (v) => {
+  const b64 = getBase64Data(v)
+  if (b64) return b64.decoded
+  const urlEnc = getUrlEncodedData(v)
+  if (urlEnc) return urlEnc.decoded
+  return v
+}
+
+const getCronData = (v) => {
+  if (typeof v !== 'string') return null
+  if (isColor(v) || isImg(v) || getMediaData(v) || detectNestedJson(v) || getBase64Data(v) || getUrlEncodedData(v)) return null
+  return detectCron(v)
+}
+
+const getSmartData = (v) => {
+  if (typeof v !== 'string') return null
+  if (isColor(v) || isImg(v) || getMediaData(v) || detectNestedJson(v) || getBase64Data(v) || getUrlEncodedData(v) || getCronData(v)) return null
+  return detectJwt(v) || detectHtml(v)
+}
 
 const handleOpenUrl = (url) => {
   openExternalUrl(url)
@@ -63,29 +110,58 @@ const handleOpenUrl = (url) => {
 }
 
 const onValMouseEnter = (v, e) => {
-  if (isImg(v) && imagePreview) {
-    imagePreview.show(v, e.currentTarget)
+  if (typeof v === 'string') {
+    const m = getMediaData(v)
+    if (m && imagePreview) {
+      imagePreview.show(v, e.currentTarget)
+      return
+    }
+    if (isImg(v) && imagePreview) {
+      imagePreview.show(v, e.currentTarget)
+      return
+    }
+    const s = getSmartData(v)
+    if (s && smartPreview) {
+      smartPreview.show(s, e.currentTarget)
+      return
+    }
   }
 }
 
 const onValMouseLeave = (v) => {
-  if (isImg(v) && imagePreview) {
-    imagePreview.hide()
-  }
+  if (imagePreview) imagePreview.hide()
+  if (smartPreview) smartPreview.hide()
+}
+
+const onSmartMouseEnter = (sData, e) => {
+  if (smartPreview && sData) smartPreview.show(sData, e.currentTarget)
+}
+
+const onSmartMouseLeave = () => {
+  if (smartPreview) smartPreview.hide()
+}
+
+const escapeHtml = (str) => {
+  if (!str) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 const highlightText = (text, query) => {
   if (text === null || text === undefined) return ''
   const str = String(text)
-  if (!query) return str
+  const escapedText = escapeHtml(str)
+  if (!query) return escapedText
   const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
   const regex = new RegExp(`(${escapedQuery})`, 'gi')
-  const escapedText = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return escapedText.replace(regex, '<mark class="search-match">$1</mark>')
 }
 
 const props = defineProps({
   data: { required: true },
+  rawInput: { type: String, default: '' },
   depth: { type: Number, default: 0 },
   hoveredPath: { type: Array, default: null },
   selectedPath: { type: Array, default: null },
@@ -105,11 +181,252 @@ const getValueType = (v) => {
 }
 
 const getPreview = (v) => {
-  if (v === null) return 'null'
-  if (Array.isArray(v)) return `[${v.length} 项]`
-  if (typeof v === 'object') return `{${Object.keys(v).length} 属性}`
-  if (typeof v === 'string') return v
-  return String(v)
+  const disp = getDisplayValue(v)
+  if (disp === null) return 'null'
+  if (Array.isArray(disp)) return `[${disp.length} 项]`
+  if (typeof disp === 'object') return `{${Object.keys(disp).length} 属性}`
+  if (typeof disp === 'string') {
+    if (detectNestedJson(disp)) {
+      return JSON.stringify(disp)
+    }
+    return disp.replace(/\r?\n\s*/g, ' ')
+  }
+  return String(disp)
+}
+
+// ─── Timestamp Popover State & Control ─────────────────────────
+const activeTimeMenu = ref(null)
+let timeMenuTimer = null
+const currentNowStr = ref('')
+let nowTimer = null
+
+const startNowTimer = () => {
+  currentNowStr.value = getFormatNow()
+  if (!nowTimer) {
+    nowTimer = setInterval(() => {
+      currentNowStr.value = getFormatNow()
+    }, 1000)
+  }
+}
+
+const stopNowTimer = () => {
+  if (nowTimer) {
+    clearInterval(nowTimer)
+    nowTimer = null
+  }
+}
+
+watch(activeTimeMenu, (val) => {
+  if (!val) {
+    stopNowTimer()
+  }
+})
+
+const openTimeMenu = (tData, event) => {
+  if (!tData || !event || !event.currentTarget) return
+  startNowTimer()
+  const rect = event.currentTarget.getBoundingClientRect()
+  const popWidth = 290
+  const popHeight = tData.isIso ? 180 : 155
+  const padding = 12
+
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  let left = Math.max(padding, Math.min(viewportWidth - popWidth - padding, rect.left))
+  const spaceBelow = viewportHeight - rect.bottom
+  const spaceAbove = rect.top
+
+  let top = 0
+  if (spaceBelow >= popHeight + 10 || spaceBelow >= spaceAbove) {
+    top = rect.bottom + 6
+    if (top + popHeight > viewportHeight - padding) {
+      top = Math.max(padding, viewportHeight - popHeight - padding)
+    }
+  } else {
+    top = Math.max(padding, rect.top - popHeight - 6)
+  }
+
+  activeTimeMenu.value = {
+    top,
+    left,
+    timeData: tData
+  }
+}
+
+const onTimeBadgeEnter = (tData, event) => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+  openTimeMenu(tData, event)
+}
+
+const onTimeBadgeLeave = () => {
+  timeMenuTimer = setTimeout(() => {
+    activeTimeMenu.value = null
+  }, 220)
+}
+
+const onPopoverEnter = () => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+}
+
+const onPopoverLeave = () => {
+  timeMenuTimer = setTimeout(() => {
+    activeTimeMenu.value = null
+  }, 220)
+}
+
+const copyTimeFormat = (val, label) => {
+  if (!val) return
+  navigator.clipboard.writeText(String(val)).then(() => {
+    if (showToast) {
+      showToast(`已复制${label}: ${val}`)
+    }
+    activeTimeMenu.value = null
+  })
+}
+
+const closeTimeMenu = () => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+  stopNowTimer()
+  activeTimeMenu.value = null
+}
+
+// ─── Unicode Handler ──────────────────────────────────────────
+const handleCopyUnicode = (uData) => {
+  if (!uData) return
+  navigator.clipboard.writeText(uData.originalUnicode).then(() => {
+    if (showToast) {
+      showToast(`已复制 Unicode 原文: ${uData.originalUnicode}`)
+    }
+  })
+}
+
+const handleCopyRaw = (rawVal, label = '原值') => {
+  if (rawVal === undefined || rawVal === null) return
+  const text = String(rawVal)
+  navigator.clipboard.writeText(text).then(() => {
+    if (showToast) {
+      showToast(`已复制 ${label}`)
+    }
+  })
+}
+
+// ─── Nested JSON Popover & Expand State ────────────────────────
+const activeNestedMenu = ref(null)
+let nestedMenuTimer = null
+const expandedNestedPaths = ref(new Set())
+
+const isCellNestedExpanded = (path) => expandedNestedPaths.value.has(JSON.stringify(path))
+
+const openNestedMenu = (path, val, title, event) => {
+  const target = event.currentTarget || event.target
+  if (!target) return
+
+  const rect = target.getBoundingClientRect()
+  const popWidth = 190
+  const popHeight = 36
+  const padding = 10
+  const viewportWidth = window.innerWidth || 1200
+  const viewportHeight = window.innerHeight || 800
+
+  let left = rect.left
+  if (left + popWidth > viewportWidth - padding) {
+    left = Math.max(padding, viewportWidth - popWidth - padding)
+  }
+
+  const spaceBelow = viewportHeight - rect.bottom
+  let top = 0
+  if (spaceBelow >= popHeight + 6) {
+    top = rect.bottom + 4
+  } else {
+    top = Math.max(padding, rect.top - popHeight - 4)
+  }
+
+  const pathStr = JSON.stringify(path)
+  activeNestedMenu.value = {
+    top,
+    left,
+    path,
+    val,
+    title,
+    isExpanded: expandedNestedPaths.value.has(pathStr)
+  }
+}
+
+const onNestedBadgeEnter = (path, val, title, event) => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+  openNestedMenu(path, val, title, event)
+}
+
+const onNestedBadgeLeave = () => {
+  nestedMenuTimer = setTimeout(() => {
+    activeNestedMenu.value = null
+  }, 220)
+}
+
+const onNestedPopoverEnter = () => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+}
+
+const onNestedPopoverLeave = () => {
+  nestedMenuTimer = setTimeout(() => {
+    activeNestedMenu.value = null
+  }, 220)
+}
+
+const toggleNestedExpand = (path) => {
+  if (!path) return
+  const pathStr = JSON.stringify(path)
+  if (expandedNestedPaths.value.has(pathStr)) {
+    expandedNestedPaths.value.delete(pathStr)
+    if (showToast) {
+      showToast('已还原为转义字符串')
+    }
+  } else {
+    expandedNestedPaths.value.add(pathStr)
+    if (showToast) {
+      showToast('已转义展开为表格子层级')
+    }
+  }
+  activeNestedMenu.value = null
+}
+
+const handleOpenInNewTab = (val, title) => {
+  if (openNestedJsonTab) {
+    openNestedJsonTab(val, title || '嵌套 JSON')
+  } else {
+    try {
+      const parsed = typeof val === 'string' ? JSON.parse(val.trim()) : val
+      navigator.clipboard.writeText(safeStringify(parsed, null, 2))
+      if (showToast) {
+        showToast('已复制解开后的嵌套 JSON 内容')
+      }
+    } catch (e) {}
+  }
+  activeNestedMenu.value = null
+}
+
+const closeNestedMenu = () => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+  activeNestedMenu.value = null
 }
 
 const getValueColorClass = (type) => {
@@ -213,6 +530,17 @@ const handleChildClick = (path, type = 'all') => {
 }
 
 const getValTooltip = (val) => {
+  const cron = getCronData(val)
+  if (cron) {
+    return '' + cron.translation
+  }
+  const m = getMediaData(val)
+  if (m?.mediaType === 'audio') {
+    return '音频直链 (悬停试听，点击复制)'
+  }
+  if (m?.mediaType === 'video') {
+    return '视频直链 (悬停播放，点击复制)'
+  }
   if (isImg(val)) {
     return '悬停预览图片，点击复制键值'
   }
@@ -244,9 +572,9 @@ const isArrayOfObjects = (arr) => {
   return Array.isArray(arr) && arr.length > 0 && arr.some(item => item && typeof item === 'object' && !Array.isArray(item))
 }
 
-// ─── 判断根数据是否为顶层直接对象数组 ──────────────────────────────────────────
+// ─── 判断数据是否为直接对象数组 (支持 2D 矩阵表格呈现) ──────────────────────
 const isRootDirectArrayOfObjects = computed(() => {
-  return props.depth === 0 && isArrayOfObjects(props.data)
+  return isArrayOfObjects(props.data)
 })
 
 const rootDirectColumns = computed(() => {
@@ -310,7 +638,7 @@ const rootTableStyles = computed(() => {
   return {
     '--table-scale': s,
     '--table-font-size': `${(13 * s).toFixed(1)}px`,
-    '--table-font-small': `${(11 * s).toFixed(1)}px`,
+    '--table-font-small': `${(12 * s).toFixed(1)}px`,
     '--table-font-sub': `${(10 * s).toFixed(1)}px`,
     '--table-padding-y': `${(6 * s).toFixed(1)}px`,
     '--table-padding-x': `${(12 * s).toFixed(1)}px`,
@@ -333,6 +661,8 @@ const VIRTUAL_THRESHOLD = 60 // 超过 60 行自动开启虚拟滚动，少于 6
 const VIRTUAL_BUFFER = 15    // 上下各缓冲 15 行，避免高速滚动出现白屏
 
 const onWrapperScroll = (e) => {
+  if (activeTimeMenu.value) activeTimeMenu.value = null
+  if (activeNestedMenu.value) activeNestedMenu.value = null
   if (props.depth !== 0) return
   scrollTop.value = e.target.scrollTop
 }
@@ -352,13 +682,24 @@ onMounted(() => {
     })
     tableResizeObserver.observe(scrollContainerRef.value)
   }
+  document.addEventListener('click', closeTimeMenu)
+  document.addEventListener('click', closeNestedMenu)
+  window.addEventListener('resize', closeTimeMenu)
+  window.addEventListener('resize', closeNestedMenu)
 })
 
 onBeforeUnmount(() => {
+  if (timeMenuTimer) clearTimeout(timeMenuTimer)
+  if (nestedMenuTimer) clearTimeout(nestedMenuTimer)
+  stopNowTimer()
   if (tableResizeObserver) {
     tableResizeObserver.disconnect()
     tableResizeObserver = null
   }
+  document.removeEventListener('click', closeTimeMenu)
+  document.removeEventListener('click', closeNestedMenu)
+  window.removeEventListener('resize', closeTimeMenu)
+  window.removeEventListener('resize', closeNestedMenu)
 })
 
 // 行高估算：随 tableScale 动态缩放，默认比例约为 30px
@@ -587,25 +928,38 @@ watch(currentSelectedPath, (newPath) => {
             :data-path="JSON.stringify(getFullPath([idx, col]))"
             :class="{
               [`val-${getValueType(item?.[col])}`]: true,
-              'is-selected': isValSelected([idx, col]),
-              'is-hovered': isPathHovered([idx, col]),
-              'value-cell--complex': !isPrimitive(item?.[col])
+              'is-selected': !isCellNestedExpanded([idx, col]) && isValSelected([idx, col]),
+              'is-hovered': !isCellNestedExpanded([idx, col]) && isPathHovered([idx, col]),
+              'value-cell--complex': !isPrimitive(item?.[col]) || isCellNestedExpanded([idx, col])
             }"
-            @mouseenter.stop="emitHover([idx, col])"
-            @mouseleave.stop="emitHover(null)"
-            @click.stop="isPrimitive(item?.[col]) ? emitClick([idx, col], 'value') : null"
+            @mouseenter.stop="(!isCellNestedExpanded([idx, col])) ? emitHover([idx, col]) : null"
+            @mouseleave.stop="(!isCellNestedExpanded([idx, col])) ? emitHover(null) : null"
+            @click.stop="(isPrimitive(item?.[col]) && !isCellNestedExpanded([idx, col])) ? emitClick([idx, col], 'value') : null"
           >
             <template v-if="item && item[col] !== undefined">
               <!-- Primitive value in 2D grid -->
-              <div v-if="isPrimitive(item[col])" class="val-primitive-wrap">
+              <div v-if="isPrimitive(item[col]) && !isCellNestedExpanded([idx, col])" class="val-primitive-wrap">
                 <span
                   v-if="isColor(item[col])"
                   class="table-color-badge"
-                  :title="`颜色值: ${item[col]}`"
                 ><span class="table-color-chip-inner" :style="{ backgroundColor: item[col] }"></span></span>
                 <span
+                  v-else-if="isAudio(item[col])"
+                  class="tree-img-badge tree-audio-badge"
+                  @mouseenter="(e) => onValMouseEnter(item[col], e)"
+                  @mouseleave="() => onValMouseLeave(item[col])"
+                  data-tooltip="音频直链 (悬停试听)"
+                ><Volume2 class="img-badge-icon" /></span>
+                <span
+                  v-else-if="isVideo(item[col])"
+                  class="tree-img-badge tree-video-badge"
+                  @mouseenter="(e) => onValMouseEnter(item[col], e)"
+                  @mouseleave="() => onValMouseLeave(item[col])"
+                  data-tooltip="视频直链 (悬停播放)"
+                ><VideoIcon class="img-badge-icon" /></span>
+                <span
                   v-else-if="isImg(item[col])"
-                  class="table-img-badge"
+                  class="tree-img-badge"
                   @mouseenter="(e) => onValMouseEnter(item[col], e)"
                   @mouseleave="() => onValMouseLeave(item[col])"
                   data-tooltip="图片链接 (悬停预览)"
@@ -618,6 +972,91 @@ watch(currentSelectedPath, (newPath) => {
                 >
                   <ExternalLink class="url-jump-icon" />
                 </button>
+
+                <!-- Cron 表达式胶囊 (图标不加 tooltip，点击正常复制) -->
+                <button
+                  v-if="getCronData(item[col])"
+                  class="tree-capsule-badge tree-cron-badge"
+                  @click.stop="handleCopyValue(item[col])"
+                >
+                  <CalendarClock class="capsule-icon" />
+                  <span class="capsule-text">CRON</span>
+                </button>
+
+                <!-- 智能数据胶囊 (JWT, HTML) -->
+                <button
+                  v-if="getSmartData(item[col])"
+                  class="tree-capsule-badge"
+                  :class="{
+                    'tree-jwt-badge': getSmartData(item[col]).isJwt,
+                    'tree-html-badge': getSmartData(item[col]).isHtml
+                  }"
+                  @mouseenter="onSmartMouseEnter(getSmartData(item[col]), $event)"
+                  @mouseleave="onSmartMouseLeave"
+                  @click.stop="onSmartMouseEnter(getSmartData(item[col]), $event)"
+                  :title="getSmartData(item[col]).isJwt ? 'JWT Token (悬停解码)' : '智能数据 (悬停查看详情)'"
+                >
+                  <KeyRound v-if="getSmartData(item[col]).isJwt" class="capsule-icon" />
+                  <span class="capsule-text">
+                    {{ getSmartData(item[col]).isJwt ? 'JWT' : 'HTML' }}
+                  </span>
+                </button>
+
+                <!-- Base64 Badge (点击复制 Base64 原值) -->
+                <span
+                  v-if="getBase64Data(item[col])"
+                  class="tree-inline-badge tree-b64-badge"
+                  @click.stop="handleCopyRaw(item[col], 'Base64 原值')"
+                  data-tooltip="点击复制 Base64 原值"
+                >
+                  <span class="capsule-symbol">B64</span>
+                </span>
+
+                <!-- URL 编码 Badge (点击复制 URL 编码原值) -->
+                <span
+                  v-if="getUrlEncodedData(item[col])"
+                  class="tree-inline-badge tree-urldec-badge"
+                  @click.stop="handleCopyRaw(item[col], 'URL 编码原值')"
+                  data-tooltip="点击复制 URL 编码原值"
+                >
+                  <span class="capsule-symbol">%</span>
+                </span>
+
+                <!-- 时间戳胶囊 -->
+                <button
+                  v-if="detectTimestamp(item[col])"
+                  class="tree-capsule-badge tree-time-badge"
+                  @mouseenter="onTimeBadgeEnter(detectTimestamp(item[col]), $event)"
+                  @mouseleave="onTimeBadgeLeave"
+                  @click.stop="openTimeMenu(detectTimestamp(item[col]), $event)"
+                  title="悬停查看与复制时间格式"
+                >
+                  <Clock class="capsule-icon" />
+                  <span class="capsule-text">{{ detectTimestamp(item[col]).beijingStr }}</span>
+                </button>
+
+                <!-- Unicode 徽标 -->
+                <span
+                  v-if="detectUnicode(item[col], props.rawInput, [idx, col])"
+                  class="tree-unicode-badge"
+                  @click.stop="handleCopyUnicode(detectUnicode(item[col], props.rawInput, [idx, col]))"
+                  title="点击复制 Unicode 原文"
+                >
+                  <span class="capsule-symbol">\u</span>
+                </span>
+
+                <!-- 嵌套 JSON 徽标 -->
+                <span
+                  v-if="detectNestedJson(item[col])"
+                  class="tree-nested-badge"
+                  @click.stop="toggleNestedExpand([idx, col])"
+                  @mouseenter="onNestedBadgeEnter([idx, col], item[col], col, $event)"
+                  @mouseleave="onNestedBadgeLeave"
+                  title="嵌套 JSON 字符串，悬停展开或新 Tab 打开"
+                >
+                  <Braces class="capsule-icon" />
+                </span>
+
                 <span
                   :class="[getValueColorClass(getValueType(item[col])), 'copyable-val', { 'is-image-url': isImg(item[col]), 'is-web-url': isHttpLink(item[col]) }]"
                   @mouseenter="(e) => onValMouseEnter(item[col], e)"
@@ -626,6 +1065,31 @@ watch(currentSelectedPath, (newPath) => {
                   :data-tooltip="getValTooltip(item[col])"
                   v-html="highlightText(getPreview(item[col]), searchQuery)"
                 ></span>
+              </div>
+
+              <!-- 嵌套 JSON 就地展开表格 -->
+              <div v-else-if="detectNestedJson(item[col]) && isCellNestedExpanded([idx, col])" class="complex-cell-container">
+                <div class="complex-header-row nested-json-header">
+                  <span
+                    class="tree-nested-badge is-expanded"
+                    @click.stop="toggleNestedExpand([idx, col])"
+                    @mouseenter="onNestedBadgeEnter([idx, col], item[col], col, $event)"
+                    @mouseleave="onNestedBadgeLeave"
+                  >
+                    <Braces class="capsule-icon" />
+                  </span>
+                  <span class="preview-text">嵌套 JSON (已转义展开)</span>
+                </div>
+                <JsonTableView
+                  :data="detectNestedJson(item[col]).parsed"
+                  :rawInput="props.rawInput"
+                  :depth="depth + 1"
+                  :hoveredPath="hoveredPath"
+                  :selectedPath="currentSelectedPath"
+                  :pathPrefix="getFullPath([idx, col])"
+                  @hover-path="(p) => $emit('hover-path', p)"
+                  @click-path="(p, t) => $emit('click-path', p, t)"
+                />
               </div>
 
               <!-- Complex nested value in 2D grid -->
@@ -710,24 +1174,37 @@ watch(currentSelectedPath, (newPath) => {
             class="value-cell"
             :class="{
               [`val-${getValueType(entry.value)}`]: true,
-              'is-selected': isValSelected([entry.isIndex ? Number(entry.key) : entry.key]),
-              'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key]),
-              'value-cell--complex': !isPrimitive(entry.value)
+              'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key]),
+              'is-hovered': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key]) && isPathHovered([entry.isIndex ? Number(entry.key) : entry.key]),
+              'value-cell--complex': !isPrimitive(entry.value) || isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key])
             }"
-            @click.stop="isPrimitive(entry.value) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key], 'value') : null"
-            @mouseenter.stop="isPrimitive(entry.value) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key]) : null"
+            @click.stop="(isPrimitive(entry.value) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key])) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key], 'value') : null"
+            @mouseenter.stop="(isPrimitive(entry.value) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key])) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key]) : null"
             @mouseleave.stop="emitHover(null)"
           >
             <!-- 2.1 基础单值属性 (Primitive Value) -->
-            <div v-if="isPrimitive(entry.value)" class="val-primitive-wrap">
+            <div v-if="isPrimitive(entry.value) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key])" class="val-primitive-wrap">
               <span
                 v-if="isColor(entry.value)"
                 class="table-color-badge"
-                :title="`颜色值: ${entry.value}`"
               ><span class="table-color-chip-inner" :style="{ backgroundColor: entry.value }"></span></span>
               <span
+                v-else-if="isAudio(entry.value)"
+                class="tree-img-badge tree-audio-badge"
+                @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+                @mouseleave="() => onValMouseLeave(entry.value)"
+                data-tooltip="音频直链 (悬停试听)"
+              ><Volume2 class="img-badge-icon" /></span>
+              <span
+                v-else-if="isVideo(entry.value)"
+                class="tree-img-badge tree-video-badge"
+                @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+                @mouseleave="() => onValMouseLeave(entry.value)"
+                data-tooltip="视频直链 (悬停播放)"
+              ><VideoIcon class="img-badge-icon" /></span>
+              <span
                 v-else-if="isImg(entry.value)"
-                class="table-img-badge"
+                class="tree-img-badge"
                 @mouseenter="(e) => onValMouseEnter(entry.value, e)"
                 @mouseleave="() => onValMouseLeave(entry.value)"
                 data-tooltip="图片链接 (悬停预览)"
@@ -740,6 +1217,91 @@ watch(currentSelectedPath, (newPath) => {
               >
                 <ExternalLink class="url-jump-icon" />
               </button>
+
+              <!-- Cron 表达式胶囊 (图标不加 tooltip，点击正常复制) -->
+              <button
+                v-if="getCronData(entry.value)"
+                class="tree-capsule-badge tree-cron-badge"
+                @click.stop="handleCopyValue(entry.value)"
+              >
+                <CalendarClock class="capsule-icon" />
+                <span class="capsule-text">CRON</span>
+              </button>
+
+              <!-- 智能数据胶囊 (JWT, HTML) -->
+              <button
+                v-if="getSmartData(entry.value)"
+                class="tree-capsule-badge"
+                :class="{
+                  'tree-jwt-badge': getSmartData(entry.value).isJwt,
+                  'tree-html-badge': getSmartData(entry.value).isHtml
+                }"
+                @mouseenter="onSmartMouseEnter(getSmartData(entry.value), $event)"
+                @mouseleave="onSmartMouseLeave"
+                @click.stop="onSmartMouseEnter(getSmartData(entry.value), $event)"
+                :title="getSmartData(entry.value).isJwt ? 'JWT Token (悬停解码)' : '智能数据 (悬停查看详情)'"
+              >
+                <KeyRound v-if="getSmartData(entry.value).isJwt" class="capsule-icon" />
+                <span class="capsule-text">
+                  {{ getSmartData(entry.value).isJwt ? 'JWT' : 'HTML' }}
+                </span>
+              </button>
+
+              <!-- Base64 Badge (点击复制 Base64 原值) -->
+              <span
+                v-if="getBase64Data(entry.value)"
+                class="tree-inline-badge tree-b64-badge"
+                @click.stop="handleCopyRaw(entry.value, 'Base64 原值')"
+                data-tooltip="点击复制 Base64 原值"
+              >
+                <span class="capsule-symbol">B64</span>
+              </span>
+
+              <!-- URL 编码 Badge (点击复制 URL 编码原值) -->
+              <span
+                v-if="getUrlEncodedData(entry.value)"
+                class="tree-inline-badge tree-urldec-badge"
+                @click.stop="handleCopyRaw(entry.value, 'URL 编码原值')"
+                data-tooltip="点击复制 URL 编码原值"
+              >
+                <span class="capsule-symbol">%</span>
+              </span>
+
+              <!-- 时间戳胶囊 -->
+              <button
+                v-if="detectTimestamp(entry.value)"
+                class="tree-capsule-badge tree-time-badge"
+                @mouseenter="onTimeBadgeEnter(detectTimestamp(entry.value), $event)"
+                @mouseleave="onTimeBadgeLeave"
+                @click.stop="openTimeMenu(detectTimestamp(entry.value), $event)"
+                title="悬停查看与复制时间格式"
+              >
+                <Clock class="capsule-icon" />
+                <span class="capsule-text">{{ detectTimestamp(entry.value).beijingStr }}</span>
+              </button>
+
+              <!-- Unicode 徽标 -->
+              <span
+                v-if="detectUnicode(entry.value, props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key])"
+                class="tree-unicode-badge"
+                @click.stop="handleCopyUnicode(detectUnicode(entry.value, props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key]))"
+                title="点击复制 Unicode 原文"
+              >
+                <span class="capsule-symbol">\u</span>
+              </span>
+
+              <!-- 嵌套 JSON 徽标 -->
+              <span
+                v-if="detectNestedJson(entry.value)"
+                class="tree-nested-badge"
+                @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key])"
+                @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key], entry.value, entry.key, $event)"
+                @mouseleave="onNestedBadgeLeave"
+                title="嵌套 JSON 字符串，悬停展开或新 Tab 打开"
+              >
+                <Braces class="capsule-icon" />
+              </span>
+
               <span
                 :class="[getValueColorClass(getValueType(entry.value)), 'copyable-val', { 'is-image-url': isImg(entry.value), 'is-web-url': isHttpLink(entry.value) }]"
                 @mouseenter="(e) => onValMouseEnter(entry.value, e)"
@@ -748,6 +1310,31 @@ watch(currentSelectedPath, (newPath) => {
                 :data-tooltip="getValTooltip(entry.value)"
                 v-html="highlightText(getPreview(entry.value), searchQuery)"
               ></span>
+            </div>
+
+            <!-- 嵌套 JSON 就地展开表格 -->
+            <div v-else-if="detectNestedJson(entry.value) && isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key])" class="complex-cell-container">
+              <div class="complex-header-row nested-json-header">
+                <span
+                  class="tree-nested-badge is-expanded"
+                  @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key])"
+                  @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key], entry.value, entry.key, $event)"
+                  @mouseleave="onNestedBadgeLeave"
+                >
+                  <Braces class="capsule-icon" />
+                </span>
+                <span class="preview-text">嵌套 JSON (已转义展开)</span>
+              </div>
+              <JsonTableView
+                :data="detectNestedJson(entry.value).parsed"
+                :rawInput="props.rawInput"
+                :depth="depth + 1"
+                :hoveredPath="hoveredPath"
+                :selectedPath="currentSelectedPath"
+                :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key])"
+                @hover-path="handleChildHover"
+                @click-path="handleChildClick"
+              />
             </div>
 
             <!-- 2.2 对象数组属性 (Array of Objects - 核心行转列 2D 表格) -->
@@ -776,6 +1363,7 @@ watch(currentSelectedPath, (newPath) => {
                 <table class="inner-grid-table">
                   <thead>
                     <tr class="inner-grid-header-row">
+                      <th class="inner-grid-th inner-grid-index-th">#</th>
                       <th
                         v-for="col in getColumnsFromObjectArray(entry.value)"
                         :key="col"
@@ -814,29 +1402,56 @@ watch(currentSelectedPath, (newPath) => {
                       :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subIdx]))"
                     >
                       <td
+                        class="inner-grid-td inner-grid-index-cell"
+                        :class="{ 'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key, subIdx]) }"
+                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx], 'key')"
+                        @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, subIdx])"
+                        @mouseleave.stop="emitHover(null)"
+                      >
+                        <span
+                          class="table-key-text"
+                          data-tooltip="点击复制索引"
+                          @click.stop="handleCopyKey(subIdx); emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx], 'key')"
+                        >{{ subIdx }}</span>
+                      </td>
+                      <td
                         v-for="col in getColumnsFromObjectArray(entry.value)"
                         :key="col"
                         class="inner-grid-td"
                         :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]))"
                         :class="{
                           [`val-${getValueType(subObj?.[col])}`]: true,
-                          'is-selected': isValSelected([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]),
-                          'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])
+                          'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]),
+                          'is-hovered': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]) && isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]),
+                          'value-cell--complex': !isPrimitive(subObj?.[col]) || isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])
                         }"
-                        @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
-                        @mouseleave.stop="emitHover(null)"
-                        @click.stop="isPrimitive(subObj?.[col]) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], 'value') : null"
+                        @mouseenter.stop="(!isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]) : null"
+                        @mouseleave.stop="(!isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])) ? emitHover(null) : null"
+                        @click.stop="(isPrimitive(subObj?.[col]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], 'value') : null"
                       >
                         <template v-if="subObj && subObj[col] !== undefined">
-                          <div v-if="isPrimitive(subObj[col])" class="val-primitive-wrap">
+                          <div v-if="isPrimitive(subObj[col]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])" class="val-primitive-wrap">
                             <span
                               v-if="isColor(subObj[col])"
                               class="table-color-badge"
-                              :title="`颜色值: ${subObj[col]}`"
                             ><span class="table-color-chip-inner" :style="{ backgroundColor: subObj[col] }"></span></span>
                             <span
+                              v-else-if="isAudio(subObj[col])"
+                              class="tree-img-badge tree-audio-badge"
+                              @mouseenter="(e) => onValMouseEnter(subObj[col], e)"
+                              @mouseleave="() => onValMouseLeave(subObj[col])"
+                              data-tooltip="音频直链 (悬停试听)"
+                            ><Volume2 class="img-badge-icon" /></span>
+                            <span
+                              v-else-if="isVideo(subObj[col])"
+                              class="tree-img-badge tree-video-badge"
+                              @mouseenter="(e) => onValMouseEnter(subObj[col], e)"
+                              @mouseleave="() => onValMouseLeave(subObj[col])"
+                              data-tooltip="视频直链 (悬停播放)"
+                            ><VideoIcon class="img-badge-icon" /></span>
+                            <span
                               v-else-if="isImg(subObj[col])"
-                              class="table-img-badge"
+                              class="tree-img-badge"
                               @mouseenter="(e) => onValMouseEnter(subObj[col], e)"
                               @mouseleave="() => onValMouseLeave(subObj[col])"
                               data-tooltip="图片链接 (悬停预览)"
@@ -849,6 +1464,91 @@ watch(currentSelectedPath, (newPath) => {
                             >
                               <ExternalLink class="url-jump-icon" />
                             </button>
+
+                            <!-- Cron 表达式胶囊 (图标不加 tooltip，点击正常复制) -->
+                            <button
+                              v-if="getCronData(subObj[col])"
+                              class="tree-capsule-badge tree-cron-badge"
+                              @click.stop="handleCopyValue(subObj[col])"
+                            >
+                              <CalendarClock class="capsule-icon" />
+                              <span class="capsule-text">CRON</span>
+                            </button>
+
+                            <!-- 智能数据胶囊 (JWT, HTML) -->
+                            <button
+                              v-if="getSmartData(subObj[col])"
+                              class="tree-capsule-badge"
+                              :class="{
+                                'tree-jwt-badge': getSmartData(subObj[col]).isJwt,
+                                'tree-html-badge': getSmartData(subObj[col]).isHtml
+                              }"
+                              @mouseenter="onSmartMouseEnter(getSmartData(subObj[col]), $event)"
+                              @mouseleave="onSmartMouseLeave"
+                              @click.stop="onSmartMouseEnter(getSmartData(subObj[col]), $event)"
+                              :title="getSmartData(subObj[col]).isJwt ? 'JWT Token (悬停解码)' : '智能数据 (悬停查看详情)'"
+                            >
+                              <KeyRound v-if="getSmartData(subObj[col]).isJwt" class="capsule-icon" />
+                              <span class="capsule-text">
+                                {{ getSmartData(subObj[col]).isJwt ? 'JWT' : 'HTML' }}
+                              </span>
+                            </button>
+
+                            <!-- Base64 Badge (点击复制 Base64 原值) -->
+                            <span
+                              v-if="getBase64Data(subObj[col])"
+                              class="tree-inline-badge tree-b64-badge"
+                              @click.stop="handleCopyRaw(subObj[col], 'Base64 原值')"
+                              data-tooltip="点击复制 Base64 原值"
+                            >
+                              <span class="capsule-symbol">B64</span>
+                            </span>
+
+                            <!-- URL 编码 Badge (点击复制 URL 编码原值) -->
+                            <span
+                              v-if="getUrlEncodedData(subObj[col])"
+                              class="tree-inline-badge tree-urldec-badge"
+                              @click.stop="handleCopyRaw(subObj[col], 'URL 编码原值')"
+                              data-tooltip="点击复制 URL 编码原值"
+                            >
+                              <span class="capsule-symbol">%</span>
+                            </span>
+
+                            <!-- 时间戳胶囊 -->
+                            <button
+                              v-if="detectTimestamp(subObj[col])"
+                              class="tree-capsule-badge tree-time-badge"
+                              @mouseenter="onTimeBadgeEnter(detectTimestamp(subObj[col]), $event)"
+                              @mouseleave="onTimeBadgeLeave"
+                              @click.stop="openTimeMenu(detectTimestamp(subObj[col]), $event)"
+                              title="悬停查看与复制时间格式"
+                            >
+                              <Clock class="capsule-icon" />
+                              <span class="capsule-text">{{ detectTimestamp(subObj[col]).beijingStr }}</span>
+                            </button>
+
+                            <!-- Unicode 徽标 -->
+                            <span
+                              v-if="detectUnicode(subObj[col], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                              class="tree-unicode-badge"
+                              @click.stop="handleCopyUnicode(detectUnicode(subObj[col], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]))"
+                              title="点击复制 Unicode 原文"
+                            >
+                              <span class="capsule-symbol">\u</span>
+                            </span>
+
+                            <!-- 嵌套 JSON 徽标 -->
+                            <span
+                              v-if="detectNestedJson(subObj[col])"
+                              class="tree-nested-badge"
+                              @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                              @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], subObj[col], col, $event)"
+                              @mouseleave="onNestedBadgeLeave"
+                              title="嵌套 JSON 字符串，悬停展开或新 Tab 打开"
+                            >
+                              <Braces class="capsule-icon" />
+                            </span>
+
                             <span
                               :class="[getValueColorClass(getValueType(subObj[col])), 'copyable-val', { 'is-image-url': isImg(subObj[col]), 'is-web-url': isHttpLink(subObj[col]) }]"
                               @mouseenter="(e) => onValMouseEnter(subObj[col], e)"
@@ -858,9 +1558,36 @@ watch(currentSelectedPath, (newPath) => {
                               v-html="highlightText(getPreview(subObj[col]), searchQuery)"
                             ></span>
                           </div>
+
+                          <!-- 嵌套 JSON 就地展开表格 -->
+                          <div v-else-if="detectNestedJson(subObj[col]) && isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])" class="complex-cell-container">
+                            <div class="complex-header-row nested-json-header">
+                              <span
+                                class="tree-nested-badge is-expanded"
+                                @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                                @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], subObj[col], col, $event)"
+                                @mouseleave="onNestedBadgeLeave"
+                              >
+                                <Braces class="capsule-icon" />
+                              </span>
+                              <span class="preview-text">嵌套 JSON (已转义展开)</span>
+                            </div>
+                            <JsonTableView
+                              :data="detectNestedJson(subObj[col]).parsed"
+                              :rawInput="props.rawInput"
+                              :depth="depth + 1"
+                              :hoveredPath="hoveredPath"
+                              :selectedPath="currentSelectedPath"
+                              :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                              @hover-path="handleChildHover"
+                              @click-path="handleChildClick"
+                            />
+                          </div>
+
                           <div v-else class="complex-cell-container">
                             <JsonTableView
                               :data="subObj[col]"
+                              :rawInput="props.rawInput"
                               :depth="depth + 1"
                               :hoveredPath="hoveredPath"
                               :selectedPath="currentSelectedPath"
@@ -934,23 +1661,36 @@ watch(currentSelectedPath, (newPath) => {
                         class="inner-val-cell"
                         :class="{
                           [`val-${getValueType(Array.isArray(entry.value) ? subVal : subVal[1])}`]: true,
-                          'is-selected': isValSelected([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
-                          'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
-                          'value-cell--complex': !isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1])
+                          'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
+                          'is-hovered': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]) && isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
+                          'value-cell--complex': !isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) || isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])
                         }"
-                        @click.stop="isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'value') : null"
-                        @mouseenter.stop="isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]) : null"
+                        @click.stop="(isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'value') : null"
+                        @mouseenter.stop="(isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]) : null"
                         @mouseleave.stop="emitHover(null)"
                       >
-                        <div v-if="isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1])" class="val-primitive-wrap">
+                        <div v-if="isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])" class="val-primitive-wrap">
                           <span
                             v-if="isColor(Array.isArray(entry.value) ? subVal : subVal[1])"
                             class="table-color-badge"
-                            :title="`颜色值: ${Array.isArray(entry.value) ? subVal : subVal[1]}`"
                           ><span class="table-color-chip-inner" :style="{ backgroundColor: Array.isArray(entry.value) ? subVal : subVal[1] }"></span></span>
                           <span
+                            v-else-if="isAudio(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="tree-img-badge tree-audio-badge"
+                            @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
+                            @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            data-tooltip="音频直链 (悬停试听)"
+                          ><Volume2 class="img-badge-icon" /></span>
+                          <span
+                            v-else-if="isVideo(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="tree-img-badge tree-video-badge"
+                            @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
+                            @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            data-tooltip="视频直链 (悬停播放)"
+                          ><VideoIcon class="img-badge-icon" /></span>
+                          <span
                             v-else-if="isImg(Array.isArray(entry.value) ? subVal : subVal[1])"
-                            class="table-img-badge"
+                            class="tree-img-badge"
                             @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
                             @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
                             data-tooltip="图片链接 (悬停预览)"
@@ -963,6 +1703,91 @@ watch(currentSelectedPath, (newPath) => {
                           >
                             <ExternalLink class="url-jump-icon" />
                           </button>
+
+                          <!-- Cron 表达式胶囊 (图标不加 tooltip，点击正常复制) -->
+                          <button
+                            v-if="getCronData(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="tree-capsule-badge tree-cron-badge"
+                            @click.stop="handleCopyValue(Array.isArray(entry.value) ? subVal : subVal[1])"
+                          >
+                            <CalendarClock class="capsule-icon" />
+                            <span class="capsule-text">CRON</span>
+                          </button>
+
+                          <!-- 智能数据胶囊 (JWT, HTML) -->
+                          <button
+                            v-if="getSmartData(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="tree-capsule-badge"
+                            :class="{
+                              'tree-jwt-badge': getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isJwt,
+                              'tree-html-badge': getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isHtml
+                            }"
+                            @mouseenter="onSmartMouseEnter(getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]), $event)"
+                            @mouseleave="onSmartMouseLeave"
+                            @click.stop="onSmartMouseEnter(getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]), $event)"
+                            :title="getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isJwt ? 'JWT Token (悬停解码)' : '智能数据 (悬停查看详情)'"
+                          >
+                            <KeyRound v-if="getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isJwt" class="capsule-icon" />
+                            <span class="capsule-text">
+                              {{ getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isJwt ? 'JWT' : 'HTML' }}
+                            </span>
+                          </button>
+
+                          <!-- Base64 Badge (点击复制 Base64 原值) -->
+                          <span
+                            v-if="getBase64Data(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="tree-inline-badge tree-b64-badge"
+                            @click.stop="handleCopyRaw(Array.isArray(entry.value) ? subVal : subVal[1], 'Base64 原值')"
+                            data-tooltip="点击复制 Base64 原值"
+                          >
+                            <span class="capsule-symbol">B64</span>
+                          </span>
+
+                          <!-- URL 编码 Badge (点击复制 URL 编码原值) -->
+                          <span
+                            v-if="getUrlEncodedData(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="tree-inline-badge tree-urldec-badge"
+                            @click.stop="handleCopyRaw(Array.isArray(entry.value) ? subVal : subVal[1], 'URL 编码原值')"
+                            data-tooltip="点击复制 URL 编码原值"
+                          >
+                            <span class="capsule-symbol">%</span>
+                          </span>
+
+                          <!-- 时间戳胶囊 -->
+                          <button
+                            v-if="detectTimestamp(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="tree-capsule-badge tree-time-badge"
+                            @mouseenter="onTimeBadgeEnter(detectTimestamp(Array.isArray(entry.value) ? subVal : subVal[1]), $event)"
+                            @mouseleave="onTimeBadgeLeave"
+                            @click.stop="openTimeMenu(detectTimestamp(Array.isArray(entry.value) ? subVal : subVal[1]), $event)"
+                            title="悬停查看与复制时间格式"
+                          >
+                            <Clock class="capsule-icon" />
+                            <span class="capsule-text">{{ detectTimestamp(Array.isArray(entry.value) ? subVal : subVal[1]).beijingStr }}</span>
+                          </button>
+
+                          <!-- Unicode 徽标 -->
+                          <span
+                            v-if="detectUnicode(Array.isArray(entry.value) ? subVal : subVal[1], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                            class="tree-unicode-badge"
+                            @click.stop="handleCopyUnicode(detectUnicode(Array.isArray(entry.value) ? subVal : subVal[1], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]))"
+                            title="点击复制 Unicode 原文"
+                          >
+                            <span class="capsule-symbol">\u</span>
+                          </span>
+
+                          <!-- 嵌套 JSON 徽标 -->
+                          <span
+                            v-if="detectNestedJson(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            class="tree-nested-badge"
+                            @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                            @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], Array.isArray(entry.value) ? subVal : subVal[1], Array.isArray(entry.value) ? subK : subVal[0], $event)"
+                            @mouseleave="onNestedBadgeLeave"
+                            title="嵌套 JSON 字符串，悬停展开或新 Tab 打开"
+                          >
+                            <Braces class="capsule-icon" />
+                          </span>
+
                           <span
                             :class="[getValueColorClass(getValueType(Array.isArray(entry.value) ? subVal : subVal[1])), 'copyable-val', { 'is-image-url': isImg(Array.isArray(entry.value) ? subVal : subVal[1]), 'is-web-url': isHttpLink(Array.isArray(entry.value) ? subVal : subVal[1]) }]"
                             @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
@@ -972,9 +1797,36 @@ watch(currentSelectedPath, (newPath) => {
                             v-html="highlightText(getPreview(Array.isArray(entry.value) ? subVal : subVal[1]), searchQuery)"
                           ></span>
                         </div>
+
+                        <!-- 嵌套 JSON 就地展开表格 -->
+                        <div v-else-if="detectNestedJson(Array.isArray(entry.value) ? subVal : subVal[1]) && isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])" class="complex-cell-container">
+                          <div class="complex-header-row nested-json-header">
+                            <span
+                              class="tree-nested-badge is-expanded"
+                              @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                              @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], Array.isArray(entry.value) ? subVal : subVal[1], Array.isArray(entry.value) ? subK : subVal[0], $event)"
+                              @mouseleave="onNestedBadgeLeave"
+                            >
+                              <Braces class="capsule-icon" />
+                            </span>
+                            <span class="preview-text">嵌套 JSON (已转义展开)</span>
+                          </div>
+                          <JsonTableView
+                            :data="detectNestedJson(Array.isArray(entry.value) ? subVal : subVal[1]).parsed"
+                            :rawInput="props.rawInput"
+                            :depth="depth + 1"
+                            :hoveredPath="hoveredPath"
+                            :selectedPath="currentSelectedPath"
+                            :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                            @hover-path="handleChildHover"
+                            @click-path="handleChildClick"
+                          />
+                        </div>
+
                         <div v-else class="complex-cell-container">
                           <JsonTableView
                             :data="Array.isArray(entry.value) ? subVal : subVal[1]"
+                            :rawInput="props.rawInput"
                             :depth="depth + 1"
                             :hoveredPath="hoveredPath"
                             :selectedPath="currentSelectedPath"
@@ -1022,6 +1874,116 @@ watch(currentSelectedPath, (newPath) => {
         ⊡
       </button>
     </div>
+
+    <!-- Timestamp Copy Menu Popover -->
+    <Teleport to="body">
+      <Transition name="popover-fade">
+        <div
+          v-if="activeTimeMenu"
+          class="time-capsule-popover"
+          :class="{ 'is-dark': isDark }"
+          :style="{ top: `${activeTimeMenu.top}px`, left: `${activeTimeMenu.left}px` }"
+          @mouseenter="onPopoverEnter"
+          @mouseleave="onPopoverLeave"
+          @click.stop
+        >
+          <div class="popover-header">
+            <div class="badge-group">
+              <span class="type-badge">{{ activeTimeMenu.timeData.badgeLabel || '时间戳' }}</span>
+              <span class="dimension-badge">{{ activeTimeMenu.timeData.type }}</span>
+            </div>
+            <button class="icon-action-btn" @click="closeTimeMenu" title="关闭">
+              <X class="action-icon" />
+            </button>
+          </div>
+          <div class="time-popover-body">
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.rawStr, activeTimeMenu.timeData.isIso ? '原始时间' : '时间戳')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">{{ activeTimeMenu.timeData.isIso ? '原始时间' : '原始时间戳' }}</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.rawStr }}</span>
+              </div>
+            </div>
+            <div
+              v-if="activeTimeMenu.timeData.isIso"
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.timeMsStr, '毫秒时间戳')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">毫秒时间戳</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.timeMsStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(currentNowStr, '当前本机时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">当前本机时间</span>
+                <span class="time-val">{{ currentNowStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.beijingStr, '东八区时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">东八区时间 (UTC+8)</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.beijingStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.utcStr, 'UTC 时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">UTC 国际时间</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.utcStr }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Nested JSON Actions Popover (悬浮操作菜单：转义展开 / 新 Tab 打开) -->
+    <Teleport to="body">
+      <Transition name="popover-fade">
+        <div
+          v-if="activeNestedMenu"
+          class="nested-capsule-popover"
+          :class="{ 'is-dark': isDark }"
+          :style="{ top: `${activeNestedMenu.top}px`, left: `${activeNestedMenu.left}px` }"
+          @mouseenter="onNestedPopoverEnter"
+          @mouseleave="onNestedPopoverLeave"
+          @click.stop
+        >
+          <button
+            class="nested-action-btn primary"
+            :class="{ 'is-expanded': activeNestedMenu.isExpanded }"
+            @click.stop="toggleNestedExpand(activeNestedMenu.path)"
+          >
+            <FoldVertical v-if="activeNestedMenu.isExpanded" class="btn-icon" />
+            <UnfoldVertical v-else class="btn-icon" />
+            <span>{{ activeNestedMenu.isExpanded ? '还原收起' : '转义展开' }}</span>
+          </button>
+          <button
+            class="nested-action-btn secondary"
+            @click.stop="handleOpenInNewTab(activeNestedMenu.val, activeNestedMenu.title)"
+          >
+            <ExternalLink class="btn-icon" />
+            <span>新tab打开</span>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -1140,6 +2102,14 @@ watch(currentSelectedPath, (newPath) => {
 .grid-col-header:last-child,
 .inner-grid-th:last-child {
   border-right: none;
+}
+
+.inner-grid-index-th {
+  width: var(--table-index-width, 42px);
+  min-width: var(--table-index-width, 42px);
+  max-width: var(--table-index-width, 42px);
+  text-align: center;
+  color: var(--text-muted);
 }
 
 .grid-th-content {
@@ -1340,6 +2310,18 @@ watch(currentSelectedPath, (newPath) => {
   padding: var(--table-compact-padding-y, 4px) var(--table-compact-padding-x, 10px);
 }
 
+.complex-header-row.nested-json-header {
+  border-bottom: 1px solid var(--border-color);
+  padding: 4px 8px;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--table-header-bg, rgba(0, 0, 0, 0.02));
+}
+
+:global(.dark-mode) .complex-header-row.nested-json-header {
+  background: var(--table-header-bg, rgba(255, 255, 255, 0.02));
+}
+
 .toggle-btn {
   display: inline-flex;
   align-items: center;
@@ -1428,8 +2410,28 @@ watch(currentSelectedPath, (newPath) => {
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
+.inner-grid-td.value-cell--complex {
+  padding: 0 !important;
+}
+
 .inner-grid-td:last-child {
   border-right: none;
+}
+
+.inner-grid-index-cell {
+  width: var(--table-index-width, 42px);
+  min-width: var(--table-index-width, 42px);
+  max-width: var(--table-index-width, 42px);
+  text-align: center;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  user-select: none;
+  cursor: pointer;
+  background-color: var(--table-header-bg, rgba(0, 0, 0, 0.03));
+}
+
+:global(.dark-mode) .inner-grid-index-cell {
+  background-color: var(--table-header-bg, rgba(255, 255, 255, 0.03));
 }
 
 .inner-kv-row {
@@ -1445,7 +2447,7 @@ watch(currentSelectedPath, (newPath) => {
   min-width: 80px;
   max-width: 220px;
   color: var(--table-subkey-fg, #991b1b);
-  font-weight: 500;
+  /* font-weight: 500; */
   padding: var(--table-padding-y, 6px) var(--table-padding-x, 12px);
   border-right: 1px solid var(--border-color);
   white-space: nowrap;
@@ -1482,11 +2484,13 @@ watch(currentSelectedPath, (newPath) => {
 .root-key-cell:hover,
 .inner-key-cell:hover,
 .grid-index-cell:hover,
+.inner-grid-index-cell:hover,
 .grid-col-header:hover,
 .inner-grid-th:hover,
 .root-key-cell.is-hovered,
 .inner-key-cell.is-hovered,
 .grid-index-cell.is-hovered,
+.inner-grid-index-cell.is-hovered,
 .grid-col-header.is-hovered,
 .inner-grid-th.is-hovered {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.14)) !important;
@@ -1507,17 +2511,19 @@ watch(currentSelectedPath, (newPath) => {
 .root-key-cell.is-selected,
 .inner-key-cell.is-selected,
 .grid-index-cell.is-selected,
+.inner-grid-index-cell.is-selected,
 .grid-col-header.is-selected,
 .inner-grid-th.is-selected {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
   color: var(--json-key, #4f46e5) !important;
   font-weight: 700 !important;
-  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+  /* box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important; */
 }
 
 :global(.dark-mode .table-view-root .root-key-cell.is-selected),
 :global(.dark-mode .table-view-root .inner-key-cell.is-selected),
 :global(.dark-mode .table-view-root .grid-index-cell.is-selected),
+:global(.dark-mode .table-view-root .inner-grid-index-cell.is-selected),
 :global(.dark-mode .table-view-root .grid-col-header.is-selected),
 :global(.dark-mode .table-view-root .inner-grid-th.is-selected) {
   background-color: rgba(97, 175, 239, 0.32) !important;
@@ -1529,7 +2535,7 @@ watch(currentSelectedPath, (newPath) => {
 .inner-grid-td:not(.value-cell--complex).is-selected,
 .inner-val-cell:not(.value-cell--complex).is-selected {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
-  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+  /* box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important; */
 }
 
 :global(.dark-mode .table-view-root .value-cell:not(.value-cell--complex).is-selected),
@@ -1548,6 +2554,10 @@ watch(currentSelectedPath, (newPath) => {
 .inner-val-cell.value-cell--complex.is-selected,
 .inner-val-cell.value-cell--complex.is-hovered,
 .inner-val-cell.value-cell--complex:hover,
+.inner-grid-td.value-cell--complex,
+.inner-grid-td.value-cell--complex.is-selected,
+.inner-grid-td.value-cell--complex.is-hovered,
+.inner-grid-td.value-cell--complex:hover,
 .json-table-row.row--complex,
 .json-table-row.row--complex:hover,
 .json-table-row.row--complex.is-selected,
@@ -1679,14 +2689,15 @@ watch(currentSelectedPath, (newPath) => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 17px;
-  height: 17px;
+  width: 0.88rem;
+  height: 0.88rem;
   margin-right: 4px;
   margin-left: 1px;
   padding: 0;
-  background: rgba(37, 99, 235, 0.08);
-  border: 1px solid rgba(37, 99, 235, 0.25);
-  border-radius: 4px;
+  background: transparent;
+  border: none !important;
+  outline: none !important;
+  border-radius: 3px !important;
   color: #2563eb;
   cursor: pointer;
   opacity: 0.95;
@@ -1696,24 +2707,23 @@ watch(currentSelectedPath, (newPath) => {
 }
 
 .url-jump-btn:hover {
-  background: #2563eb;
-  color: #ffffff;
+  background: rgba(37, 99, 235, 0.15);
+  color: #2563eb;
   opacity: 1;
   transform: scale(1.15);
 }
 
 :global(.dark-mode) .url-jump-btn {
-  background: rgba(56, 189, 248, 0.16);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: transparent;
+  border: none !important;
   color: #38bdf8;
   opacity: 1;
 }
 
 :global(.dark-mode) .url-jump-btn:hover {
-  background: #0284c7;
-  border-color: #38bdf8;
-  color: #ffffff;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  box-shadow: none;
 }
 
 .url-jump-icon {

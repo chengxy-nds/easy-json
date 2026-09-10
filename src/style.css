@@ -2157,3 +2157,707 @@ mark.search-match-current {
   color: #fde68a !important;
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.6) !important;
 }
+
+/* ── Time Capsule Popover (与图片预览弹窗视觉语言一致，支持亮色/深色主题无缝切换) ── */
+.time-capsule-popover {
+  position: fixed;
+  z-index: 99999;
+  width: 290px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* 亮色模式：通透纯白毛玻璃卡片，上下浑然一体 */
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04) !important;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  user-select: none;
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+}
+
+/* 深色模式：高质感深邃毛玻璃卡片 */
+.dark-mode .time-capsule-popover,
+.time-capsule-popover.is-dark {
+  background: rgba(30, 30, 46, 0.92) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 16px 36px -6px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
+}
+
+/* 头部 Header (与图片预览弹窗完全一致：亮色模式下精确为 #30303d，消除色差) */
+.time-capsule-popover .popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #30303d !important;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08)) !important;
+}
+
+.dark-mode .time-capsule-popover .popover-header,
+.time-capsule-popover.is-dark .popover-header {
+  background: #232330 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+.time-capsule-popover .badge-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.time-capsule-popover .type-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-color, #6366f1) !important;
+  color: #ffffff !important;
+  letter-spacing: 0.5px;
+}
+
+.time-capsule-popover .dimension-badge {
+  font-size: 11px;
+  color: #9ca3af !important;
+  font-family: var(--font-mono, monospace);
+}
+
+.time-capsule-popover .icon-action-btn {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #9ca3af !important;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.time-capsule-popover .icon-action-btn:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #f3f4f6 !important;
+}
+
+.time-capsule-popover .action-icon {
+  width: 13px;
+  height: 13px;
+}
+
+/* 主体内容区：背景透明，与卡片整体完全融为一体 */
+.time-capsule-popover .time-popover-body {
+  padding: 5px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: transparent !important;
+}
+
+.time-capsule-popover .time-popover-item {
+  display: flex;
+  align-items: center;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+  transition: all 0.15s ease;
+}
+
+.time-capsule-popover .time-popover-item:hover {
+  background: rgba(0, 0, 0, 0.05) !important;
+}
+
+.dark-mode .time-capsule-popover .time-popover-item:hover,
+.time-capsule-popover.is-dark .time-popover-item:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+}
+
+/* 原始时间戳与值在同一行水平两端对齐 */
+.time-capsule-popover .time-item-left {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.time-capsule-popover .time-label {
+  font-size: 10.5px;
+  color: #64748b !important;
+  flex-shrink: 0;
+}
+
+.dark-mode .time-capsule-popover .time-label,
+.time-capsule-popover.is-dark .time-label {
+  color: #94a3b8 !important;
+}
+
+.time-capsule-popover .time-val {
+  font-family: var(--font-mono, monospace);
+  font-size: 11.5px;
+  color: #0f172a !important;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  text-align: right;
+}
+
+.dark-mode .time-capsule-popover .time-val,
+.time-capsule-popover.is-dark .time-val {
+  color: #f3f4f6 !important;
+}
+
+/* 全局 popover-fade 动效 (与图片预览浮窗一致) */
+.popover-fade-enter-active,
+.popover-fade-leave-active {
+  transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.popover-fade-enter-from,
+.popover-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+}
+
+/* ── Nested JSON Actions Popover (轻量级快捷悬浮操作胶囊，极简现代设计) ── */
+.nested-capsule-popover {
+  position: fixed;
+  z-index: 99999;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.96) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 6px 18px -2px rgba(0, 0, 0, 0.1), 0 2px 6px -1px rgba(0, 0, 0, 0.04) !important;
+  pointer-events: auto;
+  user-select: none;
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+}
+
+.dark-mode .nested-capsule-popover,
+.nested-capsule-popover.is-dark {
+  background: rgba(30, 30, 40, 0.94) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5), 0 2px 8px -2px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* 统一轻量级按钮 (Ghost Pill) */
+.nested-capsule-popover .nested-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: none !important;
+  outline: none !important;
+  background: transparent;
+  color: var(--text-secondary, #475569);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+.nested-capsule-popover .nested-action-btn .btn-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0.85;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.nested-capsule-popover .nested-action-btn:hover {
+  background: rgba(99, 102, 241, 0.08) !important;
+  color: var(--primary-color, #4f46e5) !important;
+}
+
+.nested-capsule-popover .nested-action-btn:hover .btn-icon {
+  opacity: 1;
+  transform: translateY(-0.5px);
+}
+
+/* 深色模式默认与悬停 */
+.dark-mode .nested-capsule-popover .nested-action-btn,
+.nested-capsule-popover.is-dark .nested-action-btn {
+  color: #94a3b8;
+}
+
+.dark-mode .nested-capsule-popover .nested-action-btn:hover,
+.nested-capsule-popover.is-dark .nested-action-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #c7d2fe !important;
+}
+
+/* 展开激活状态（还原收起）：轻柔微高亮底色，温和不突兀 */
+.nested-capsule-popover .nested-action-btn.is-expanded {
+  background: rgba(99, 102, 241, 0.1) !important;
+  color: var(--primary-color, #4f46e5) !important;
+}
+
+.nested-capsule-popover .nested-action-btn.is-expanded:hover {
+  background: rgba(99, 102, 241, 0.18) !important;
+  color: var(--primary-color, #4338ca) !important;
+}
+
+.dark-mode .nested-capsule-popover .nested-action-btn.is-expanded,
+.nested-capsule-popover.is-dark .nested-action-btn.is-expanded {
+  background: rgba(99, 102, 241, 0.2) !important;
+  color: #a5b4fc !important;
+}
+
+.dark-mode .nested-capsule-popover .nested-action-btn.is-expanded:hover,
+.nested-capsule-popover.is-dark .nested-action-btn.is-expanded:hover {
+  background: rgba(99, 102, 241, 0.32) !important;
+  color: #c7d2fe !important;
+}
+
+.nested-capsule-popover .nested-action-divider {
+  display: none;
+}
+
+.tree-nested-badge.is-expanded {
+  background-color: rgba(59, 130, 246, 0.16) !important;
+  color: #2563eb !important;
+}
+
+.dark-mode .tree-nested-badge.is-expanded {
+  background-color: rgba(96, 165, 250, 0.22) !important;
+  color: #93c5fd !important;
+}
+
+/* ── Global Tree/Table/Graph Capsule Badges ── */
+/* ── 统一键值前所有 icon / badge 样式：统一圆角 3px，去掉 border ── */
+.tree-capsule-badge,
+.tree-inline-badge,
+.tree-unicode-badge,
+.tree-nested-badge,
+.tree-img-badge,
+.table-img-badge,
+.graph-img-badge,
+.url-jump-btn,
+.graph-url-jump-btn {
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+}
+
+.tree-capsule-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 6px;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  margin-right: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.78rem;
+  line-height: 1;
+  user-select: none;
+  transition: all 0.15s ease;
+  vertical-align: middle;
+}
+
+.tree-capsule-badge:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.tree-time-badge {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  gap: 3px;
+}
+
+.tree-time-badge:hover {
+  background-color: rgba(16, 185, 129, 0.22);
+  color: #059669;
+}
+
+.dark-mode .tree-time-badge {
+  background-color: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+.dark-mode .tree-time-badge:hover {
+  background-color: rgba(16, 185, 129, 0.28);
+  color: #6ee7b7;
+}
+
+.tree-unicode-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  background-color: rgba(168, 85, 247, 0.15);
+  color: #a855f7;
+  margin-right: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+  user-select: none;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  vertical-align: middle;
+}
+
+.tree-unicode-badge:hover {
+  transform: scale(1.08);
+  background-color: rgba(168, 85, 247, 0.25);
+  color: #9333ea;
+}
+
+.dark-mode .tree-unicode-badge {
+  background-color: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+}
+
+.dark-mode .tree-unicode-badge:hover {
+  background-color: rgba(168, 85, 247, 0.35);
+  color: #e9d5ff;
+}
+
+.tree-nested-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  margin-right: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  line-height: 1;
+  user-select: none;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  vertical-align: middle;
+}
+
+.tree-nested-badge:hover {
+  transform: scale(1.08);
+  background-color: rgba(245, 158, 11, 0.25);
+  color: #d97706;
+}
+
+.dark-mode .tree-nested-badge {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.dark-mode .tree-nested-badge:hover {
+  background-color: rgba(245, 158, 11, 0.35);
+  color: #fde68a;
+}
+
+.capsule-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.capsule-symbol {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.capsule-text {
+  font-weight: 500;
+}
+
+/* ── 音视频多媒体徽标 ── */
+.tree-audio-badge {
+  background-color: rgba(236, 72, 153, 0.15) !important;
+  color: #ec4899 !important;
+}
+
+.tree-video-badge {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+  color: #f97316 !important;
+}
+
+/* ── 智能数据胶囊全局配色 ── */
+.tree-jwt-badge {
+  background-color: rgba(99, 102, 241, 0.12);
+  color: #6366f1;
+  gap: 3px;
+}
+
+.dark-mode .tree-jwt-badge {
+  background-color: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+}
+
+.tree-b64-badge {
+  background-color: rgba(14, 165, 233, 0.12);
+  color: #0284c7;
+  gap: 3px;
+}
+
+.dark-mode .tree-b64-badge {
+  background-color: rgba(14, 165, 233, 0.2);
+  color: #38bdf8;
+}
+
+.tree-urldec-badge {
+  background-color: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+  gap: 3px;
+}
+
+.dark-mode .tree-urldec-badge {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.tree-cron-badge {
+  background-color: rgba(16, 185, 129, 0.12);
+  color: #059669;
+  gap: 3px;
+}
+
+.dark-mode .tree-cron-badge {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.tree-html-badge {
+  background-color: rgba(244, 63, 94, 0.12);
+  color: #e11d48;
+  gap: 3px;
+}
+
+.dark-mode .tree-html-badge {
+  background-color: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+}
+
+/* Base64 & URL 编码行内图标徽标 (点击复制原值) */
+.tree-inline-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.15rem;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  margin-right: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0 4px;
+  line-height: 1;
+  user-select: none;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  vertical-align: middle;
+}
+
+.tree-inline-badge:hover {
+  transform: scale(1.08);
+}
+
+.tree-inline-badge .capsule-symbol {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.tree-b64-badge {
+  background-color: rgba(217, 119, 6, 0.15);
+  color: #d97706;
+}
+
+.tree-b64-badge:hover {
+  background-color: rgba(217, 119, 6, 0.25);
+  color: #b45309;
+}
+
+.dark-mode .tree-b64-badge {
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.dark-mode .tree-b64-badge:hover {
+  background-color: rgba(245, 158, 11, 0.35);
+  color: #fef08a;
+}
+
+.tree-urldec-badge {
+  background-color: rgba(2, 132, 199, 0.15);
+  color: #0284c7;
+}
+
+.tree-urldec-badge:hover {
+  background-color: rgba(2, 132, 199, 0.25);
+  color: #0369a1;
+}
+
+.dark-mode .tree-urldec-badge {
+  background-color: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+.dark-mode .tree-urldec-badge:hover {
+  background-color: rgba(56, 189, 248, 0.35);
+  color: #7dd3fc;
+}
+
+/* ── URL / Media Badges (树形模型标准样式，全局统一应用于树形、表格、拓扑图) ── */
+.tree-img-badge,
+.table-img-badge,
+.graph-img-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 0.88rem !important;
+  height: 0.88rem !important;
+  border-radius: 3px !important;
+  background-color: rgba(56, 189, 248, 0.15) !important;
+  color: #38bdf8 !important;
+  margin-right: 4px !important;
+  margin-left: 1px !important;
+  cursor: pointer !important;
+  flex-shrink: 0 !important;
+  vertical-align: middle !important;
+  user-select: none !important;
+  border: none !important;
+  outline: none !important;
+  padding: 0 !important;
+  opacity: 0.95 !important;
+  transition: transform 0.15s ease, opacity 0.15s ease, background-color 0.15s ease !important;
+}
+
+.tree-img-badge:hover,
+.table-img-badge:hover,
+.graph-img-badge:hover {
+  transform: scale(1.15) !important;
+  opacity: 1 !important;
+  background-color: rgba(56, 189, 248, 0.25) !important;
+}
+
+.dark-mode .tree-img-badge,
+.dark-mode .table-img-badge,
+.dark-mode .graph-img-badge {
+  background-color: rgba(56, 189, 248, 0.2) !important;
+  color: #38bdf8 !important;
+}
+
+/* 音频直链专属徽标 (粉紫红色系，与树形模型一致) */
+.tree-img-badge.tree-audio-badge,
+.table-img-badge.tree-audio-badge,
+.graph-img-badge.tree-audio-badge {
+  background-color: rgba(236, 72, 153, 0.15) !important;
+  color: #ec4899 !important;
+}
+
+.tree-img-badge.tree-audio-badge:hover,
+.table-img-badge.tree-audio-badge:hover,
+.graph-img-badge.tree-audio-badge:hover {
+  background-color: rgba(236, 72, 153, 0.28) !important;
+}
+
+.dark-mode .tree-img-badge.tree-audio-badge,
+.dark-mode .table-img-badge.tree-audio-badge,
+.dark-mode .graph-img-badge.tree-audio-badge {
+  background-color: rgba(236, 72, 153, 0.22) !important;
+  color: #f472b6 !important;
+}
+
+/* 视频直链专属徽标 (暖橙色系，与树形模型一致) */
+.tree-img-badge.tree-video-badge,
+.table-img-badge.tree-video-badge,
+.graph-img-badge.tree-video-badge {
+  background-color: rgba(249, 115, 22, 0.15) !important;
+  color: #f97316 !important;
+}
+
+.tree-img-badge.tree-video-badge:hover,
+.table-img-badge.tree-video-badge:hover,
+.graph-img-badge.tree-video-badge:hover {
+  background-color: rgba(249, 115, 22, 0.28) !important;
+}
+
+.dark-mode .tree-img-badge.tree-video-badge,
+.dark-mode .table-img-badge.tree-video-badge,
+.dark-mode .graph-img-badge.tree-video-badge {
+  background-color: rgba(249, 115, 22, 0.22) !important;
+  color: #fb923c !important;
+}
+
+/* 图标尺寸标准化为 11px */
+.img-badge-icon {
+  width: 11px !important;
+  height: 11px !important;
+  stroke-width: 2 !important;
+}
+
+/* 普通 URL 外链跳转按钮 (与树形模型一致) */
+.url-jump-btn,
+.graph-url-jump-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 0.88rem !important;
+  height: 0.88rem !important;
+  border-radius: 3px !important;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  color: var(--primary-color, #38bdf8) !important;
+  margin-right: 4px !important;
+  margin-left: 1px !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  flex-shrink: 0 !important;
+  vertical-align: middle !important;
+  opacity: 0.95 !important;
+  box-shadow: none !important;
+  transition: transform 0.15s ease, background-color 0.15s ease !important;
+}
+
+.url-jump-btn:hover,
+.graph-url-jump-btn:hover {
+  transform: scale(1.15) !important;
+  background-color: rgba(56, 189, 248, 0.15) !important;
+  color: #38bdf8 !important;
+}
+
+.dark-mode .url-jump-btn:hover,
+.dark-mode .graph-url-jump-btn:hover {
+  background-color: rgba(56, 189, 248, 0.25) !important;
+  color: #38bdf8 !important;
+}
+
+.url-jump-icon {
+  width: 11px !important;
+  height: 11px !important;
+  stroke-width: 2 !important;
+}

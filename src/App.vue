@@ -2,7 +2,6 @@
 import { ref, computed, onMounted, provide, watch, onBeforeUnmount, defineAsyncComponent } from 'vue'
 import JsonFormatter from './components/JsonFormatter.vue'
 import JsonComparer from './components/JsonComparer.vue'
-import ClickSpark from './components/ClickSpark.vue'
 import GlobalTooltip from './components/GlobalTooltip.vue'
 const HomeView = defineAsyncComponent(() => import('./components/HomeView.vue'))
 const TestView = defineAsyncComponent(() => import('./components/TestView.vue'))
@@ -1010,25 +1009,16 @@ onBeforeUnmount(() => {
       </Transition>
     </Teleport>
 
-    <!-- Main Content Area (JSON Formatter & Comparer with ClickSpark) -->
+    <!-- Main Content Area (JSON Formatter & Comparer) -->
     <main class="app-main-content">
-      <ClickSpark
-        :sparkColor="isDark ? '#ffffff' : '#64748b'"
-        :sparkSize="10"
-        :sparkRadius="15"
-        :sparkCount="8"
-        :duration="400"
-        :extraScale="1.0"
-      >
-        <div class="main-tab-wrapper">
-          <div class="main-tab-pane" :class="{ 'is-hidden': currentTab !== 'format' }">
-            <JsonFormatter />
-          </div>
-          <div v-if="hasLoadedCompare" class="main-tab-pane" :class="{ 'is-hidden': currentTab !== 'compare' }">
-            <JsonComparer />
-          </div>
+      <div class="main-tab-wrapper">
+        <div class="main-tab-pane" :class="{ 'is-hidden': currentTab !== 'format' }">
+          <JsonFormatter />
         </div>
-      </ClickSpark>
+        <div v-if="hasLoadedCompare" class="main-tab-pane" :class="{ 'is-hidden': currentTab !== 'compare' }">
+          <JsonComparer />
+        </div>
+      </div>
     </main>
 
     <!-- Global Toast Notification Stack -->

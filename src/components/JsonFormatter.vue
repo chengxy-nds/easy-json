@@ -17,6 +17,7 @@ import JsonGraphView  from './JsonGraphView.vue'
 import JsonTableView  from './JsonTableView.vue'
 import ImportDropdown from './ImportDropdown.vue'
 import ImagePreviewPopover from './ImagePreviewPopover.vue'
+import SmartDataPopover from './SmartDataPopover.vue'
 import MaskKeyTreePicker from './MaskKeyTreePicker.vue'
 import CodeMirrorEditor from './CodeMirrorEditor.vue'
 import { extractJsonFromText, convertJsObjectToJson, safeParseJsLike, tryParseCandidate } from '../utils/jsonExtractor.js';
@@ -33,6 +34,7 @@ import {
   deleteTabContentFromDb,
   cleanOrphanTabsInDb
 } from '../utils/tabStorage.js';
+import { HAS_UNICODE_ESCAPE_RE } from '../utils/capsuleDetector.js';
 
 const showToast = inject('showToast')
 const isDark = inject('isDark', ref(true))
@@ -47,6 +49,17 @@ const autoExtract = inject('autoExtract', ref(true))
 const autoPaste = inject('autoPaste', ref(false))
 const incomingExtractText = inject('incomingExtractText', ref(null))
 const formatterLastPasted = ref('')
+
+// 保护左侧源码原文（Unicode 转义字符或转义 JSON 字符串绝不被解码后的文本自动覆盖）
+const canSafelyOverwriteInput = (inputText) => {
+  if (!inputText) return false
+  if (HAS_UNICODE_ESCAPE_RE.test(inputText)) return false
+  if (inputText.includes('\\"') ||
+      (inputText.startsWith('"') && inputText.endsWith('"') && inputText.includes('\\'))) {
+    return false
+  }
+  return true
+}
 
 const editorFontSize = inject('editorFontSize', ref(13))
 const showLineNumbers = inject('showLineNumbers', ref(true))
@@ -149,6 +162,71 @@ const onPopoverLeave = () => {
 provide('imagePreview', {
   show: showImagePreview,
   hide: hideImagePreview
+})
+
+// ── 智能数据 (JWT / Base64 / Cron / Markdown / HTML / URL) 悬停预览 ──
+const smartPreviewState = ref({
+  visible: false,
+  data: null,
+  targetRect: null
+})
+
+let smartPreviewShowTimer = null
+let smartPreviewHideTimer = null
+
+const showSmartPreview = (data, targetElOrRect) => {
+  if (smartPreviewHideTimer) {
+    clearTimeout(smartPreviewHideTimer)
+    smartPreviewHideTimer = null
+  }
+  if (!data) return
+  if (smartPreviewShowTimer) clearTimeout(smartPreviewShowTimer)
+
+  smartPreviewShowTimer = setTimeout(() => {
+    let rect = null
+    if (targetElOrRect instanceof HTMLElement) {
+      rect = targetElOrRect.getBoundingClientRect()
+    } else if (targetElOrRect && typeof targetElOrRect === 'object') {
+      rect = targetElOrRect
+    }
+    smartPreviewState.value = {
+      visible: true,
+      data,
+      targetRect: rect
+    }
+  }, 120)
+}
+
+const hideSmartPreview = (immediate = false) => {
+  if (smartPreviewShowTimer) {
+    clearTimeout(smartPreviewShowTimer)
+    smartPreviewShowTimer = null
+  }
+  if (immediate) {
+    if (smartPreviewHideTimer) clearTimeout(smartPreviewHideTimer)
+    smartPreviewState.value.visible = false
+    return
+  }
+  if (smartPreviewHideTimer) clearTimeout(smartPreviewHideTimer)
+  smartPreviewHideTimer = setTimeout(() => {
+    smartPreviewState.value.visible = false
+  }, 120)
+}
+
+const onSmartPopoverEnter = () => {
+  if (smartPreviewHideTimer) {
+    clearTimeout(smartPreviewHideTimer)
+    smartPreviewHideTimer = null
+  }
+}
+
+const onSmartPopoverLeave = () => {
+  hideSmartPreview(false)
+}
+
+provide('smartPreview', {
+  show: showSmartPreview,
+  hide: hideSmartPreview
 })
 const searchInputRef = ref(null)
 const replaceText = ref('')
@@ -2038,12 +2116,8 @@ const formatJSON = () => {
 
   // 自动格式化：将格式化结果回填到输入面板
   // 但如果用户正在编辑（textarea 聚焦时），不替换，避免光标跳到末尾
-  // 核心保护：如果当前内容是转义 JSON（含有 \" 或两端引号转义），绝对不可用未转义的 outputText 覆盖回去
-  const isEscapedContent = tab.inputText && (
-    tab.inputText.includes('\\"') ||
-    (tab.inputText.startsWith('"') && tab.inputText.endsWith('"') && tab.inputText.includes('\\'))
-  )
-  if (autoFormat.value && !isEscapedContent && tab.outputText && tab.inputText !== tab.outputText
+  // 核心保护：如果当前内容是 Unicode 原文或转义 JSON，绝对不可用已解码的 outputText 覆盖回去
+  if (autoFormat.value && canSafelyOverwriteInput(tab.inputText) && tab.outputText && tab.inputText !== tab.outputText
     && !tab.validationError
     && document.activeElement !== textareaRef.value) {
     formatGuard = true
@@ -2052,6 +2126,52 @@ const formatJSON = () => {
     formatGuard = false
   }
 }
+
+// 在新 Tab 打开并格式化嵌套 JSON
+const openNestedJsonInNewTab = (rawVal, title = '') => {
+  if (rawVal === undefined || rawVal === null) return
+  let textToFormat = ''
+  if (typeof rawVal === 'string') {
+    try {
+      const parsed = JSON.parse(rawVal.trim())
+      textToFormat = safeStringify(parsed, null, 2)
+    } catch (e) {
+      textToFormat = rawVal
+    }
+  } else if (typeof rawVal === 'object') {
+    textToFormat = safeStringify(rawVal, null, 2)
+  }
+
+  const newId = nextTabId++
+  const num = nextDisplayNumber()
+  const tabTitle = title ? `${title}` : `格式化 ${num}`
+
+  const newTab = {
+    id: newId,
+    title: tabTitle,
+    inputText: textToFormat,
+    outputText: '',
+    parsedObj: null,
+    validationError: null,
+    errorLine: null,
+    duplicateLines: [],
+    viewMode: 'tree',
+    convertFormat: null,
+    extractedFormat: null
+  }
+  tabs.value.push(newTab)
+  activeTabId.value = newId
+  scrollTabsToEnd()
+  saveFormatterState(true)
+  nextTick(() => {
+    formatJSON()
+    if (showToast) {
+      showToast(`已在新 Tab 打开: ${tabTitle}`)
+    }
+  })
+}
+
+provide('openNestedJsonTab', openNestedJsonInNewTab)
 
 let formatDebounceTimer = null
 const scheduleFormatJSON = (immediate = false) => {
@@ -2141,7 +2261,7 @@ const handlePaste = () => {
     }
     if (autoFormat.value) {
       const tab = activeTab.value
-      if (tab && tab.inputText && !tab.validationError) {
+      if (tab && tab.inputText && !tab.validationError && canSafelyOverwriteInput(tab.inputText)) {
         try {
           const obj = safeParse(tab.inputText)
           const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
@@ -2157,7 +2277,7 @@ const handlePaste = () => {
 
 // 自动格式化设置切换时，对当前输入执行格式化
 watch(autoFormat, (enabled) => {
-  if (enabled && activeTab.value?.inputText) {
+  if (enabled && activeTab.value?.inputText && canSafelyOverwriteInput(activeTab.value.inputText)) {
     try {
       const tab = activeTab.value
       const obj = safeParse(tab.inputText)
@@ -2758,7 +2878,7 @@ const handleTextareaBlur = () => {
   }
   if (autoFormat.value) {
     const tab = activeTab.value
-    if (tab && tab.inputText && !tab.validationError) {
+    if (tab && tab.inputText && !tab.validationError && canSafelyOverwriteInput(tab.inputText)) {
       try {
         const obj = safeParse(tab.inputText)
         const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
@@ -4646,6 +4766,7 @@ onBeforeUnmount(() => {
             <JsonVirtualTreeView
               v-else-if="activeTab.viewMode === 'tree' && activeTab.parsedObj"
               :data="activeTab.parsedObj"
+              :rawInput="activeTab.inputText"
               :hoveredPath="hoveredPath"
               :selectedPath="selectedPath"
               ref="treeWrapperRef"
@@ -4662,6 +4783,7 @@ onBeforeUnmount(() => {
             <JsonTableView
               v-else-if="activeTab.viewMode === 'table' && activeTab.parsedObj"
               :data="activeTab.parsedObj"
+              :rawInput="activeTab.inputText"
               :hoveredPath="hoveredPath"
               :selectedPath="selectedPath"
               @hover-path="setHoveredPath"
@@ -4675,6 +4797,7 @@ onBeforeUnmount(() => {
             <JsonGraphView
               v-else-if="activeTab.viewMode === 'graph' && activeTab.parsedObj"
               :parsedObj="activeTab.parsedObj"
+              :rawInput="activeTab.inputText"
               :hoveredPath="hoveredPath"
               :selectedPath="selectedPath"
               @hover-path="setHoveredPath"
@@ -4960,7 +5083,7 @@ onBeforeUnmount(() => {
         </div>
       </Transition>
     </Teleport>
-    <!-- 悬停图片预览全局浮窗 -->
+    <!-- 悬停图片与多媒体预览全局浮窗 -->
     <ImagePreviewPopover
       :visible="imagePreviewState.visible"
       :url="imagePreviewState.url"
@@ -4968,6 +5091,15 @@ onBeforeUnmount(() => {
       @close="hideImagePreview(true)"
       @enter="onPopoverEnter"
       @leave="onPopoverLeave"
+    />
+    <!-- 智能数据 (JWT / Base64 / Cron / Markdown / HTML / URL) 悬停预览全局浮窗 -->
+    <SmartDataPopover
+      :visible="smartPreviewState.visible"
+      :data="smartPreviewState.data"
+      :targetRect="smartPreviewState.targetRect"
+      @close="hideSmartPreview(true)"
+      @enter="onSmartPopoverEnter"
+      @leave="onSmartPopoverLeave"
     />
   </div>
 </template>

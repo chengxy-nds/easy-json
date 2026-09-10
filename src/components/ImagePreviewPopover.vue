@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } from 'vue'
-import { ExternalLink, Check, Image as ImageIcon, AlertCircle, Loader2, Maximize2, ZoomIn, ZoomOut, RotateCcw, X } from 'lucide-vue-next'
+import { ExternalLink, Check, Image as ImageIcon, AlertCircle, Loader2, Maximize2, ZoomIn, ZoomOut, RotateCcw, X, Volume2, Video as VideoIcon } from 'lucide-vue-next'
 import { getImageType, openExternalUrl } from '../utils/imageDetector.js'
+import { detectMedia } from '../utils/advancedDetectors.js'
 
 const props = defineProps({
   visible: {
@@ -80,7 +81,16 @@ onBeforeUnmount(() => {
 
 const popoverPos = ref({ top: 0, left: 0, placement: 'bottom' })
 
-const imageFormat = computed(() => getImageType(props.url))
+const mediaInfo = computed(() => detectMedia(props.url))
+const isAudio = computed(() => mediaInfo.value?.mediaType === 'audio')
+const isVideo = computed(() => mediaInfo.value?.mediaType === 'video')
+const isMedia = computed(() => isAudio.value || isVideo.value)
+
+const imageFormat = computed(() => {
+  if (isAudio.value) return 'AUDIO'
+  if (isVideo.value) return 'VIDEO'
+  return getImageType(props.url)
+})
 
 const dimensionText = computed(() => {
   if (naturalWidth.value && naturalHeight.value) {
@@ -89,9 +99,15 @@ const dimensionText = computed(() => {
   return ''
 })
 
-// 重置与加载新图片
+// 重置与加载新媒体/图片
 watch(() => props.url, (newUrl) => {
   if (!newUrl) return
+  if (detectMedia(newUrl)) {
+    isLoading.value = false
+    isError.value = false
+    nextTick(updatePosition)
+    return
+  }
   isLoading.value = true
   isError.value = false
   naturalWidth.value = 0
@@ -306,6 +322,7 @@ const onPopoverLeave = () => {
 
           <div class="action-group">
             <button
+              v-if="!isMedia"
               class="icon-action-btn"
               @click.stop="copyImage"
               :title="copiedImage ? '已复制图片' : '复制图片 (可直接粘贴)'"
@@ -314,6 +331,7 @@ const onPopoverLeave = () => {
               <ImageIcon v-else class="action-icon" />
             </button>
             <button
+              v-if="!isAudio"
               class="icon-action-btn"
               @click.stop="openZoomModal"
               title="放大查看大图"
@@ -323,43 +341,60 @@ const onPopoverLeave = () => {
             <button
               class="icon-action-btn primary-open-btn"
               @click.stop="openInNewTab"
-              title="在新标签页打开原图"
+              :title="isMedia ? '在新标签页打开媒体' : '在新标签页打开原图'"
             >
               <ExternalLink class="action-icon" />
             </button>
           </div>
         </div>
 
-        <!-- 图片预览主体区 -->
+        <!-- 预览主体区 -->
         <div class="popover-body">
-          <!-- Loading 骨架 -->
-          <div v-if="isLoading" class="state-container loading-state">
-            <Loader2 class="spinner-icon" />
-            <span class="state-text">图片加载中...</span>
+          <!-- 1. 音频播放预览 -->
+          <div v-if="isAudio" class="audio-player-container">
+            <div class="audio-banner">
+              <Volume2 class="audio-banner-icon" />
+              <span class="audio-title">音频试听预览</span>
+            </div>
+            <audio controls :src="url" class="ej-audio-control" autoplay></audio>
           </div>
 
-          <!-- 加载失败 -->
-          <div v-if="isError" class="state-container error-state">
-            <AlertCircle class="error-icon" />
-            <span class="state-text">图片无法直接预览</span>
+          <!-- 2. 视频播放预览 -->
+          <div v-else-if="isVideo" class="video-player-container">
+            <video controls :src="url" class="ej-video-control" autoplay muted loop></video>
           </div>
 
-          <!-- 真实图片（带 no-referrer 规避大部分防盗链，支持双击放大） -->
-          <div
-            class="image-wrapper"
-            :class="{ 'img-loaded': !isLoading && !isError }"
-            @dblclick.stop="openZoomModal"
-          >
-            <img
-              ref="imgElRef"
-              :src="url"
-              referrerpolicy="no-referrer"
-              alt="Preview"
-              title="双击全屏放大查看"
-              @load="handleImageLoad"
-              @error="handleImageError"
-            />
-          </div>
+          <!-- 3. 图片预览 -->
+          <template v-else>
+            <!-- Loading 骨架 -->
+            <div v-if="isLoading" class="state-container loading-state">
+              <Loader2 class="spinner-icon" />
+              <span class="state-text">图片加载中...</span>
+            </div>
+
+            <!-- 加载失败 -->
+            <div v-if="isError" class="state-container error-state">
+              <AlertCircle class="error-icon" />
+              <span class="state-text">图片无法直接预览</span>
+            </div>
+
+            <!-- 真实图片（带 no-referrer 规避大部分防盗链，支持双击放大） -->
+            <div
+              class="image-wrapper"
+              :class="{ 'img-loaded': !isLoading && !isError }"
+              @dblclick.stop="openZoomModal"
+            >
+              <img
+                ref="imgElRef"
+                :src="url"
+                referrerpolicy="no-referrer"
+                alt="Preview"
+                title="双击全屏放大查看"
+                @load="handleImageLoad"
+                @error="handleImageError"
+              />
+            </div>
+          </template>
         </div>
       </div>
     </Transition>
@@ -436,6 +471,48 @@ const onPopoverLeave = () => {
   pointer-events: auto;
   user-select: none;
   font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+}
+
+/* 音频与视频容器 */
+.audio-player-container {
+  padding: 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.audio-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-primary, #6366f1);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.audio-banner-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.ej-audio-control {
+  width: 100%;
+  height: 36px;
+  outline: none;
+}
+
+.video-player-container {
+  width: 100%;
+  background: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.ej-video-control {
+  width: 100%;
+  max-height: 220px;
+  outline: none;
 }
 
 .popover-header {

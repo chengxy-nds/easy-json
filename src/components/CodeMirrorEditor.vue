@@ -545,11 +545,14 @@ const createBaseTheme = () => {
       overflowAnchor: 'none'
     },
     '.cm-content': {
-      padding: '4px 0 24px 0'
+      padding: '4px 0 24px 0',
+      wordBreak: 'break-all'
     },
     '.cm-line': {
       padding: '0 12px 0 12px',
-      transition: 'background-color 0.1s ease'
+      transition: 'background-color 0.1s ease',
+      wordBreak: 'break-all',
+      overflowWrap: 'anywhere'
     },
     '.cm-line:hover': {
       backgroundColor: 'var(--bg-hover, rgba(255, 255, 255, 0.03))'
@@ -606,6 +609,13 @@ const createBaseTheme = () => {
       width: '11px',
       height: '11px',
       display: 'block'
+    },
+    // Selection Layer stacking fix: lift selectionLayer above line backgrounds (like .cm-error-line)
+    '.cm-selectionLayer': {
+      zIndex: '10 !important'
+    },
+    '.cm-selectionBackground': {
+      pointerEvents: 'none !important'
     },
     // Error line decoration: flush with left edge (0px from gutter), prominent red bar
     '.cm-error-line': {
@@ -708,7 +718,7 @@ const lightTheme = EditorView.theme({
     borderLeftColor: '#0f172a'
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'rgba(37, 99, 235, 0.18) !important'
+    backgroundColor: 'rgba(37, 99, 235, 0.25) !important'
   },
   '.cm-gutters': {
     color: '#94a3b8',
@@ -738,7 +748,7 @@ const darkTheme = EditorView.theme({
     borderLeftColor: '#38bdf8'
   },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection': {
-    backgroundColor: 'rgba(56, 189, 248, 0.25) !important'
+    backgroundColor: 'rgba(56, 189, 248, 0.3) !important'
   },
   '.cm-gutters': {
     color: '#6e7681',
@@ -1431,6 +1441,14 @@ onBeforeUnmount(() => {
   outline: none !important;
 }
 
+:deep(.cm-content),
+:deep(.cm-content.cm-lineWrapping),
+:deep(.cm-lineWrapping .cm-line),
+:deep(.cm-line) {
+  word-break: break-all !important;
+  overflow-wrap: anywhere !important;
+}
+
 :deep(.cm-line:hover) {
   background-color: var(--bg-hover, rgba(255, 255, 255, 0.03));
 }
@@ -1617,5 +1635,21 @@ onBeforeUnmount(() => {
 
 :deep(.cm-scroller::-webkit-scrollbar-thumb:hover) {
   background: rgba(148, 163, 184, 0.8);
+}
+
+/* Selection Layer stacking fix: ensure selection appears visibly over error & active line backgrounds */
+:deep(.cm-selectionLayer) {
+  z-index: 10 !important;
+  pointer-events: none !important;
+}
+
+:deep(.cm-selectionBackground) {
+  pointer-events: none !important;
+  background-color: rgba(37, 99, 235, 0.25) !important;
+}
+
+:global(.dark-mode) :deep(.cm-selectionBackground),
+:deep(.dark-mode .cm-selectionBackground) {
+  background-color: rgba(56, 189, 248, 0.3) !important;
 }
 </style>

@@ -1,12 +1,58 @@
 <script setup>
-import { ref, reactive, computed, onMounted, watch, inject, nextTick } from 'vue'
-import { ExternalLink, Image as ImageIcon, Table, GitFork, Copy, ArrowLeft, Minus, Plus, Map as MapIcon } from 'lucide-vue-next'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, inject, nextTick } from 'vue'
+import { ExternalLink, Image as ImageIcon, Volume2, Video as VideoIcon, Table, GitFork, Copy, ArrowLeft, Minus, Plus, Map as MapIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, CalendarClock, KeyRound } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
+import { detectTimestamp, detectUnicode, detectNestedJson, getFormatNow } from '../utils/capsuleDetector.js'
+import { detectMedia, detectBase64Text, detectUrlEncoded, detectCron, detectJwt, detectHtml } from '../utils/advancedDetectors.js'
 
 const searchQuery = inject('searchQuery', ref(''))
 const imagePreview = inject('imagePreview', null)
+const smartPreview = inject('smartPreview', null)
 const showToast = inject('showToast', null)
+const isDark = inject('isDark', ref(true))
+const openNestedJsonTab = inject('openNestedJsonTab', null)
+
+const getBase64Data = (v) => {
+  if (typeof v !== 'string' || isColor(v) || isImg(v) || detectNestedJson(v)) return null
+  return detectBase64Text(v)
+}
+
+const getUrlEncodedData = (v) => {
+  if (typeof v !== 'string' || isColor(v) || isImg(v) || detectNestedJson(v)) return null
+  if (detectBase64Text(v)) return null
+  return detectUrlEncoded(v)
+}
+
+const getCronData = (v) => {
+  if (typeof v !== 'string' || isColor(v) || isImg(v) || detectNestedJson(v)) return null
+  if (getBase64Data(v) || getUrlEncodedData(v)) return null
+  return detectCron(v)
+}
+
+const getSmartData = (v) => {
+  if (typeof v !== 'string') return null
+  if (isColor(v) || isImg(v) || getMediaData(v) || detectNestedJson(v) || getBase64Data(v) || getUrlEncodedData(v) || getCronData(v)) return null
+  return detectJwt(v) || detectHtml(v)
+}
+
+const getDisplayValue = (v) => {
+  const b64 = getBase64Data(v)
+  if (b64) return b64.decoded
+  const urlEnc = getUrlEncodedData(v)
+  if (urlEnc) return urlEnc.decoded
+  return v
+}
+
+const handleCopyRaw = (rawVal, label = '原值') => {
+  if (rawVal === undefined || rawVal === null) return
+  const text = String(rawVal)
+  navigator.clipboard.writeText(text).then(() => {
+    if (showToast) {
+      showToast(`已复制 ${label}`)
+    }
+  })
+}
 
 const handleCopyKey = (key) => {
   if (key === null || key === undefined) return
@@ -19,11 +65,14 @@ const handleCopyKey = (key) => {
 
 const handleCopyValue = (val) => {
   if (val === undefined || val === null) return
+  const disp = getDisplayValue(val)
   let text = ''
-  if (typeof val === 'object') {
-    text = safeStringify(val, null, 2)
+  if (typeof disp === 'object') {
+    text = safeStringify(disp, null, 2)
+  } else if (typeof disp === 'string' && detectNestedJson(disp)) {
+    text = JSON.stringify(disp)
   } else {
-    text = typeof val === 'string' ? val : String(val)
+    text = typeof disp === 'string' ? disp : String(disp)
   }
 
   navigator.clipboard.writeText(text).then(() => {
@@ -49,8 +98,11 @@ const handleCopyColumn = (arr, colKey) => {
 }
 
 const isColor = (v) => typeof v === 'string' && isColorValue(v)
-const isImg = (v) => typeof v === 'string' && !isColor(v) && isImageUrl(v)
-const isHttpLink = (v) => typeof v === 'string' && !isColor(v) && !isImg(v) && isHttpUrl(v)
+const getMediaData = (v) => typeof v === 'string' && !isColor(v) ? detectMedia(v) : null
+const isAudio = (v) => getMediaData(v)?.mediaType === 'audio'
+const isVideo = (v) => getMediaData(v)?.mediaType === 'video'
+const isImg = (v) => typeof v === 'string' && !isColor(v) && !getMediaData(v) && isImageUrl(v)
+const isHttpLink = (v) => typeof v === 'string' && !isColor(v) && !getMediaData(v) && !isImg(v) && isHttpUrl(v)
 
 const handleOpenUrl = (url) => {
   openExternalUrl(url)
@@ -59,30 +111,74 @@ const handleOpenUrl = (url) => {
   }
 }
 
+const onSmartMouseEnter = (sData, e) => {
+  if (smartPreview && sData) smartPreview.show(sData, e.currentTarget)
+}
+
+const onSmartMouseLeave = () => {
+  if (smartPreview) smartPreview.hide()
+}
+
 const onValMouseEnter = (v, e) => {
-  if (isImg(v) && imagePreview) {
-    imagePreview.show(v, e.currentTarget)
+  if (typeof v === 'string') {
+    const m = getMediaData(v)
+    if (m && imagePreview) {
+      imagePreview.show(v, e.currentTarget)
+      return
+    }
+    if (isImg(v) && imagePreview) {
+      imagePreview.show(v, e.currentTarget)
+      return
+    }
+    const s = getSmartData(v)
+    if (s && smartPreview) {
+      smartPreview.show(s, e.currentTarget)
+      return
+    }
   }
 }
 
 const onValMouseLeave = (v) => {
-  if (isImg(v) && imagePreview) {
+  if (imagePreview) {
     imagePreview.hide()
   }
+  if (smartPreview) {
+    smartPreview.hide()
+  }
+}
+
+const escapeHtml = (str) => {
+  if (!str) return ''
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 const highlightText = (text, query) => {
   if (text === null || text === undefined) return ''
   const str = String(text)
-  if (!query) return str
+  const escapedText = escapeHtml(str)
+  if (!query) return escapedText
   const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
   const regex = new RegExp(`(${escapedQuery})`, 'gi')
-  const escapedText = str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return escapedText.replace(regex, '<mark class="search-match">$1</mark>')
+}
+
+// 估算字符串渲染像素宽度（基于系统/等宽字体，中文及全角字符 13px，半角 ASCII 7.8px）
+const estimateTextWidth = (str) => {
+  if (!str) return 0
+  const s = String(str)
+  let w = 0
+  for (let i = 0; i < s.length; i++) {
+    w += s.charCodeAt(i) > 255 ? 13 : 7.8
+  }
+  return Math.ceil(w)
 }
 
 const props = defineProps({
   parsedObj: { required: true },
+  rawInput: { type: String, default: '' },
   hoveredPath: { type: Array, default: null },
   selectedPath: { type: Array, default: null }
 })
@@ -98,7 +194,7 @@ const emitClick = (path, type = 'all') => {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CARD_ROW_H    = 22   // height of each row inside a standard card
-const CARD_PAD      = 4    // vertical padding inside standard card
+const CARD_PAD      = 6    // vertical padding inside standard card (上下内边距 6px，边缘舒适不贴边)
 const CARD_GAP      = 24   // vertical gap between cards (prevents crowding)
 const COL_GAP       = 130  // horizontal gap between columns (generous channel for non-occluding curves)
 const BULLET_R      = 3.5  // bullet circle radius
@@ -200,12 +296,251 @@ const getValueType = (v) => {
 
 const getPreview = (v) => {
   if (v === undefined) return ''
-  if (v === null) return 'null'
-  if (Array.isArray(v)) return `[${v.length}]`
-  if (typeof v === 'object') return `{${Object.keys(v).length}}`
-  if (typeof v === 'string') return v
-  if (typeof v === 'boolean') return v ? 'true' : 'false'
-  return String(v)
+  const disp = getDisplayValue(v)
+  if (disp === null) return 'null'
+  if (Array.isArray(disp)) return `[${disp.length}]`
+  if (typeof disp === 'object') return `{${Object.keys(disp).length}}`
+  if (typeof disp === 'string') {
+    if (detectNestedJson(disp)) {
+      return JSON.stringify(disp)
+    }
+    return disp.replace(/\r?\n\s*/g, ' ')
+  }
+  if (typeof disp === 'boolean') return disp ? 'true' : 'false'
+  return String(disp)
+}
+
+// ─── Timestamp Popover State & Control ─────────────────────────
+const activeTimeMenu = ref(null)
+let timeMenuTimer = null
+const currentNowStr = ref('')
+let nowTimer = null
+
+const startNowTimer = () => {
+  currentNowStr.value = getFormatNow()
+  if (!nowTimer) {
+    nowTimer = setInterval(() => {
+      currentNowStr.value = getFormatNow()
+    }, 1000)
+  }
+}
+
+const stopNowTimer = () => {
+  if (nowTimer) {
+    clearInterval(nowTimer)
+    nowTimer = null
+  }
+}
+
+watch(activeTimeMenu, (val) => {
+  if (!val) {
+    stopNowTimer()
+  }
+})
+
+onBeforeUnmount(() => {
+  stopNowTimer()
+  if (timeMenuTimer) clearTimeout(timeMenuTimer)
+  if (nestedMenuTimer) clearTimeout(nestedMenuTimer)
+})
+
+const openTimeMenu = (tData, event) => {
+  if (!tData || !event || !event.currentTarget) return
+  startNowTimer()
+  const rect = event.currentTarget.getBoundingClientRect()
+  const popWidth = 290
+  const popHeight = tData.isIso ? 180 : 155
+  const padding = 12
+
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  let left = Math.max(padding, Math.min(viewportWidth - popWidth - padding, rect.left))
+  const spaceBelow = viewportHeight - rect.bottom
+  const spaceAbove = rect.top
+
+  let top = 0
+  if (spaceBelow >= popHeight + 10 || spaceBelow >= spaceAbove) {
+    top = rect.bottom + 6
+    if (top + popHeight > viewportHeight - padding) {
+      top = Math.max(padding, viewportHeight - popHeight - padding)
+    }
+  } else {
+    top = Math.max(padding, rect.top - popHeight - 6)
+  }
+
+  activeTimeMenu.value = {
+    top,
+    left,
+    timeData: tData
+  }
+}
+
+const onTimeBadgeEnter = (tData, event) => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+  openTimeMenu(tData, event)
+}
+
+const onTimeBadgeLeave = () => {
+  timeMenuTimer = setTimeout(() => {
+    activeTimeMenu.value = null
+  }, 220)
+}
+
+const onPopoverEnter = () => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+}
+
+const onPopoverLeave = () => {
+  timeMenuTimer = setTimeout(() => {
+    activeTimeMenu.value = null
+  }, 220)
+}
+
+const copyTimeFormat = (val, label) => {
+  if (!val) return
+  navigator.clipboard.writeText(String(val)).then(() => {
+    if (showToast) {
+      showToast(`已复制${label}: ${val}`)
+    }
+    activeTimeMenu.value = null
+  })
+}
+
+const closeTimeMenu = () => {
+  if (timeMenuTimer) {
+    clearTimeout(timeMenuTimer)
+    timeMenuTimer = null
+  }
+  stopNowTimer()
+  activeTimeMenu.value = null
+}
+
+// ─── Unicode Handler ──────────────────────────────────────────
+const handleCopyUnicode = (uData) => {
+  if (!uData) return
+  navigator.clipboard.writeText(uData.originalUnicode).then(() => {
+    if (showToast) {
+      showToast(`已复制 Unicode 原文: ${uData.originalUnicode}`)
+    }
+  })
+}
+
+// ─── Nested JSON Popover & Expand State ────────────────────────
+const activeNestedMenu = ref(null)
+let nestedMenuTimer = null
+const expandedNestedPaths = ref(new Set())
+
+const isNestedExpanded = (path) => expandedNestedPaths.value.has(JSON.stringify(path))
+
+const openNestedMenu = (path, val, title, event) => {
+  const target = event.currentTarget || event.target
+  if (!target) return
+
+  const rect = target.getBoundingClientRect()
+  const popWidth = 190
+  const popHeight = 36
+  const padding = 10
+  const viewportWidth = window.innerWidth || 1200
+  const viewportHeight = window.innerHeight || 800
+
+  let left = rect.left
+  if (left + popWidth > viewportWidth - padding) {
+    left = Math.max(padding, viewportWidth - popWidth - padding)
+  }
+
+  const spaceBelow = viewportHeight - rect.bottom
+  let top = 0
+  if (spaceBelow >= popHeight + 6) {
+    top = rect.bottom + 4
+  } else {
+    top = Math.max(padding, rect.top - popHeight - 4)
+  }
+
+  const pathStr = JSON.stringify(path)
+  activeNestedMenu.value = {
+    top,
+    left,
+    path,
+    val,
+    title,
+    isExpanded: expandedNestedPaths.value.has(pathStr)
+  }
+}
+
+const onNestedBadgeEnter = (path, val, title, event) => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+  openNestedMenu(path, val, title, event)
+}
+
+const onNestedBadgeLeave = () => {
+  nestedMenuTimer = setTimeout(() => {
+    activeNestedMenu.value = null
+  }, 220)
+}
+
+const onNestedPopoverEnter = () => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+}
+
+const onNestedPopoverLeave = () => {
+  nestedMenuTimer = setTimeout(() => {
+    activeNestedMenu.value = null
+  }, 220)
+}
+
+const toggleNestedExpand = (path) => {
+  if (!path) return
+  const pathStr = JSON.stringify(path)
+  const nextSet = new Set(expandedNestedPaths.value)
+  if (nextSet.has(pathStr)) {
+    nextSet.delete(pathStr)
+    if (showToast) {
+      showToast('已收回嵌套 JSON 拓扑节点')
+    }
+  } else {
+    nextSet.add(pathStr)
+    if (showToast) {
+      showToast('已展开嵌套 JSON 拓扑节点')
+    }
+  }
+  expandedNestedPaths.value = nextSet
+  activeNestedMenu.value = null
+}
+
+const handleOpenInNewTab = (val, title) => {
+  if (openNestedJsonTab) {
+    openNestedJsonTab(val, title || '嵌套 JSON')
+  } else {
+    try {
+      const parsed = typeof val === 'string' ? JSON.parse(val.trim()) : val
+      navigator.clipboard.writeText(safeStringify(parsed, null, 2))
+      if (showToast) {
+        showToast('已复制解开后的嵌套 JSON 内容')
+      }
+    } catch (e) {}
+  }
+  activeNestedMenu.value = null
+}
+
+const closeNestedMenu = () => {
+  if (nestedMenuTimer) {
+    clearTimeout(nestedMenuTimer)
+    nestedMenuTimer = null
+  }
+  activeNestedMenu.value = null
 }
 
 const getValueColorClass = (type) => {
@@ -269,9 +604,10 @@ const getTableVisibleRows = (node) => {
   const rows = rawSlice.map((item, localIdx) => {
     const rowIdx = startIndex + localIdx
     const cells = node.columns.map(col => {
-      const val = item?.[col]
-      const isComplex = val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0)
       const cellPath = [...node.path, rowIdx, col]
+      const val = item ? item[col] : undefined
+      const isNestedExp = expandedNestedPaths.value.has(JSON.stringify(cellPath)) && !!detectNestedJson(val)
+      const isComplex = isNestedExp || (val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0))
       const childNodeId = isComplex ? JSON.stringify(cellPath) : null
       return {
         col,
@@ -322,8 +658,9 @@ const getCardVisibleEntries = (node) => {
     : (node.rawEntries ? node.rawEntries.slice(startIndex, endIndex) : [])
   const entries = rawSlice.map(([k, v], localIdx) => {
     const rowIdx = startIndex + localIdx
-    const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
     const childPath = [...node.path, node.isArray ? Number(k) : k]
+    const isNestedExp = expandedNestedPaths.value.has(JSON.stringify(childPath)) && !!detectNestedJson(v)
+    const isComplex = isNestedExp || (v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0))
     const childNodeId = isComplex ? JSON.stringify(childPath) : null
     return {
       key: k,
@@ -368,17 +705,22 @@ const layout = computed(() => {
       // 列宽计算只采样前 60 项
       const sampleForWidth = currentObj.slice(0, 60)
       columns.forEach(col => {
-        let maxLen = col.length
+        let maxTextW = estimateTextWidth(col)
         sampleForWidth.forEach(item => {
           const val = item?.[col]
           if (val !== undefined && val !== null) {
             const prev = getPreview(val)
-            if (prev.length > maxLen) maxLen = prev.length
+            const tw = estimateTextWidth(prev)
+            if (tw > maxTextW) maxTextW = tw
           }
         })
-        const hasImgOrUrl = sampleForWidth.some(item => isColor(item?.[col]) || isImg(item?.[col]) || isHttpLink(item?.[col]))
-        const extraIconW = (hasImgOrUrl ? 22 : 0) + 24
-        colWidths[col] = Math.max(84, Math.min(300, Math.round(maxLen * 7.5 + 20 + extraIconW)))
+        const hasTime = sampleForWidth.some(item => detectTimestamp(item?.[col]))
+        const hasImgOrUrl = sampleForWidth.some(item => isColor(item?.[col]) || isAudio(item?.[col]) || isVideo(item?.[col]) || isImg(item?.[col]) || isHttpLink(item?.[col]))
+        const hasB64OrUrl = sampleForWidth.some(item => getBase64Data(item?.[col]) || getUrlEncodedData(item?.[col]))
+        const hasCron = sampleForWidth.some(item => getCronData(item?.[col]))
+        const hasSmart = sampleForWidth.some(item => getSmartData(item?.[col]))
+        const extraIconW = (hasTime ? 150 : 0) + (hasImgOrUrl ? 22 : 0) + (hasB64OrUrl ? 26 : 0) + (hasCron ? 52 : 0) + (hasSmart ? 48 : 0) + 24
+        colWidths[col] = Math.max(84, Math.min(380, Math.round(maxTextW + 20 + extraIconW)))
       })
 
       const totalCount = currentObj.length
@@ -397,8 +739,9 @@ const layout = computed(() => {
       const tableRows = preSampleData.map((item, rowIdx) => {
         const cells = columns.map(col => {
           const val = item?.[col]
-          const isComplex = val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0)
           const cellPath = [...path, rowIdx, col]
+          const isNestedExp = expandedNestedPaths.value.has(JSON.stringify(cellPath)) && !!detectNestedJson(val)
+          const isComplex = isNestedExp || (val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0))
           const childNodeId = isComplex ? JSON.stringify(cellPath) : null
           return {
             col,
@@ -444,7 +787,7 @@ const layout = computed(() => {
         depth,
         x: 0,
         y: 0,
-        childrenIds: [],
+        childrenIds: tableRows.flatMap(r => r.cells.filter(c => c.isComplex).map(c => c.childNodeId)),
         totalCount,
         isVirtualScroll
       }
@@ -454,21 +797,23 @@ const layout = computed(() => {
       nodesByDepth[depth].push(node)
 
       // Recursively build children for nested complex cells inside table (全量扫描所有行，绝不漏掉中间或任意行的子 json)
-      for (let r = 0; r < totalCount; r++) {
+      for (let r = 0; r < Math.min(totalCount, 30); r++) {
         if (nodesMap.size >= MAX_TOTAL_GRAPH_NODES) break
         const item = currentObj[r]
         if (!item || typeof item !== 'object') continue
         for (let c = 0; c < columns.length; c++) {
           const col = columns[c]
           const val = item[col]
-          const isComplex = val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0)
+          const cellPath = [...path, r, col]
+          const isNestedExp = expandedNestedPaths.value.has(JSON.stringify(cellPath)) && !!detectNestedJson(val)
+          const isComplex = isNestedExp || (val !== null && val !== undefined && typeof val === 'object' && (Array.isArray(val) ? val.length > 0 : Object.keys(val).length > 0))
           if (isComplex && nodesMap.size < MAX_TOTAL_GRAPH_NODES) {
-            const cellPath = [...path, r, col]
             const childNodeId = JSON.stringify(cellPath)
             if (!node.childrenIds.includes(childNodeId)) {
               node.childrenIds.push(childNodeId)
             }
-            buildTreeNodes(val, cellPath, col, nodeId, { isTable: true, rowIdx: r }, depth + 1)
+            const childVal = isNestedExp ? detectNestedJson(val).parsed : val
+            buildTreeNodes(childVal, cellPath, col, nodeId, { isTable: true, rowIdx: r }, depth + 1)
           }
         }
       }
@@ -489,8 +834,9 @@ const layout = computed(() => {
         : allEntries.slice(0, sampleCount)
 
       const cardEntries = preSampleRaw.map(([k, v], idx) => {
-        const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
         const childPath = [...path, isArray ? Number(k) : k]
+        const isNestedExp = expandedNestedPaths.value.has(JSON.stringify(childPath)) && !!detectNestedJson(v)
+        const isComplex = isNestedExp || (v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0))
         const childNodeId = isComplex ? JSON.stringify(childPath) : null
 
         return {
@@ -504,19 +850,62 @@ const layout = computed(() => {
         }
       })
 
-      let maxKLen = 0
-      let maxPLen = 0
+      let maxKeyW = 0
+      let maxValW = 0
+
       cardEntries.forEach(e => {
-        if (e.key.length > maxKLen) maxKLen = e.key.length
-        if (e.preview.length > maxPLen) maxPLen = e.preview.length
+        const keyTextW = estimateTextWidth(e.key)
+        if (keyTextW > maxKeyW) maxKeyW = keyTextW
+
+        const prevTextW = estimateTextWidth(e.preview)
+        let extraBadgeW = 0
+        if (detectTimestamp(e.value)) {
+          extraBadgeW += 148
+        }
+        if (isColor(e.value)) {
+          extraBadgeW += 19
+        } else if (isAudio(e.value) || isVideo(e.value) || isImg(e.value)) {
+          extraBadgeW += 18
+        } else if (isHttpLink(e.value)) {
+          extraBadgeW += 20
+        }
+        if (getBase64Data(e.value)) {
+          extraBadgeW += 26
+        }
+        if (getUrlEncodedData(e.value)) {
+          extraBadgeW += 22
+        }
+        if (getCronData(e.value)) {
+          extraBadgeW += 52
+        }
+        if (getSmartData(e.value)) {
+          extraBadgeW += 48
+        }
+
+        const childPath = [...path, isArray ? Number(e.key) : e.key]
+        if (detectUnicode(e.value, props.rawInput, childPath)) {
+          extraBadgeW += 24
+        }
+        if (detectNestedJson(e.value)) {
+          extraBadgeW += 24
+        }
+
+        const rowValW = extraBadgeW + (extraBadgeW > 0 && prevTextW > 0 ? 6 : 0) + prevTextW + 6
+        if (rowValW > maxValW) maxValW = rowValW
       })
 
-      const keyW = isArray ? Math.max(24, maxKLen * 7 + 8) : Math.max(70, Math.min(300, maxKLen * 7.5 + 12))
-      const valW = isArray ? Math.max(40, maxPLen * 7 + 10) : Math.max(60, Math.min(360, maxPLen * 7.5 + 12))
+      const isRoot = depth === 0 || parentId === null
+
+      // 根节点截断宽度缩短一半（上限 240px，总宽上限 440px），避免根节点过宽推开后续拓扑树
+      const maxValLimit = isRoot ? 240 : 480
+      const maxNodeWidth = isRoot ? (isArray ? 360 : 440) : (isArray ? 680 : 850)
+
+      const keyW = isArray ? Math.max(24, maxKeyW + 12) : Math.max(70, Math.min(isRoot ? 220 : 320, maxKeyW + 16))
+      const valW = isArray ? Math.max(40, Math.min(maxValLimit, maxValW)) : Math.max(60, Math.min(maxValLimit, maxValW))
       
       // If node is an array of objects in tree mode, ensure enough width for switch bar [N 项] + 表格化
       const minW = isObjArray ? 148 : (isArray ? 90 : 140)
-      const width = isArray ? Math.max(minW, Math.min(640, keyW + valW + 20)) : Math.max(minW, Math.min(700, keyW + valW + 28))
+      const width = isArray ? Math.max(minW, Math.min(maxNodeWidth, keyW + valW + 28)) : Math.max(minW, Math.min(maxNodeWidth, keyW + valW + 44))
       
       const extraBarH = isObjArray ? SWITCH_BAR_H : 0
       const height = extraBarH + CARD_PAD * 2 + Math.max(displayRowsCount, 1) * CARD_ROW_H + 2
@@ -560,12 +949,14 @@ const layout = computed(() => {
         for (let i = 0; i < allEntries.length; i++) {
           if (nodesMap.size >= MAX_TOTAL_GRAPH_NODES) break
           const [k, v] = allEntries[i]
-          const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
+          const childPath = [...path, k]
+          const isNestedExp = expandedNestedPaths.value.has(JSON.stringify(childPath)) && !!detectNestedJson(v)
+          const isComplex = isNestedExp || (v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0))
           if (isComplex) {
-            const childPath = [...path, k]
             const childNodeId = JSON.stringify(childPath)
             if (!node.childrenIds.includes(childNodeId)) node.childrenIds.push(childNodeId)
-            buildTreeNodes(v, childPath, k, nodeId, i, depth + 1)
+            const childVal = isNestedExp ? detectNestedJson(v).parsed : v
+            buildTreeNodes(childVal, childPath, k, nodeId, i, depth + 1)
           }
         }
       } else {
@@ -581,21 +972,23 @@ const layout = computed(() => {
         for (let i = 0; i < totalCount; i++) {
           if (nodesMap.size >= MAX_TOTAL_GRAPH_NODES) break
           const v = currentObj[i]
-          const isComplex = v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0)
+          const childPath = [...path, i]
+          const isNestedExp = expandedNestedPaths.value.has(JSON.stringify(childPath)) && !!detectNestedJson(v)
+          const isComplex = isNestedExp || (v !== null && typeof v === 'object' && (Array.isArray(v) ? v.length > 0 : Object.keys(v).length > 0))
           if (isComplex) {
             // 检查当前对象是否包含深层嵌套子结构（如有嵌套数组或对象）
             const hasDeepChild = typeof v === 'object' && Object.values(v).some(childVal => childVal !== null && typeof childVal === 'object' && (Array.isArray(childVal) ? childVal.length > 0 : Object.keys(childVal).length > 0))
             const isSelectedBranch = (i === selectedChildIdx)
 
-            if (totalCount > 30 && simpleBranchCount >= MAX_SIMPLE_ARRAY_BRANCHES && !hasDeepChild && !isSelectedBranch) {
+            if (totalCount > 30 && simpleBranchCount >= MAX_SIMPLE_ARRAY_BRANCHES && !hasDeepChild && !isSelectedBranch && !isNestedExp) {
               continue
             }
-            if (!hasDeepChild && !isSelectedBranch) simpleBranchCount++
+            if (!hasDeepChild && !isSelectedBranch && !isNestedExp) simpleBranchCount++
 
-            const childPath = [...path, i]
             const childNodeId = JSON.stringify(childPath)
             if (!node.childrenIds.includes(childNodeId)) node.childrenIds.push(childNodeId)
-            buildTreeNodes(v, childPath, String(i), nodeId, i, depth + 1)
+            const childVal = isNestedExp ? detectNestedJson(v).parsed : v
+            buildTreeNodes(childVal, childPath, String(i), nodeId, i, depth + 1)
           }
         }
       }
@@ -738,7 +1131,7 @@ const curves = computed(() => {
 })
 
 // ─── Pan / Zoom (Adapted for smoother interaction) ──────────────────────────
-const DEFAULT_SCALE = 0.75 // 默认展示比例 75% (提供更舒适开阔的拓扑概览)
+const DEFAULT_SCALE = 0.88 // 默认展示比例提升至 88% (节点与文字更清晰易读，兼顾拓扑纵览)
 const MIN_SCALE = 0.25
 const MAX_SCALE = 2.0
 
@@ -1422,25 +1815,124 @@ const startMinimapDrag = (e) => {
                         <span
                           v-if="isColor(cell.value)"
                           class="graph-color-badge"
-                          :title="`颜色值: ${cell.value}`"
                         >
                           <span class="graph-color-chip-inner" :style="{ backgroundColor: cell.value }"></span>
                         </span>
                         <span
+                          v-else-if="isAudio(cell.value)"
+                          class="tree-img-badge tree-audio-badge"
+                          @mouseenter="(e) => onValMouseEnter(cell.value, e)"
+                          @mouseleave="() => onValMouseLeave(cell.value)"
+                          data-tooltip="音频直链 (悬停试听)"
+                        ><Volume2 class="img-badge-icon" /></span>
+                        <span
+                          v-else-if="isVideo(cell.value)"
+                          class="tree-img-badge tree-video-badge"
+                          @mouseenter="(e) => onValMouseEnter(cell.value, e)"
+                          @mouseleave="() => onValMouseLeave(cell.value)"
+                          data-tooltip="视频直链 (悬停播放)"
+                        ><VideoIcon class="img-badge-icon" /></span>
+                        <span
                           v-else-if="isImg(cell.value)"
-                          class="graph-img-badge"
+                          class="tree-img-badge"
                           @mouseenter="(e) => onValMouseEnter(cell.value, e)"
                           @mouseleave="() => onValMouseLeave(cell.value)"
                           data-tooltip="图片链接 (悬停预览)"
                         ><ImageIcon class="img-badge-icon" /></span>
                         <button
                           v-else-if="isHttpLink(cell.value)"
-                          class="graph-url-jump-btn"
+                          class="url-jump-btn"
                           @click.stop="handleOpenUrl(cell.value)"
                           data-tooltip="在浏览器中直接打开链接"
                         >
                           <ExternalLink class="url-jump-icon" />
                         </button>
+
+                        <!-- 智能数据胶囊 (JWT, HTML) -->
+                        <button
+                          v-if="getSmartData(cell.value)"
+                          class="tree-capsule-badge"
+                          :class="{
+                            'tree-jwt-badge': getSmartData(cell.value).isJwt,
+                            'tree-html-badge': getSmartData(cell.value).isHtml
+                          }"
+                          @mouseenter="onSmartMouseEnter(getSmartData(cell.value), $event)"
+                          @mouseleave="onSmartMouseLeave"
+                          @click.stop="onSmartMouseEnter(getSmartData(cell.value), $event)"
+                          :data-tooltip="getSmartData(cell.value).isJwt ? 'JWT Token (悬停解码)' : 'HTML 代码 (悬停预览)'"
+                        >
+                          <KeyRound v-if="getSmartData(cell.value).isJwt" class="capsule-icon" />
+                          <span class="capsule-text">
+                            {{ getSmartData(cell.value).isJwt ? 'JWT' : 'HTML' }}
+                          </span>
+                        </button>
+
+                        <!-- Cron 表达式胶囊 (图标不加 tooltip，点击正常复制) -->
+                        <button
+                          v-if="getCronData(cell.value)"
+                          class="tree-capsule-badge tree-cron-badge"
+                          @click.stop="handleCopyValue(cell.value)"
+                        >
+                          <CalendarClock class="capsule-icon" />
+                          <span class="capsule-text">CRON</span>
+                        </button>
+
+                        <!-- Base64 徽标 (点击复制 Base64 原值) -->
+                        <span
+                          v-if="getBase64Data(cell.value)"
+                          class="tree-inline-badge tree-b64-badge"
+                          @click.stop="handleCopyRaw(cell.value, 'Base64 原值')"
+                          data-tooltip="点击复制 Base64 原值"
+                        >
+                          <span class="capsule-symbol">B64</span>
+                        </span>
+
+                        <!-- URL 编码 徽标 (点击复制 URL 编码原值) -->
+                        <span
+                          v-if="getUrlEncodedData(cell.value)"
+                          class="tree-inline-badge tree-urldec-badge"
+                          @click.stop="handleCopyRaw(cell.value, 'URL 编码原值')"
+                          data-tooltip="点击复制 URL 编码原值"
+                        >
+                          <span class="capsule-symbol">%</span>
+                        </span>
+
+                        <!-- 时间戳胶囊 -->
+                        <button
+                          v-if="detectTimestamp(cell.value)"
+                          class="tree-capsule-badge tree-time-badge"
+                          @mouseenter="onTimeBadgeEnter(detectTimestamp(cell.value), $event)"
+                          @mouseleave="onTimeBadgeLeave"
+                          @click.stop="openTimeMenu(detectTimestamp(cell.value), $event)"
+                          title="悬停查看与复制时间格式"
+                        >
+                          <Clock class="capsule-icon" />
+                          <span class="capsule-text">{{ detectTimestamp(cell.value).beijingStr }}</span>
+                        </button>
+
+                        <!-- Unicode 徽标 -->
+                        <span
+                          v-if="detectUnicode(cell.value, props.rawInput, cell.path)"
+                          class="tree-unicode-badge"
+                          @click.stop="handleCopyUnicode(detectUnicode(cell.value, props.rawInput, cell.path))"
+                          title="点击复制 Unicode 原文"
+                        >
+                          <span class="capsule-symbol">\u</span>
+                        </span>
+
+                        <!-- 嵌套 JSON 徽标 -->
+                        <span
+                          v-if="detectNestedJson(cell.value)"
+                          class="tree-nested-badge"
+                          :class="{ 'is-expanded': isNestedExpanded(cell.path) }"
+                          @click.stop="toggleNestedExpand(cell.path)"
+                          @mouseenter="onNestedBadgeEnter(cell.path, cell.value, cell.col, $event)"
+                          @mouseleave="onNestedBadgeLeave"
+                          :title="isNestedExpanded(cell.path) ? '嵌套 JSON 已在拓扑图中展开为子分支，点击收回' : '嵌套 JSON 字符串，悬停展开或新 Tab 打开'"
+                        >
+                          <Braces class="capsule-icon" />
+                        </span>
+
                         <span
                           class="val-text"
                           :class="[
@@ -1452,7 +1944,7 @@ const startMinimapDrag = (e) => {
                           @mouseenter="(e) => onValMouseEnter(cell.value, e)"
                           @mouseleave="() => onValMouseLeave(cell.value)"
                           @click.stop="handleCopyValue(cell.value); emitClick(cell.path, 'value')"
-                          :data-tooltip="isImg(cell.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(cell.value) ? '点击复制键值，点击左侧图标可直接打开' : (isColor(cell.value) ? `颜色: ${cell.value}，点击复制键值` : '点击复制键值'))"
+                          :data-tooltip="getSmartData(cell.value) ? (getSmartData(cell.value).isHtml ? 'HTML 代码 (悬停预览，点击复制)' : 'JWT Token (悬停解码，点击复制)') : (getCronData(cell.value) ? ('' + getCronData(cell.value).translation) : (isImg(cell.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(cell.value) ? '点击复制键值，点击左侧图标可直接打开' : (isColor(cell.value) ? `颜色: ${cell.value}，点击复制键值` : '点击复制键值'))))"
                           v-html="highlightText(cell.preview, searchQuery)"
                         ></span>
                       </template>
@@ -1549,25 +2041,124 @@ const startMinimapDrag = (e) => {
                     <span
                       v-if="isColor(entry.value)"
                       class="graph-color-badge"
-                      :title="`颜色值: ${entry.value}`"
                     >
                       <span class="graph-color-chip-inner" :style="{ backgroundColor: entry.value }"></span>
                     </span>
                     <span
+                      v-else-if="isAudio(entry.value)"
+                      class="tree-img-badge tree-audio-badge"
+                      @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+                      @mouseleave="() => onValMouseLeave(entry.value)"
+                      data-tooltip="音频直链 (悬停试听)"
+                    ><Volume2 class="img-badge-icon" /></span>
+                    <span
+                      v-else-if="isVideo(entry.value)"
+                      class="tree-img-badge tree-video-badge"
+                      @mouseenter="(e) => onValMouseEnter(entry.value, e)"
+                      @mouseleave="() => onValMouseLeave(entry.value)"
+                      data-tooltip="视频直链 (悬停播放)"
+                    ><VideoIcon class="img-badge-icon" /></span>
+                    <span
                       v-else-if="isImg(entry.value)"
-                      class="graph-img-badge"
+                      class="tree-img-badge"
                       @mouseenter="(e) => onValMouseEnter(entry.value, e)"
                       @mouseleave="() => onValMouseLeave(entry.value)"
                       data-tooltip="图片链接 (悬停预览)"
                     ><ImageIcon class="img-badge-icon" /></span>
                     <button
                       v-else-if="isHttpLink(entry.value)"
-                      class="graph-url-jump-btn"
+                      class="url-jump-btn"
                       @click.stop="handleOpenUrl(entry.value)"
                       data-tooltip="在浏览器中直接打开链接"
                     >
                       <ExternalLink class="url-jump-icon" />
                     </button>
+
+                    <!-- 智能数据胶囊 (JWT, HTML) -->
+                    <button
+                      v-if="getSmartData(entry.value)"
+                      class="tree-capsule-badge"
+                      :class="{
+                        'tree-jwt-badge': getSmartData(entry.value).isJwt,
+                        'tree-html-badge': getSmartData(entry.value).isHtml
+                      }"
+                      @mouseenter="onSmartMouseEnter(getSmartData(entry.value), $event)"
+                      @mouseleave="onSmartMouseLeave"
+                      @click.stop="onSmartMouseEnter(getSmartData(entry.value), $event)"
+                      :data-tooltip="getSmartData(entry.value).isJwt ? 'JWT Token (悬停解码)' : 'HTML 代码 (悬停预览)'"
+                    >
+                      <KeyRound v-if="getSmartData(entry.value).isJwt" class="capsule-icon" />
+                      <span class="capsule-text">
+                        {{ getSmartData(entry.value).isJwt ? 'JWT' : 'HTML' }}
+                      </span>
+                    </button>
+
+                    <!-- Cron 表达式胶囊 (图标不加 tooltip，点击正常复制) -->
+                    <button
+                      v-if="getCronData(entry.value)"
+                      class="tree-capsule-badge tree-cron-badge"
+                      @click.stop="handleCopyValue(entry.value)"
+                    >
+                      <CalendarClock class="capsule-icon" />
+                      <span class="capsule-text">CRON</span>
+                    </button>
+
+                    <!-- Base64 徽标 (点击复制 Base64 原值) -->
+                    <span
+                      v-if="getBase64Data(entry.value)"
+                      class="tree-inline-badge tree-b64-badge"
+                      @click.stop="handleCopyRaw(entry.value, 'Base64 原值')"
+                      data-tooltip="点击复制 Base64 原值"
+                    >
+                      <span class="capsule-symbol">B64</span>
+                    </span>
+
+                    <!-- URL 编码 徽标 (点击复制 URL 编码原值) -->
+                    <span
+                      v-if="getUrlEncodedData(entry.value)"
+                      class="tree-inline-badge tree-urldec-badge"
+                      @click.stop="handleCopyRaw(entry.value, 'URL 编码原值')"
+                      data-tooltip="点击复制 URL 编码原值"
+                    >
+                      <span class="capsule-symbol">%</span>
+                    </span>
+
+                    <!-- 时间戳胶囊 -->
+                    <button
+                      v-if="detectTimestamp(entry.value)"
+                      class="tree-capsule-badge tree-time-badge"
+                      @mouseenter="onTimeBadgeEnter(detectTimestamp(entry.value), $event)"
+                      @mouseleave="onTimeBadgeLeave"
+                      @click.stop="openTimeMenu(detectTimestamp(entry.value), $event)"
+                      title="悬停查看与复制时间格式"
+                    >
+                      <Clock class="capsule-icon" />
+                      <span class="capsule-text">{{ detectTimestamp(entry.value).beijingStr }}</span>
+                    </button>
+
+                    <!-- Unicode 徽标 -->
+                    <span
+                      v-if="detectUnicode(entry.value, props.rawInput, getEntryPath(node, entry))"
+                      class="tree-unicode-badge"
+                      @click.stop="handleCopyUnicode(detectUnicode(entry.value, props.rawInput, getEntryPath(node, entry)))"
+                      title="点击复制 Unicode 原文"
+                    >
+                      <span class="capsule-symbol">\u</span>
+                    </span>
+
+                    <!-- 嵌套 JSON 徽标 -->
+                    <span
+                      v-if="detectNestedJson(entry.value)"
+                      class="tree-nested-badge"
+                      :class="{ 'is-expanded': isNestedExpanded(getEntryPath(node, entry)) }"
+                      @click.stop="toggleNestedExpand(getEntryPath(node, entry))"
+                      @mouseenter="onNestedBadgeEnter(getEntryPath(node, entry), entry.value, entry.key, $event)"
+                      @mouseleave="onNestedBadgeLeave"
+                      :title="isNestedExpanded(getEntryPath(node, entry)) ? '嵌套 JSON 已在拓扑图中展开为子分支，点击收回' : '嵌套 JSON 字符串，悬停展开或新 Tab 打开'"
+                    >
+                      <Braces class="capsule-icon" />
+                    </span>
+
                     <span
                       class="val-text"
                       :class="[
@@ -1579,7 +2170,7 @@ const startMinimapDrag = (e) => {
                       @mouseenter="(e) => onValMouseEnter(entry.value, e)"
                       @mouseleave="() => onValMouseLeave(entry.value)"
                       @click.stop="handleCopyValue(entry.value); emitClick(getEntryPath(node, entry), 'value')"
-                      :data-tooltip="isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : (isColor(entry.value) ? `颜色: ${entry.value}，点击复制键值` : '点击复制键值'))"
+                      :data-tooltip="getSmartData(entry.value) ? (getSmartData(entry.value).isHtml ? 'HTML 代码 (悬停预览，点击复制)' : 'JWT Token (悬停解码，点击复制)') : (getCronData(entry.value) ? ('' + getCronData(entry.value).translation) : (isImg(entry.value) ? '悬停预览图片，点击复制键值' : (isHttpLink(entry.value) ? '点击复制键值，点击左侧图标可直接打开' : (isColor(entry.value) ? `颜色: ${entry.value}，点击复制键值` : '点击复制键值'))))"
                       v-html="highlightText(entry.preview, searchQuery)"
                     ></span>
                   </span>
@@ -1687,6 +2278,116 @@ const startMinimapDrag = (e) => {
 
     <!-- Watermark -->
     <div class="graph-credit">Graph View</div>
+
+    <!-- Timestamp Copy Menu Popover -->
+    <Teleport to="body">
+      <Transition name="popover-fade">
+        <div
+          v-if="activeTimeMenu"
+          class="time-capsule-popover"
+          :class="{ 'is-dark': isDark }"
+          :style="{ top: `${activeTimeMenu.top}px`, left: `${activeTimeMenu.left}px` }"
+          @mouseenter="onPopoverEnter"
+          @mouseleave="onPopoverLeave"
+          @click.stop
+        >
+          <div class="popover-header">
+            <div class="badge-group">
+              <span class="type-badge">{{ activeTimeMenu.timeData.badgeLabel || '时间戳' }}</span>
+              <span class="dimension-badge">{{ activeTimeMenu.timeData.type }}</span>
+            </div>
+            <button class="icon-action-btn" @click="closeTimeMenu" title="关闭">
+              <X class="action-icon" />
+            </button>
+          </div>
+          <div class="time-popover-body">
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.rawStr, activeTimeMenu.timeData.isIso ? '原始时间' : '时间戳')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">{{ activeTimeMenu.timeData.isIso ? '原始时间' : '原始时间戳' }}</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.rawStr }}</span>
+              </div>
+            </div>
+            <div
+              v-if="activeTimeMenu.timeData.isIso"
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.timeMsStr, '毫秒时间戳')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">毫秒时间戳</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.timeMsStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(currentNowStr, '当前本机时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">当前本机时间</span>
+                <span class="time-val">{{ currentNowStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.beijingStr, '东八区时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">东八区时间 (UTC+8)</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.beijingStr }}</span>
+              </div>
+            </div>
+            <div
+              class="time-popover-item"
+              @click="copyTimeFormat(activeTimeMenu.timeData.utcStr, 'UTC 时间')"
+              data-tooltip-right="点击复制"
+            >
+              <div class="time-item-left">
+                <span class="time-label">UTC 国际时间</span>
+                <span class="time-val">{{ activeTimeMenu.timeData.utcStr }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Nested JSON Actions Popover (悬浮操作菜单：转义展开 / 新 Tab 打开) -->
+    <Teleport to="body">
+      <Transition name="popover-fade">
+        <div
+          v-if="activeNestedMenu"
+          class="nested-capsule-popover"
+          :class="{ 'is-dark': isDark }"
+          :style="{ top: `${activeNestedMenu.top}px`, left: `${activeNestedMenu.left}px` }"
+          @mouseenter="onNestedPopoverEnter"
+          @mouseleave="onNestedPopoverLeave"
+          @click.stop
+        >
+          <button
+            class="nested-action-btn primary"
+            :class="{ 'is-expanded': activeNestedMenu.isExpanded }"
+            @click.stop="toggleNestedExpand(activeNestedMenu.path)"
+          >
+            <FoldVertical v-if="activeNestedMenu.isExpanded" class="btn-icon" />
+            <UnfoldVertical v-else class="btn-icon" />
+            <span>{{ activeNestedMenu.isExpanded ? '还原收起' : '转义展开' }}</span>
+          </button>
+          <button
+            class="nested-action-btn secondary"
+            @click.stop="handleOpenInNewTab(activeNestedMenu.val, activeNestedMenu.title)"
+          >
+            <ExternalLink class="btn-icon" />
+            <span>新tab打开</span>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -1967,6 +2668,7 @@ const startMinimapDrag = (e) => {
   flex: 1;
   overflow: hidden;
   box-sizing: border-box;
+  padding: 6px 0;
 }
 
 .table-card-body.is-virtual-scroll {
@@ -2159,7 +2861,7 @@ const startMinimapDrag = (e) => {
 :global(.dark-mode .graph-view .tbl-tr.is-selected),
 :global(.dark-mode .graph-view .card-row.is-selected) {
   background-color: rgba(97, 175, 239, 0.22) !important;
-  box-shadow: inset 0 0 0 1.5px #61afef !important;
+  /* box-shadow: inset 0 0 0 1.5px #61afef !important; */
   border-radius: 4px;
 }
 :global(.dark-mode .graph-view .tbl-tr.is-selected td) {
@@ -2190,7 +2892,7 @@ const startMinimapDrag = (e) => {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
   color: var(--json-key, #4f46e5) !important;
   font-weight: 700 !important;
-  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+  /* box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important; */
 }
 
 :global(.dark-mode .graph-view .tbl-th.is-selected),
@@ -2198,27 +2900,31 @@ const startMinimapDrag = (e) => {
 :global(.dark-mode .graph-view .card-key.is-selected) {
   background-color: rgba(97, 175, 239, 0.32) !important;
   color: #61afef !important;
-  box-shadow: inset 0 0 0 1.5px #61afef !important;
+  /* box-shadow: inset 0 0 0 1.5px #61afef !important; */
 }
 
 .tbl-td:not(.tbl-td--complex).is-selected,
 .card-val.is-selected {
   padding: 2px 4px;
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
-  box-shadow: inset 0 0 0 1px var(--json-key, #6366f1) !important;
+  /* box-shadow: inset 0 0 0 1px var(--json-key, #6366f1) !important; */
 }
 
 :global(.dark-mode .graph-view .tbl-td:not(.tbl-td--complex).is-selected),
 :global(.dark-mode .graph-view .card-val.is-selected) {
   padding: 2px 4px;
   background-color: rgba(97, 175, 239, 0.32) !important;
-  box-shadow: inset 0 0 0 1px #61afef !important;
+  /* box-shadow: inset 0 0 0 1px #61afef !important; */
 }
 
 .tbl-th.is-hovered,
-.tbl-td--index.is-hovered,
-.card-key.is-hovered {
+.tbl-td--index.is-hovered {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.12)) !important;
+  color: var(--json-key) !important;
+}
+
+.card-key.is-hovered {
+  background-color: transparent !important;
   color: var(--json-key) !important;
 }
 
@@ -2403,7 +3109,7 @@ const startMinimapDrag = (e) => {
 .card-row {
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 6px;
   gap: 8px;
   cursor: pointer;
   box-sizing: border-box;
@@ -2444,6 +3150,7 @@ const startMinimapDrag = (e) => {
 }
 
 .card-key-text {
+  padding: 2px 6px;
   display: inline-block;
   max-width: 100%;
   overflow: hidden;
@@ -2642,9 +3349,10 @@ const startMinimapDrag = (e) => {
   width: 15px;
   height: 15px;
   padding: 0;
-  background: rgba(37, 99, 235, 0.08);
-  border: 1px solid rgba(37, 99, 235, 0.25);
-  border-radius: 3px;
+  background: transparent;
+  border: none !important;
+  outline: none !important;
+  border-radius: 3px !important;
   color: #2563eb;
   cursor: pointer;
   opacity: 0.95;
@@ -2654,24 +3362,23 @@ const startMinimapDrag = (e) => {
 }
 
 .graph-url-jump-btn:hover {
-  background: #2563eb;
-  color: #ffffff;
+  background: rgba(37, 99, 235, 0.15);
+  color: #2563eb;
   opacity: 1;
   transform: scale(1.15);
 }
 
 :global(.dark-mode) .graph-url-jump-btn {
-  background: rgba(56, 189, 248, 0.16);
-  border-color: rgba(56, 189, 248, 0.4);
+  background: transparent;
+  border: none !important;
   color: #38bdf8;
   opacity: 1;
 }
 
 :global(.dark-mode) .graph-url-jump-btn:hover {
-  background: #0284c7;
-  border-color: #38bdf8;
-  color: #ffffff;
-  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  box-shadow: none;
 }
 
 .url-jump-icon {
