@@ -551,11 +551,14 @@ const enrichVisibleRow = (row) => {
   let displayVal = val
 
   if (typeof val === 'string' && !isColor && !mediaData && !isImg && !nestedJsonData) {
-    base64Data = detectBase64Text(val)
+    if (unicodeData && unicodeData.decodedText && unicodeData.decodedText !== val) {
+      displayVal = unicodeData.decodedText
+    }
+    base64Data = detectBase64Text(displayVal)
     if (base64Data) {
       displayVal = base64Data.decoded
     } else {
-      urlEncodedData = detectUrlEncoded(val)
+      urlEncodedData = detectUrlEncoded(displayVal)
       if (urlEncodedData) {
         displayVal = urlEncodedData.decoded
       }
@@ -567,7 +570,7 @@ const enrichVisibleRow = (row) => {
 
   let cronData = null
   if (typeof val === 'string' && !isColor && !mediaData && !isImg && !nestedJsonData && !base64Data && !urlEncodedData) {
-    cronData = detectCron(val)
+    cronData = detectCron(displayVal)
   }
 
   let smartData = null
@@ -1792,7 +1795,7 @@ defineExpose({
   border-radius: 3px !important;
   border: none !important;
   outline: none !important;
-  padding: 0 4px;
+  padding: 3px 6px;
   margin-right: 4px;
   cursor: pointer;
   flex-shrink: 0;

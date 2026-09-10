@@ -36,12 +36,20 @@ const getSmartData = (v) => {
   return detectJwt(v) || detectHtml(v)
 }
 
-const getDisplayValue = (v) => {
-  const b64 = getBase64Data(v)
+const getUnicodeData = (v, path = []) => {
+  if (typeof v !== 'string' || !v) return null
+  return detectUnicode(v, props.rawInput, path)
+}
+
+const getDisplayValue = (v, path = []) => {
+  if (typeof v !== 'string') return v
+  const uData = getUnicodeData(v, path)
+  let disp = (uData && uData.decodedText && uData.decodedText !== v) ? uData.decodedText : v
+  const b64 = getBase64Data(disp)
   if (b64) return b64.decoded
-  const urlEnc = getUrlEncodedData(v)
+  const urlEnc = getUrlEncodedData(disp)
   if (urlEnc) return urlEnc.decoded
-  return v
+  return disp
 }
 
 const handleCopyRaw = (rawVal, label = '原值') => {

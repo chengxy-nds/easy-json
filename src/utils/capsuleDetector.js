@@ -135,27 +135,64 @@ export function detectTimestamp(val) {
 }
 
 // 2. ── Unicode 转义字符检测与转换 ──
-export const HAS_UNICODE_ESCAPE_RE = /\\u[0-9a-fA-F]{4}/i
+export const HAS_UNICODE_ESCAPE_RE = /(?:\\u[0-9a-fA-F]{4}|\\u\{[0-9a-fA-F]+\})/i
 
 /**
- * 将普通中文/宽字符转为 \uXXXX 形式
+ * 将普通中文/宽字符/Emoji转为 \uXXXX 形式（支持辅助平面 Emoji 代理对）
  */
 export function toUnicodeEscape(str) {
   if (typeof str !== 'string') return ''
-  return str.split('').map(char => {
-    const code = char.charCodeAt(0)
-    return code > 127 ? '\\u' + code.toString(16).padStart(4, '0') : char
+  return Array.from(str).map(char => {
+    const codePoint = char.codePointAt(0)
+    if (codePoint > 0xffff) {
+      // 拆分为 UTF-16 高低代理对
+      const high = Math.floor((codePoint - 0x10000) / 0x400) + 0xd800
+      const low = ((codePoint - 0x10000) % 0x400) + 0xdc00
+      return '\\u' + high.toString(16).padStart(4, '0') + '\\u' + low.toString(16).padStart(4, '0')
+    } else if (codePoint > 127) {
+      return '\\u' + codePoint.toString(16).padStart(4, '0')
+    }
+    return char
   }).join('')
 }
 
 /**
- * 将包含 \uXXXX 的转义字符串解码为正常文字
+ * 将包含 \uXXXX、Unicode 代理对（如 \uD83D\uDE80）或 \u{XXXX} 的转义字符串解码为正常文字与表情符号
  */
 export function fromUnicodeEscape(str) {
-  if (typeof str !== 'string') return ''
-  return str.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => {
-    return String.fromCharCode(parseInt(hex, 16))
-  })
+  if (typeof str !== 'string' || !str) return ''
+  try {
+    // 1. 替换 ES6 格式 \u{XXXXX}
+    let res = str.replace(/\\u\{([0-9a-fA-F]+)\}/gi, (_, hex) => {
+      try {
+        return String.fromCodePoint(parseInt(hex, 16))
+      } catch (_) {
+        return _
+      }
+    })
+    // 2. 识别并合成 UTF-16 高低代理对（如 \uD83D\uDE80 -> 🚀）
+    res = res.replace(/\\u([dD][89abAB][0-9a-fA-F]{2})\\u([dD][c-fC-F][0-9a-fA-F]{2})/g, (_, highHex, lowHex) => {
+      try {
+        const high = parseInt(highHex, 16)
+        const low = parseInt(lowHex, 16)
+        const codePoint = (high - 0xd800) * 0x400 + (low - 0xdc00) + 0x10000
+        return String.fromCodePoint(codePoint)
+      } catch (_) {
+        return _
+      }
+    })
+    // 3. 替换标准 4 位十六进制 \uXXXX 字符
+    res = res.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => {
+      try {
+        return String.fromCharCode(parseInt(hex, 16))
+      } catch (_) {
+        return _
+      }
+    })
+    return res
+  } catch (_) {
+    return str
+  }
 }
 
 /**

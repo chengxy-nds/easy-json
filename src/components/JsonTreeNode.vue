@@ -82,15 +82,19 @@ const urlEncodedData = computed(() => {
 })
 
 const displayValue = computed(() => {
+  let disp = props.value
+  if (unicodeData.value && unicodeData.value.decodedText && unicodeData.value.decodedText !== props.value) {
+    disp = unicodeData.value.decodedText
+  }
   if (base64Data.value) return base64Data.value.decoded
   if (urlEncodedData.value) return urlEncodedData.value.decoded
-  return props.value
+  return disp
 })
 
 const cronData = computed(() => {
   if (typeof props.value !== 'string') return null
   if (isColor.value || isImageValue.value || mediaData.value || nestedJsonData.value || base64Data.value || urlEncodedData.value) return null
-  return detectCron(props.value)
+  return detectCron(displayValue.value)
 })
 
 const smartData = computed(() => {
@@ -1075,7 +1079,7 @@ const handleCopyValue = (e) => {
   border-radius: 3px !important;
   border: none !important;
   outline: none !important;
-  padding: 0 4px;
+  padding: 3px 6px;
   margin-right: 4px;
   margin-left: 1px;
   cursor: pointer;

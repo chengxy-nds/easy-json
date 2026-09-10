@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, inject, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, inject, onMounted, onBeforeUnmount, nextTick, reactive } from 'vue'
 import { ExternalLink, Copy, Image as ImageIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, Volume2, Video as VideoIcon, KeyRound, FileCode, Code2, CalendarClock } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
@@ -82,12 +82,20 @@ const getUrlEncodedData = (v) => {
   return detectUrlEncoded(v)
 }
 
-const getDisplayValue = (v) => {
-  const b64 = getBase64Data(v)
+const getUnicodeData = (v, path = []) => {
+  if (typeof v !== 'string' || !v) return null
+  return detectUnicode(v, props.rawInput, path)
+}
+
+const getDisplayValue = (v, path = []) => {
+  if (typeof v !== 'string') return v
+  const uData = getUnicodeData(v, path)
+  let disp = (uData && uData.decodedText && uData.decodedText !== v) ? uData.decodedText : v
+  const b64 = getBase64Data(disp)
   if (b64) return b64.decoded
-  const urlEnc = getUrlEncodedData(v)
+  const urlEnc = getUrlEncodedData(disp)
   if (urlEnc) return urlEnc.decoded
-  return v
+  return disp
 }
 
 const getCronData = (v) => {
@@ -550,13 +558,25 @@ const getValTooltip = (val) => {
   return '点击复制键值'
 }
 
-// ─── Helper: 从对象数组中收集全部唯一属性名 ────────────────────────────────────
+// ─── Fast Sampling & Memoized Helper: 从对象数组中收集全部唯一属性名 ──────────────
+const columnsCache = new WeakMap()
+
 const getColumnsFromObjectArray = (arr) => {
+  if (!Array.isArray(arr) || arr.length === 0) return []
+  if (columnsCache.has(arr)) {
+    return columnsCache.get(arr)
+  }
   const cols = []
   const seen = new Set()
-  for (const item of arr) {
+  const len = arr.length
+  const sampleLimit = len <= 200 ? len : 100
+
+  for (let i = 0; i < sampleLimit; i++) {
+    const item = arr[i]
     if (item && typeof item === 'object' && !Array.isArray(item)) {
-      for (const k of Object.keys(item)) {
+      const keys = Object.keys(item)
+      for (let j = 0; j < keys.length; j++) {
+        const k = keys[j]
         if (!seen.has(k)) {
           seen.add(k)
           cols.push(k)
@@ -564,12 +584,140 @@ const getColumnsFromObjectArray = (arr) => {
       }
     }
   }
+
+  if (len > 200) {
+    const step = Math.max(1, Math.floor(len / 40))
+    for (let i = sampleLimit; i < len; i += step) {
+      const item = arr[i]
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        const keys = Object.keys(item)
+        for (let j = 0; j < keys.length; j++) {
+          const k = keys[j]
+          if (!seen.has(k)) {
+            seen.add(k)
+            cols.push(k)
+          }
+        }
+      }
+    }
+  }
+
+  columnsCache.set(arr, cols)
   return cols
 }
 
-// ─── 判断是否为对象数组 ────────────────────────────────────────────────────────
+// ─── 高性能判断是否为对象数组 ────────────────────────────────────────────────────────
 const isArrayOfObjects = (arr) => {
-  return Array.isArray(arr) && arr.length > 0 && arr.some(item => item && typeof item === 'object' && !Array.isArray(item))
+  if (!Array.isArray(arr) || arr.length === 0) return false
+  const checkCount = Math.min(arr.length, 10)
+  for (let i = 0; i < checkCount; i++) {
+    const item = arr[i]
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      return true
+    }
+  }
+  return false
+}
+
+// ─── Inner Grid / KV Virtual Scrolling Engine (针对海量内嵌数组与对象纯虚拟滚动) ───────────
+const innerScrollMap = reactive({})
+const INNER_VIRTUAL_THRESHOLD = 50
+const INNER_BUFFER = 12
+
+const onInnerGridScroll = (e, pathKey) => {
+  if (activeTimeMenu.value) activeTimeMenu.value = null
+  if (activeNestedMenu.value) activeNestedMenu.value = null
+  const top = e.target.scrollTop
+  if (!innerScrollMap[pathKey]) {
+    innerScrollMap[pathKey] = { scrollTop: top, viewportHeight: e.target.clientHeight || 500 }
+  } else {
+    innerScrollMap[pathKey].scrollTop = top
+    if (e.target.clientHeight) {
+      innerScrollMap[pathKey].viewportHeight = e.target.clientHeight
+    }
+  }
+}
+
+const getInnerGridVirtualData = (arr, pathKey) => {
+  if (!Array.isArray(arr)) return { rows: [], isVirtual: false, topSpacer: 0, bottomSpacer: 0, rowOffset: 0, total: 0 }
+  const total = arr.length
+  if (total <= INNER_VIRTUAL_THRESHOLD) {
+    return {
+      rows: arr,
+      isVirtual: false,
+      topSpacer: 0,
+      bottomSpacer: 0,
+      rowOffset: 0,
+      total
+    }
+  }
+  const rowH = estimatedRowHeight.value || 30
+  const state = innerScrollMap[pathKey]
+  const top = state?.scrollTop || 0
+  const vpHeight = state?.viewportHeight || 500
+
+  const startIdx = Math.max(0, Math.floor(top / rowH) - INNER_BUFFER)
+  const count = Math.ceil(vpHeight / rowH) + INNER_BUFFER * 2
+  const endIdx = Math.min(total, startIdx + count)
+
+  const rows = arr.slice(startIdx, endIdx)
+  const topSpacer = startIdx * rowH
+  const bottomSpacer = Math.max(0, (total - endIdx) * rowH)
+
+  return {
+    rows,
+    isVirtual: true,
+    topSpacer,
+    bottomSpacer,
+    rowOffset: startIdx,
+    total
+  }
+}
+
+const getInnerKvVirtualData = (val, pathKey) => {
+  if (!val || typeof val !== 'object') return { items: [], isVirtual: false, topSpacer: 0, bottomSpacer: 0, total: 0 }
+  const isArr = Array.isArray(val)
+  const total = isArr ? val.length : Object.keys(val).length
+  if (total <= INNER_VIRTUAL_THRESHOLD) {
+    const items = isArr ? val.map((v, i) => [i, v]) : Object.entries(val)
+    return {
+      items,
+      isVirtual: false,
+      topSpacer: 0,
+      bottomSpacer: 0,
+      total,
+      isArray: isArr
+    }
+  }
+  const rowH = estimatedRowHeight.value || 30
+  const state = innerScrollMap[pathKey]
+  const top = state?.scrollTop || 0
+  const vpHeight = state?.viewportHeight || 500
+
+  const startIdx = Math.max(0, Math.floor(top / rowH) - INNER_BUFFER)
+  const count = Math.ceil(vpHeight / rowH) + INNER_BUFFER * 2
+  const endIdx = Math.min(total, startIdx + count)
+
+  let items = []
+  if (isArr) {
+    const slice = val.slice(startIdx, endIdx)
+    items = slice.map((v, i) => [startIdx + i, v])
+  } else {
+    const allKeys = Object.keys(val)
+    const sliceKeys = allKeys.slice(startIdx, endIdx)
+    items = sliceKeys.map(k => [k, val[k]])
+  }
+  const topSpacer = startIdx * rowH
+  const bottomSpacer = Math.max(0, (total - endIdx) * rowH)
+
+  return {
+    items,
+    isVirtual: true,
+    topSpacer,
+    bottomSpacer,
+    total,
+    isArray: isArr
+  }
 }
 
 // ─── 判断数据是否为直接对象数组 (支持 2D 矩阵表格呈现) ──────────────────────
@@ -1358,8 +1506,13 @@ watch(currentSelectedPath, (newPath) => {
                 </button>
               </div>
 
-              <!-- 展开状态: 内嵌 2D 矩阵表格 -->
-              <div v-else class="inner-grid-container">
+              <!-- 展开状态: 内嵌 2D 矩阵表格 (支持虚拟滚动) -->
+              <div
+                v-else
+                class="inner-grid-container"
+                :class="{ 'is-inner-virtual': entry.value.length > INNER_VIRTUAL_THRESHOLD }"
+                @scroll.passive="onInnerGridScroll($event, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key])))"
+              >
                 <table class="inner-grid-table">
                   <thead>
                     <tr class="inner-grid-header-row">
@@ -1395,42 +1548,51 @@ watch(currentSelectedPath, (newPath) => {
                     </tr>
                   </thead>
                   <tbody>
+                    <!-- Top Spacer for Virtual Scroll -->
                     <tr
-                      v-for="(subObj, subIdx) in entry.value"
-                      :key="subIdx"
+                      v-if="getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).topSpacer > 0"
+                      class="virtual-spacer-row"
+                      :style="{ height: getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).topSpacer + 'px' }"
+                    >
+                      <td :colspan="getColumnsFromObjectArray(entry.value).length + 1" class="virtual-spacer-cell"></td>
+                    </tr>
+
+                    <tr
+                      v-for="(subObj, localIdx) in getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rows"
+                      :key="getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx"
                       class="inner-grid-row"
-                      :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subIdx]))"
+                      :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx]))"
                     >
                       <td
                         class="inner-grid-td inner-grid-index-cell"
-                        :class="{ 'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key, subIdx]) }"
-                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx], 'key')"
-                        @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, subIdx])"
+                        :class="{ 'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx]) }"
+                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx], 'key')"
+                        @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx])"
                         @mouseleave.stop="emitHover(null)"
                       >
                         <span
                           class="table-key-text"
                           data-tooltip="点击复制索引"
-                          @click.stop="handleCopyKey(subIdx); emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx], 'key')"
-                        >{{ subIdx }}</span>
+                          @click.stop="handleCopyKey(getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx); emitClick([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx], 'key')"
+                        >{{ getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx }}</span>
                       </td>
                       <td
                         v-for="col in getColumnsFromObjectArray(entry.value)"
                         :key="col"
                         class="inner-grid-td"
-                        :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]))"
+                        :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]))"
                         :class="{
                           [`val-${getValueType(subObj?.[col])}`]: true,
-                          'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]),
-                          'is-hovered': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]) && isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]),
-                          'value-cell--complex': !isPrimitive(subObj?.[col]) || isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])
+                          'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]),
+                          'is-hovered': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]) && isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]),
+                          'value-cell--complex': !isPrimitive(subObj?.[col]) || isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])
                         }"
-                        @mouseenter.stop="(!isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]) : null"
-                        @mouseleave.stop="(!isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])) ? emitHover(null) : null"
-                        @click.stop="(isPrimitive(subObj?.[col]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], 'value') : null"
+                        @mouseenter.stop="(!isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]) : null"
+                        @mouseleave.stop="(!isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])) ? emitHover(null) : null"
+                        @click.stop="(isPrimitive(subObj?.[col]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col], 'value') : null"
                       >
                         <template v-if="subObj && subObj[col] !== undefined">
-                          <div v-if="isPrimitive(subObj[col]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])" class="val-primitive-wrap">
+                          <div v-if="isPrimitive(subObj[col]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])" class="val-primitive-wrap">
                             <span
                               v-if="isColor(subObj[col])"
                               class="table-color-badge"
@@ -1529,9 +1691,9 @@ watch(currentSelectedPath, (newPath) => {
 
                             <!-- Unicode 徽标 -->
                             <span
-                              v-if="detectUnicode(subObj[col], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                              v-if="detectUnicode(subObj[col], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])"
                               class="tree-unicode-badge"
-                              @click.stop="handleCopyUnicode(detectUnicode(subObj[col], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, subIdx, col]))"
+                              @click.stop="handleCopyUnicode(detectUnicode(subObj[col], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]))"
                               title="点击复制 Unicode 原文"
                             >
                               <span class="capsule-symbol">\u</span>
@@ -1541,8 +1703,8 @@ watch(currentSelectedPath, (newPath) => {
                             <span
                               v-if="detectNestedJson(subObj[col])"
                               class="tree-nested-badge"
-                              @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
-                              @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], subObj[col], col, $event)"
+                              @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])"
+                              @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col], subObj[col], col, $event)"
                               @mouseleave="onNestedBadgeLeave"
                               title="嵌套 JSON 字符串，悬停展开或新 Tab 打开"
                             >
@@ -1553,19 +1715,19 @@ watch(currentSelectedPath, (newPath) => {
                               :class="[getValueColorClass(getValueType(subObj[col])), 'copyable-val', { 'is-image-url': isImg(subObj[col]), 'is-web-url': isHttpLink(subObj[col]) }]"
                               @mouseenter="(e) => onValMouseEnter(subObj[col], e)"
                               @mouseleave="() => onValMouseLeave(subObj[col])"
-                              @click.stop="handleCopyValue(subObj[col]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], 'value')"
+                              @click.stop="handleCopyValue(subObj[col]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col], 'value')"
                               :data-tooltip="getValTooltip(subObj[col])"
                               v-html="highlightText(getPreview(subObj[col]), searchQuery)"
                             ></span>
                           </div>
 
                           <!-- 嵌套 JSON 就地展开表格 -->
-                          <div v-else-if="detectNestedJson(subObj[col]) && isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])" class="complex-cell-container">
+                          <div v-else-if="detectNestedJson(subObj[col]) && isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])" class="complex-cell-container">
                             <div class="complex-header-row nested-json-header">
                               <span
                                 class="tree-nested-badge is-expanded"
-                                @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
-                                @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col], subObj[col], col, $event)"
+                                @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])"
+                                @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col], subObj[col], col, $event)"
                                 @mouseleave="onNestedBadgeLeave"
                               >
                                 <Braces class="capsule-icon" />
@@ -1578,7 +1740,7 @@ watch(currentSelectedPath, (newPath) => {
                               :depth="depth + 1"
                               :hoveredPath="hoveredPath"
                               :selectedPath="currentSelectedPath"
-                              :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                              :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])"
                               @hover-path="handleChildHover"
                               @click-path="handleChildClick"
                             />
@@ -1591,7 +1753,7 @@ watch(currentSelectedPath, (newPath) => {
                               :depth="depth + 1"
                               :hoveredPath="hoveredPath"
                               :selectedPath="currentSelectedPath"
-                              :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subIdx, col])"
+                              :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col])"
                               @hover-path="handleChildHover"
                               @click-path="handleChildClick"
                             />
@@ -1599,6 +1761,15 @@ watch(currentSelectedPath, (newPath) => {
                         </template>
                         <span v-else class="val-empty">-</span>
                       </td>
+                    </tr>
+
+                    <!-- Bottom Spacer for Virtual Scroll -->
+                    <tr
+                      v-if="getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).bottomSpacer > 0"
+                      class="virtual-spacer-row"
+                      :style="{ height: getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).bottomSpacer + 'px' }"
+                    >
+                      <td :colspan="getColumnsFromObjectArray(entry.value).length + 1" class="virtual-spacer-cell"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -1626,33 +1797,47 @@ watch(currentSelectedPath, (newPath) => {
                 </button>
               </div>
 
-              <!-- 展开状态: 内嵌规整子表格 -->
-              <div v-else class="nested-table-container">
+              <!-- 展开状态: 内嵌规整子表格 (支持虚拟滚动) -->
+              <div
+                v-else
+                class="nested-table-container"
+                :class="{ 'is-inner-virtual': (Array.isArray(entry.value) ? entry.value.length : Object.keys(entry.value).length) > INNER_VIRTUAL_THRESHOLD }"
+                @scroll.passive="onInnerGridScroll($event, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key])))"
+              >
                 <table class="inner-kv-table">
                   <tbody>
+                    <!-- Top Spacer for Virtual Scroll -->
                     <tr
-                      v-for="(subVal, subK) in (Array.isArray(entry.value) ? entry.value : Object.keys(entry.value).map(k => [k, entry.value[k]]))"
-                      :key="Array.isArray(entry.value) ? subK : subVal[0]"
+                      v-if="getInnerKvVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).topSpacer > 0"
+                      class="virtual-spacer-row"
+                      :style="{ height: getInnerKvVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).topSpacer + 'px' }"
+                    >
+                      <td colspan="2" class="virtual-spacer-cell"></td>
+                    </tr>
+
+                    <tr
+                      v-for="[subK, subVal] in getInnerKvVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).items"
+                      :key="subK"
                       class="inner-kv-row"
-                      :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]))"
+                      :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subK]))"
                     >
                       <!-- 子键名 / 索引 -->
                       <td
                         class="inner-key-cell"
                         :class="{ 
                           'inner-index-cell': Array.isArray(entry.value),
-                          'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
-                          'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])
+                          'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key, subK]),
+                          'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, subK])
                         }"
-                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'key')"
-                        @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                        @click.stop="emitClick([entry.isIndex ? Number(entry.key) : entry.key, subK], 'key')"
+                        @mouseenter.stop="emitHover([entry.isIndex ? Number(entry.key) : entry.key, subK])"
                         @mouseleave.stop="emitHover(null)"
                       >
                         <span
                           class="table-key-text"
                           data-tooltip="点击复制键名"
-                          @click.stop="handleCopyKey(Array.isArray(entry.value) ? subK : subVal[0]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'key')"
-                          v-html="highlightText(Array.isArray(entry.value) ? subK : subVal[0], searchQuery)"
+                          @click.stop="handleCopyKey(subK); emitClick([entry.isIndex ? Number(entry.key) : entry.key, subK], 'key')"
+                          v-html="highlightText(subK, searchQuery)"
                         ></span>
                       </td>
 
@@ -1660,45 +1845,45 @@ watch(currentSelectedPath, (newPath) => {
                       <td
                         class="inner-val-cell"
                         :class="{
-                          [`val-${getValueType(Array.isArray(entry.value) ? subVal : subVal[1])}`]: true,
-                          'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
-                          'is-hovered': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]) && isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]),
-                          'value-cell--complex': !isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) || isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])
+                          [`val-${getValueType(subVal)}`]: true,
+                          'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subK]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key, subK]),
+                          'is-hovered': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subK]) && isPathHovered([entry.isIndex ? Number(entry.key) : entry.key, subK]),
+                          'value-cell--complex': !isPrimitive(subVal) || isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subK])
                         }"
-                        @click.stop="(isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'value') : null"
-                        @mouseenter.stop="(isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]) : null"
+                        @click.stop="(isPrimitive(subVal) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subK])) ? emitClick([entry.isIndex ? Number(entry.key) : entry.key, subK], 'value') : null"
+                        @mouseenter.stop="(isPrimitive(subVal) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subK])) ? emitHover([entry.isIndex ? Number(entry.key) : entry.key, subK]) : null"
                         @mouseleave.stop="emitHover(null)"
                       >
-                        <div v-if="isPrimitive(Array.isArray(entry.value) ? subVal : subVal[1]) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])" class="val-primitive-wrap">
+                        <div v-if="isPrimitive(subVal) && !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subK])" class="val-primitive-wrap">
                           <span
-                            v-if="isColor(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-if="isColor(subVal)"
                             class="table-color-badge"
-                          ><span class="table-color-chip-inner" :style="{ backgroundColor: Array.isArray(entry.value) ? subVal : subVal[1] }"></span></span>
+                          ><span class="table-color-chip-inner" :style="{ backgroundColor: subVal }"></span></span>
                           <span
-                            v-else-if="isAudio(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-else-if="isAudio(subVal)"
                             class="tree-img-badge tree-audio-badge"
-                            @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
-                            @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            @mouseenter="(e) => onValMouseEnter(subVal, e)"
+                            @mouseleave="() => onValMouseLeave(subVal)"
                             data-tooltip="音频直链 (悬停试听)"
                           ><Volume2 class="img-badge-icon" /></span>
                           <span
-                            v-else-if="isVideo(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-else-if="isVideo(subVal)"
                             class="tree-img-badge tree-video-badge"
-                            @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
-                            @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            @mouseenter="(e) => onValMouseEnter(subVal, e)"
+                            @mouseleave="() => onValMouseLeave(subVal)"
                             data-tooltip="视频直链 (悬停播放)"
                           ><VideoIcon class="img-badge-icon" /></span>
                           <span
-                            v-else-if="isImg(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-else-if="isImg(subVal)"
                             class="tree-img-badge"
-                            @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
-                            @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            @mouseenter="(e) => onValMouseEnter(subVal, e)"
+                            @mouseleave="() => onValMouseLeave(subVal)"
                             data-tooltip="图片链接 (悬停预览)"
                           ><ImageIcon class="img-badge-icon" /></span>
                           <button
-                            v-else-if="isHttpLink(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-else-if="isHttpLink(subVal)"
                             class="url-jump-btn"
-                            @click.stop="handleOpenUrl(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            @click.stop="handleOpenUrl(subVal)"
                             data-tooltip="在浏览器中直接打开链接"
                           >
                             <ExternalLink class="url-jump-icon" />
@@ -1706,9 +1891,9 @@ watch(currentSelectedPath, (newPath) => {
 
                           <!-- Cron 表达式胶囊 (图标不加 tooltip，点击正常复制) -->
                           <button
-                            v-if="getCronData(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-if="getCronData(subVal)"
                             class="tree-capsule-badge tree-cron-badge"
-                            @click.stop="handleCopyValue(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            @click.stop="handleCopyValue(subVal)"
                           >
                             <CalendarClock class="capsule-icon" />
                             <span class="capsule-text">CRON</span>
@@ -1716,28 +1901,28 @@ watch(currentSelectedPath, (newPath) => {
 
                           <!-- 智能数据胶囊 (JWT, HTML) -->
                           <button
-                            v-if="getSmartData(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-if="getSmartData(subVal)"
                             class="tree-capsule-badge"
                             :class="{
-                              'tree-jwt-badge': getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isJwt,
-                              'tree-html-badge': getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isHtml
+                              'tree-jwt-badge': getSmartData(subVal).isJwt,
+                              'tree-html-badge': getSmartData(subVal).isHtml
                             }"
-                            @mouseenter="onSmartMouseEnter(getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]), $event)"
+                            @mouseenter="onSmartMouseEnter(getSmartData(subVal), $event)"
                             @mouseleave="onSmartMouseLeave"
-                            @click.stop="onSmartMouseEnter(getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]), $event)"
-                            :title="getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isJwt ? 'JWT Token (悬停解码)' : '智能数据 (悬停查看详情)'"
+                            @click.stop="onSmartMouseEnter(getSmartData(subVal), $event)"
+                            :title="getSmartData(subVal).isJwt ? 'JWT Token (悬停解码)' : '智能数据 (悬停查看详情)'"
                           >
-                            <KeyRound v-if="getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isJwt" class="capsule-icon" />
+                            <KeyRound v-if="getSmartData(subVal).isJwt" class="capsule-icon" />
                             <span class="capsule-text">
-                              {{ getSmartData(Array.isArray(entry.value) ? subVal : subVal[1]).isJwt ? 'JWT' : 'HTML' }}
+                              {{ getSmartData(subVal).isJwt ? 'JWT' : 'HTML' }}
                             </span>
                           </button>
 
                           <!-- Base64 Badge (点击复制 Base64 原值) -->
                           <span
-                            v-if="getBase64Data(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-if="getBase64Data(subVal)"
                             class="tree-inline-badge tree-b64-badge"
-                            @click.stop="handleCopyRaw(Array.isArray(entry.value) ? subVal : subVal[1], 'Base64 原值')"
+                            @click.stop="handleCopyRaw(subVal, 'Base64 原值')"
                             data-tooltip="点击复制 Base64 原值"
                           >
                             <span class="capsule-symbol">B64</span>
@@ -1745,9 +1930,9 @@ watch(currentSelectedPath, (newPath) => {
 
                           <!-- URL 编码 Badge (点击复制 URL 编码原值) -->
                           <span
-                            v-if="getUrlEncodedData(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-if="getUrlEncodedData(subVal)"
                             class="tree-inline-badge tree-urldec-badge"
-                            @click.stop="handleCopyRaw(Array.isArray(entry.value) ? subVal : subVal[1], 'URL 编码原值')"
+                            @click.stop="handleCopyRaw(subVal, 'URL 编码原值')"
                             data-tooltip="点击复制 URL 编码原值"
                           >
                             <span class="capsule-symbol">%</span>
@@ -1755,22 +1940,22 @@ watch(currentSelectedPath, (newPath) => {
 
                           <!-- 时间戳胶囊 -->
                           <button
-                            v-if="detectTimestamp(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-if="detectTimestamp(subVal)"
                             class="tree-capsule-badge tree-time-badge"
-                            @mouseenter="onTimeBadgeEnter(detectTimestamp(Array.isArray(entry.value) ? subVal : subVal[1]), $event)"
+                            @mouseenter="onTimeBadgeEnter(detectTimestamp(subVal), $event)"
                             @mouseleave="onTimeBadgeLeave"
-                            @click.stop="openTimeMenu(detectTimestamp(Array.isArray(entry.value) ? subVal : subVal[1]), $event)"
+                            @click.stop="openTimeMenu(detectTimestamp(subVal), $event)"
                             title="悬停查看与复制时间格式"
                           >
                             <Clock class="capsule-icon" />
-                            <span class="capsule-text">{{ detectTimestamp(Array.isArray(entry.value) ? subVal : subVal[1]).beijingStr }}</span>
+                            <span class="capsule-text">{{ detectTimestamp(subVal).beijingStr }}</span>
                           </button>
 
                           <!-- Unicode 徽标 -->
                           <span
-                            v-if="detectUnicode(Array.isArray(entry.value) ? subVal : subVal[1], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                            v-if="detectUnicode(subVal, props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, subK])"
                             class="tree-unicode-badge"
-                            @click.stop="handleCopyUnicode(detectUnicode(Array.isArray(entry.value) ? subVal : subVal[1], props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]]))"
+                            @click.stop="handleCopyUnicode(detectUnicode(subVal, props.rawInput, [entry.isIndex ? Number(entry.key) : entry.key, subK]))"
                             title="点击复制 Unicode 原文"
                           >
                             <span class="capsule-symbol">\u</span>
@@ -1778,10 +1963,10 @@ watch(currentSelectedPath, (newPath) => {
 
                           <!-- 嵌套 JSON 徽标 -->
                           <span
-                            v-if="detectNestedJson(Array.isArray(entry.value) ? subVal : subVal[1])"
+                            v-if="detectNestedJson(subVal)"
                             class="tree-nested-badge"
-                            @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
-                            @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], Array.isArray(entry.value) ? subVal : subVal[1], Array.isArray(entry.value) ? subK : subVal[0], $event)"
+                            @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, subK])"
+                            @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, subK], subVal, subK, $event)"
                             @mouseleave="onNestedBadgeLeave"
                             title="嵌套 JSON 字符串，悬停展开或新 Tab 打开"
                           >
@@ -1789,12 +1974,12 @@ watch(currentSelectedPath, (newPath) => {
                           </span>
 
                           <span
-                            :class="[getValueColorClass(getValueType(Array.isArray(entry.value) ? subVal : subVal[1])), 'copyable-val', { 'is-image-url': isImg(Array.isArray(entry.value) ? subVal : subVal[1]), 'is-web-url': isHttpLink(Array.isArray(entry.value) ? subVal : subVal[1]) }]"
-                            @mouseenter="(e) => onValMouseEnter(Array.isArray(entry.value) ? subVal : subVal[1], e)"
-                            @mouseleave="() => onValMouseLeave(Array.isArray(entry.value) ? subVal : subVal[1])"
-                            @click.stop="handleCopyValue(Array.isArray(entry.value) ? subVal : subVal[1]); emitClick([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], 'value')"
-                            :data-tooltip="getValTooltip(Array.isArray(entry.value) ? subVal : subVal[1])"
-                            v-html="highlightText(getPreview(Array.isArray(entry.value) ? subVal : subVal[1]), searchQuery)"
+                            :class="[getValueColorClass(getValueType(subVal)), 'copyable-val', { 'is-image-url': isImg(subVal), 'is-web-url': isHttpLink(subVal) }]"
+                            @mouseenter="(e) => onValMouseEnter(subVal, e)"
+                            @mouseleave="() => onValMouseLeave(subVal)"
+                            @click.stop="handleCopyValue(subVal); emitClick([entry.isIndex ? Number(entry.key) : entry.key, subK], 'value')"
+                            :data-tooltip="getValTooltip(subVal)"
+                            v-html="highlightText(getPreview(subVal), searchQuery)"
                           ></span>
                         </div>
 
@@ -1836,6 +2021,14 @@ watch(currentSelectedPath, (newPath) => {
                           />
                         </div>
                       </td>
+                    </tr>
+                    <!-- Bottom Spacer for Virtual Scroll -->
+                    <tr
+                      v-if="getInnerKvVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).bottomSpacer > 0"
+                      class="virtual-spacer-row"
+                      :style="{ height: getInnerKvVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).bottomSpacer + 'px' }"
+                    >
+                      <td colspan="2" class="virtual-spacer-cell"></td>
                     </tr>
                   </tbody>
                 </table>
@@ -2075,9 +2268,28 @@ watch(currentSelectedPath, (newPath) => {
 }
 
 /* 2D Data Grid Column Header */
-.grid-col-header,
+.grid-col-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 8 !important;
+  background: var(--table-header-bg, #f1f5f9) !important;
+  color: var(--table-subkey-fg, #991b1b);
+  font-family: var(--font-mono);
+  font-size: var(--table-font-size, 13px);
+  font-weight: 500;
+  padding: var(--table-header-padding-y, 7px) var(--table-header-padding-x, 12px);
+  border-right: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
+  text-align: left;
+  white-space: nowrap;
+  user-select: none;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
 .inner-grid-th {
-  background: var(--table-header-bg, rgba(0, 0, 0, 0.08));
+  background: var(--table-header-bg, #f1f5f9);
   color: var(--table-subkey-fg, #991b1b);
   font-family: var(--font-mono);
   font-size: var(--table-font-size, 13px);
@@ -2095,7 +2307,7 @@ watch(currentSelectedPath, (newPath) => {
 
 :global(.dark-mode) .grid-col-header,
 :global(.dark-mode) .inner-grid-th {
-  background: var(--table-header-bg, rgba(255, 255, 255, 0.08));
+  background: #26262b !important;
   color: var(--table-subkey-fg, #f43f5e);
 }
 
@@ -2169,8 +2381,9 @@ watch(currentSelectedPath, (newPath) => {
 
 .grid-index-header {
   position: sticky !important;
+  top: 0 !important;
   left: 0 !important;
-  z-index: 10 !important;
+  z-index: 15 !important;
   width: var(--table-index-width, 48px);
   min-width: var(--table-index-width, 48px);
   text-align: center;
@@ -2382,8 +2595,47 @@ watch(currentSelectedPath, (newPath) => {
 
 /* Nested inner tables */
 .nested-table-container,
-.complex-grid-wrap {
+.complex-grid-wrap,
+.inner-grid-container {
   width: 100%;
+}
+
+.inner-grid-container.is-inner-virtual,
+.nested-table-container.is-inner-virtual {
+  max-height: clamp(350px, 68vh, 750px);
+  overflow: auto;
+  position: relative;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--border-color);
+}
+
+.inner-grid-container.is-inner-virtual .inner-grid-header-row th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--table-header-bg, #f1f5f9) !important;
+}
+
+:global(.dark-mode) .inner-grid-container.is-inner-virtual .inner-grid-header-row th {
+  background: #26262b !important;
+}
+
+.inner-grid-container.is-inner-virtual .inner-grid-index-th {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 15;
+}
+
+.inner-grid-container.is-inner-virtual .inner-grid-index-cell {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background-color: var(--table-header-bg, #f1f5f9) !important;
+}
+
+:global(.dark-mode) .inner-grid-container.is-inner-virtual .inner-grid-index-cell {
+  background-color: #26262b !important;
 }
 
 .inner-grid-table,
