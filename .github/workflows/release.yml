@@ -154,10 +154,18 @@ jobs:
           echo "Collected Assets:"
           ls -lh release-assets/
 
+      - name: Get Version from package.json
+        id: get_version
+        run: |
+          VER=$(node -pe "require('./package.json').version")
+          echo "tag=v$VER" >> $GITHUB_OUTPUT
+          echo "title=EasyJSON v$VER" >> $GITHUB_OUTPUT
+
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: EasyJSON ${{ github.ref_name }}
+          tag_name: ${{ startsWith(github.ref_name, 'v') && github.ref_name || steps.get_version.outputs.tag }}
+          name: ${{ startsWith(github.ref_name, 'v') && format('EasyJSON {0}', github.ref_name) || steps.get_version.outputs.title }}
           files: |
             release-assets/*
           generate_release_notes: true
