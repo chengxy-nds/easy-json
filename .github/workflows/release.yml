@@ -1,0 +1,165 @@
+name: Release Build & Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ─── 1. 构建 Chrome 插件 ──────────────────────────────────────
+  build-plugin:
+    name: Build Chrome Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: node scripts/build-plugin.mjs
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-artifact
+          path: file/*.zip
+
+  # ─── 2. 构建 Windows 安装包 (.exe) ──────────────────────────
+  build-windows:
+    name: Build Windows Installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend & Sync version
+        run: |
+          node scripts/sync-version.mjs
+          npm run build
+
+      - name: Build Tauri Windows App
+        run: npx tauri build --target x86_64-pc-windows-msvc
+
+      - name: Prepare Windows setup file
+        shell: pwsh
+        run: |
+          $ver = (Get-Content package.json | ConvertFrom-Json).version
+          $installer = Get-ChildItem -Path "src-tauri\target" -Filter "*setup.exe" -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) {
+            throw "Cannot find Windows installer exe!"
+          }
+          New-Item -ItemType Directory -Force -Path dist-assets | Out-Null
+          $targetName = "easyJSON_${ver}_x64-setup.exe"
+          Copy-Item $installer.FullName "dist-assets\$targetName" -Force
+          Write-Host "Prepared: dist-assets\$targetName"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifact
+          path: dist-assets/*.exe
+
+  # ─── 3. 构建 macOS 安装包 (.dmg) ────────────────────────────
+  build-macos:
+    name: Build macOS Universal DMG
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend & Sync version
+        run: |
+          node scripts/sync-version.mjs
+          npm run build
+
+      - name: Build Tauri macOS Universal
+        run: |
+          export MACOSX_DEPLOYMENT_TARGET=11.0
+          npx tauri build --target universal-apple-darwin
+
+      - name: Prepare macOS DMG file
+        run: |
+          VER=$(node -pe "require('./package.json').version")
+          DMG=$(find src-tauri/target/universal-apple-darwin/release/bundle/dmg -name "*.dmg" | head -n 1)
+          if [ -z "$DMG" ]; then
+            echo "Cannot find macOS DMG!" && exit 1
+          fi
+          mkdir -p dist-assets
+          cp "$DMG" "dist-assets/easyJSON_${VER}_universal.dmg"
+          echo "Prepared: dist-assets/easyJSON_${VER}_universal.dmg"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifact
+          path: dist-assets/*.dmg
+
+  # ─── 4. 发布 GitHub Release 并挂载 3 个附件 ─────────────────
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-plugin, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: List collected release files
+        run: |
+          echo "Collected Assets:"
+          ls -lh release-assets/
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: EasyJSON ${{ github.ref_name }}
+          files: |
+            release-assets/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
