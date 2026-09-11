@@ -31,6 +31,7 @@ echo ""
 # ── Step 2: Tauri universal build ────────────────────────────────
 # This handles: npm build, dual-arch Rust compile, lipo merge,
 # recursive deep codesign, .app bundle, and DMG creation.
+node "$PROJECT_DIR/scripts/sync-version.mjs"
 echo "▸ Running tauri build for universal-apple-darwin..."
 cd "$PROJECT_DIR"
 npx tauri build --target universal-apple-darwin 2>&1
@@ -46,6 +47,10 @@ file "$APP_OUT/Contents/MacOS/easy-json" 2>/dev/null | head -1 | sed 's/.*: /  a
 echo "  .dmg:  $DMG_OUT"
 if [ -f "$DMG_OUT" ]; then
   echo "  size:  $(du -h "$DMG_OUT" | cut -f1)"
+  mkdir -p "$PROJECT_DIR/file"
+  cp "$DMG_OUT" "$PROJECT_DIR/file/easyJSON_${VERSION}_universal.dmg"
+  echo "  copied to: file/easyJSON_${VERSION}_universal.dmg"
 fi
 echo ""
 echo "  Supported: Intel + Apple Silicon"
+

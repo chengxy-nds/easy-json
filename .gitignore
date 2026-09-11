@@ -31,6 +31,7 @@ vscode-dist/
 vscode-plugin/
 utools-dist/
 easyjson-plugin/
+file/
 
 # Tauri build artifacts
 src-tauri/target/

@@ -1,7 +1,7 @@
 {
   "name": "easy-json",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,10 +11,14 @@
     "tauri:build": "tauri build",
     "tauri:build:win": "tauri build --target x86_64-pc-windows-msvc",
     "build:win": "powershell -ExecutionPolicy Bypass -File build-win.ps1",
-    "build:mac:universal": "MACOSX_DEPLOYMENT_TARGET=11.0 tauri build --target universal-apple-darwin",
+    "build:mac:universal": "bash scripts/build-universal.sh",
     "build:utools": "node scripts/build-utools.mjs",
     "build:vscode": "node scripts/build-vscode.mjs",
-    "build:plugin": "vite build --outDir easyjson-plugin"
+    "build:plugin": "node scripts/build-plugin.mjs",
+    "build:all": "node scripts/build-all.mjs",
+    "release": "node scripts/release.mjs",
+    "release:tag": "node scripts/release-tag.mjs",
+    "sync:version": "node scripts/sync-version.mjs"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",
