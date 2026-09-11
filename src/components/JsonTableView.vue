@@ -966,7 +966,17 @@ watch(currentSelectedPath, (newPath) => {
       const rootWrapper = scrollContainerRef.value || document.querySelector('.table-view-wrapper:not(.nested-wrapper)') || document.querySelector('.table-view-wrapper')
       if (!rootWrapper) return
       const targetStr = JSON.stringify(newPath)
-      let targetEl = rootWrapper.querySelector(`[data-path='${targetStr}']`)
+      
+      // 优先根据 selectedType 精确查找对应类型的单元格
+      let targetEl = null
+      if (injectedSelectedType.value === 'key') {
+        targetEl = rootWrapper.querySelector(`td.inner-key-cell[data-path='${targetStr}'], td.root-key-cell[data-path='${targetStr}'], th[data-path='${targetStr}'], [data-path='${targetStr}'][data-type='key']`)
+      } else if (injectedSelectedType.value === 'value') {
+        targetEl = rootWrapper.querySelector(`td.inner-val-cell[data-path='${targetStr}'], td.value-cell[data-path='${targetStr}'], [data-path='${targetStr}'][data-type='value']`)
+      }
+      if (!targetEl) {
+        targetEl = rootWrapper.querySelector(`[data-path='${targetStr}']`)
+      }
       if (!targetEl) {
         for (let i = newPath.length - 1; i >= 1; i--) {
           const prefixStr = JSON.stringify(newPath.slice(0, i))
@@ -974,14 +984,32 @@ watch(currentSelectedPath, (newPath) => {
           if (targetEl) break
         }
       }
+
       if (targetEl) {
-        const pRect = rootWrapper.getBoundingClientRect()
-        const tRect = targetEl.getBoundingClientRect()
-        const diffY = (tRect.top + tRect.height / 2) - (pRect.top + pRect.height / 2)
-        let diffX = 0
-        if (targetEl.tagName === 'TD' || targetEl.tagName === 'TH' || targetEl.classList.contains('val-primitive-wrap')) {
-          diffX = (tRect.left + tRect.width / 2) - (pRect.left + pRect.width / 2)
+        // 如果 targetEl 是 TR 行，提取出该行对应的关注单元格以准确获取水平坐标
+        let focusEl = targetEl
+        if (targetEl.tagName === 'TR') {
+          if (injectedSelectedType.value === 'value') {
+            focusEl = targetEl.querySelector('.inner-val-cell, .value-cell') || targetEl
+          } else {
+            focusEl = targetEl.querySelector('.inner-key-cell, .root-key-cell, .grid-index-cell') || targetEl.firstElementChild || targetEl
+          }
         }
+
+        const pRect = rootWrapper.getBoundingClientRect()
+        const tRect = focusEl.getBoundingClientRect()
+        const diffY = (tRect.top + tRect.height / 2) - (pRect.top + pRect.height / 2)
+        
+        let diffX = 0
+        // 如果目标是顶层 root-key-cell，或者整个数据的第一层根属性，直接让水平滚动完全复位到最左侧 (scrollLeft = 0)
+        if (focusEl.classList.contains('root-key-cell') || (Array.isArray(newPath) && newPath.length === 1)) {
+          diffX = -rootWrapper.scrollLeft
+        } else if (focusEl.tagName === 'TD' || focusEl.tagName === 'TH' || focusEl.classList.contains('val-primitive-wrap')) {
+          diffX = (tRect.left + tRect.width / 2) - (pRect.left + pRect.width / 2)
+        } else {
+          diffX = tRect.left - (pRect.left + 50)
+        }
+
         rootWrapper.scrollBy({
           top: diffY,
           left: diffX,
@@ -1301,6 +1329,8 @@ watch(currentSelectedPath, (newPath) => {
           <!-- ─── 左侧键名列 (Root Key Column) ─── -->
           <td
             class="root-key-cell"
+            :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))"
+            data-type="key"
             :class="{ 
               'root-index-cell': entry.isIndex,
               'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key]),
@@ -1825,6 +1855,8 @@ watch(currentSelectedPath, (newPath) => {
                       <!-- 子键名 / 索引 -->
                       <td
                         class="inner-key-cell"
+                        :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subK]))"
+                        data-type="key"
                         :class="{ 
                           'inner-index-cell': Array.isArray(entry.value),
                           'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key, subK]),
@@ -1845,6 +1877,8 @@ watch(currentSelectedPath, (newPath) => {
                       <!-- 子键值 -->
                       <td
                         class="inner-val-cell"
+                        :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subK]))"
+                        data-type="value"
                         :class="{
                           [`val-${getValueType(subVal)}`]: true,
                           'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subK]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key, subK]),
@@ -2272,7 +2306,7 @@ watch(currentSelectedPath, (newPath) => {
 .grid-col-header {
   position: sticky !important;
   top: 0 !important;
-  z-index: 8 !important;
+  z-index: 10 !important;
   background: var(--table-header-bg, #f1f5f9) !important;
   color: var(--table-subkey-fg, #991b1b);
   font-family: var(--font-mono);
@@ -2384,7 +2418,7 @@ watch(currentSelectedPath, (newPath) => {
   position: sticky !important;
   top: 0 !important;
   left: 0 !important;
-  z-index: 15 !important;
+  z-index: 25 !important;
   width: var(--table-index-width, 48px);
   min-width: var(--table-index-width, 48px);
   text-align: center;
@@ -2399,7 +2433,7 @@ watch(currentSelectedPath, (newPath) => {
 .grid-index-cell {
   position: sticky !important;
   left: 0 !important;
-  z-index: 5 !important;
+  z-index: 20 !important;
   color: var(--json-number, #2563eb);
   font-family: var(--font-mono);
   font-weight: 600;
@@ -2423,11 +2457,27 @@ watch(currentSelectedPath, (newPath) => {
   background-color: #1e1e22 !important;
 }
 
+/* 内嵌子表格中的表头与序号列不应跨级粘滞脱离父级，避免外层横向滚动时浮动错位与吃字 */
+.nested-wrapper .grid-index-header,
+.nested-wrapper .grid-index-cell {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  z-index: auto !important;
+  box-shadow: none !important;
+}
+
+.nested-wrapper .grid-col-header {
+  position: static !important;
+  top: auto !important;
+  z-index: auto !important;
+}
+
 /* Root key cell styling */
 .root-key-cell {
   position: sticky !important;
   left: 0 !important;
-  z-index: 5 !important;
+  z-index: 20 !important;
   color: var(--table-root-fg, #991b1b);
   padding: var(--table-header-padding-y, 7px) var(--table-header-padding-x, 12px);
   font-size: var(--table-font-size, 13px);
@@ -2738,15 +2788,45 @@ watch(currentSelectedPath, (newPath) => {
 .inner-key-cell:hover,
 .grid-index-cell:hover,
 .inner-grid-index-cell:hover,
-.grid-col-header:hover,
-.inner-grid-th:hover,
 .root-key-cell.is-hovered,
 .inner-key-cell.is-hovered,
 .grid-index-cell.is-hovered,
-.inner-grid-index-cell.is-hovered,
+.inner-grid-index-cell.is-hovered {
+  /* 带有 sticky 特性的固定列使用实体白底衬底，保证 100% 实心不透底 */
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.14)), var(--json-hover-bg, rgba(99, 102, 241, 0.14))), var(--bg-panel, #ffffff) !important;
+  color: var(--json-key) !important;
+}
+
+:global(.dark-mode) .root-key-cell:hover,
+:global(.dark-mode) .inner-key-cell:hover,
+:global(.dark-mode) .grid-index-cell:hover,
+:global(.dark-mode) .inner-grid-index-cell:hover,
+:global(.dark-mode) .root-key-cell.is-hovered,
+:global(.dark-mode) .inner-key-cell.is-hovered,
+:global(.dark-mode) .grid-index-cell.is-hovered,
+:global(.dark-mode) .inner-grid-index-cell.is-hovered {
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.14)), var(--json-hover-bg, rgba(99, 102, 241, 0.14))), #1e1e22 !important;
+  color: var(--json-key) !important;
+}
+
+.grid-col-header:hover,
+.inner-grid-th:hover,
+.grid-index-header:hover,
 .grid-col-header.is-hovered,
-.inner-grid-th.is-hovered {
-  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.14)) !important;
+.inner-grid-th.is-hovered,
+.grid-index-header.is-hovered {
+  /* 表头吸顶单元格使用表头实体底色衬底，垂直/水平滚动时 100% 遮挡 */
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.14)), var(--json-hover-bg, rgba(99, 102, 241, 0.14))), var(--table-header-bg, #f1f5f9) !important;
+  color: var(--json-key) !important;
+}
+
+:global(.dark-mode) .grid-col-header:hover,
+:global(.dark-mode) .inner-grid-th:hover,
+:global(.dark-mode) .grid-index-header:hover,
+:global(.dark-mode) .grid-col-header.is-hovered,
+:global(.dark-mode) .inner-grid-th.is-hovered,
+:global(.dark-mode) .grid-index-header.is-hovered {
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.14)), var(--json-hover-bg, rgba(99, 102, 241, 0.14))), #26262b !important;
   color: var(--json-key) !important;
 }
 
@@ -2756,7 +2836,17 @@ watch(currentSelectedPath, (newPath) => {
 .value-cell:not(.value-cell--complex).is-hovered,
 .inner-val-cell:not(.value-cell--complex).is-hovered,
 .inner-grid-td:not(.value-cell--complex).is-hovered {
-  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.14)) !important;
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.14)), var(--json-hover-bg, rgba(99, 102, 241, 0.14))), var(--bg-panel, #ffffff) !important;
+  box-shadow: inset 0 0 0 1px var(--json-key, #6366f1);
+}
+
+:global(.dark-mode) .value-cell:not(.value-cell--complex):hover,
+:global(.dark-mode) .inner-val-cell:not(.value-cell--complex):hover,
+:global(.dark-mode) .inner-grid-td:not(.value-cell--complex):hover,
+:global(.dark-mode) .value-cell:not(.value-cell--complex).is-hovered,
+:global(.dark-mode) .inner-val-cell:not(.value-cell--complex).is-hovered,
+:global(.dark-mode) .inner-grid-td:not(.value-cell--complex).is-hovered {
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.14)), var(--json-hover-bg, rgba(99, 102, 241, 0.14))), #1e1e22 !important;
   box-shadow: inset 0 0 0 1px var(--json-key, #6366f1);
 }
 
@@ -2764,22 +2854,33 @@ watch(currentSelectedPath, (newPath) => {
 .root-key-cell.is-selected,
 .inner-key-cell.is-selected,
 .grid-index-cell.is-selected,
-.inner-grid-index-cell.is-selected,
-.grid-col-header.is-selected,
-.inner-grid-th.is-selected {
-  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
+.inner-grid-index-cell.is-selected {
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.18)), var(--json-hover-bg, rgba(99, 102, 241, 0.18))), var(--bg-panel, #ffffff) !important;
   color: var(--json-key, #4f46e5) !important;
   font-weight: 700 !important;
-  /* box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important; */
+}
+
+.grid-col-header.is-selected,
+.inner-grid-th.is-selected,
+.grid-index-header.is-selected {
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.18)), var(--json-hover-bg, rgba(99, 102, 241, 0.18))), var(--table-header-bg, #f1f5f9) !important;
+  color: var(--json-key, #4f46e5) !important;
+  font-weight: 700 !important;
 }
 
 :global(.dark-mode .table-view-root .root-key-cell.is-selected),
 :global(.dark-mode .table-view-root .inner-key-cell.is-selected),
 :global(.dark-mode .table-view-root .grid-index-cell.is-selected),
-:global(.dark-mode .table-view-root .inner-grid-index-cell.is-selected),
+:global(.dark-mode .table-view-root .inner-grid-index-cell.is-selected) {
+  background: linear-gradient(rgba(97, 175, 239, 0.32), rgba(97, 175, 239, 0.32)), #1e1e22 !important;
+  color: #61afef !important;
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
+}
+
 :global(.dark-mode .table-view-root .grid-col-header.is-selected),
-:global(.dark-mode .table-view-root .inner-grid-th.is-selected) {
-  background-color: rgba(97, 175, 239, 0.32) !important;
+:global(.dark-mode .table-view-root .inner-grid-th.is-selected),
+:global(.dark-mode .table-view-root .grid-index-header.is-selected) {
+  background: linear-gradient(rgba(97, 175, 239, 0.32), rgba(97, 175, 239, 0.32)), #26262b !important;
   color: #61afef !important;
   box-shadow: inset 0 0 0 1.5px #61afef !important;
 }
@@ -2787,14 +2888,13 @@ watch(currentSelectedPath, (newPath) => {
 .value-cell:not(.value-cell--complex).is-selected,
 .inner-grid-td:not(.value-cell--complex).is-selected,
 .inner-val-cell:not(.value-cell--complex).is-selected {
-  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
-  /* box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important; */
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.18)), var(--json-hover-bg, rgba(99, 102, 241, 0.18))), var(--bg-panel, #ffffff) !important;
 }
 
 :global(.dark-mode .table-view-root .value-cell:not(.value-cell--complex).is-selected),
 :global(.dark-mode .table-view-root .inner-grid-td:not(.value-cell--complex).is-selected),
 :global(.dark-mode .table-view-root .inner-val-cell:not(.value-cell--complex).is-selected) {
-  background-color: rgba(97, 175, 239, 0.32) !important;
+  background: linear-gradient(rgba(97, 175, 239, 0.32), rgba(97, 175, 239, 0.32)), #1e1e22 !important;
   box-shadow: inset 0 0 0 1.5px #61afef !important;
 }
 
