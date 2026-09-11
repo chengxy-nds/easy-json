@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, inject, onMounted, onBeforeUnmount, nextTick, reactive } from 'vue'
+import { ref, computed, watch, inject, provide, onMounted, onBeforeUnmount, nextTick, reactive } from 'vue'
 import { ExternalLink, Copy, Image as ImageIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, Volume2, Video as VideoIcon, KeyRound, FileCode, Code2, CalendarClock } from 'lucide-vue-next'
 import { safeStringify } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
@@ -459,29 +459,34 @@ const treeExpanded = inject('treeExpanded', ref(true))
 const injectedSelectedPath = inject('selectedPath', ref(null))
 const injectedSelectedType = inject('selectedType', ref('all'))
 const currentSelectedPath = computed(() => props.selectedPath || injectedSelectedPath.value)
-const userToggledPaths = ref(new Map())
+
+// ─── Path resolution & Hover/Select synchronization helpers ───────────────────
+const getFullPath = (subPath) => {
+  return [...props.pathPrefix, ...subPath]
+}
+
+const injectedUserToggledPaths = inject('tableUserToggledPaths', null)
+const userToggledPaths = injectedUserToggledPaths || ref(new Map())
+if (props.depth === 0) {
+  provide('tableUserToggledPaths', userToggledPaths)
+}
 
 watch(treeExpanded, () => {
   userToggledPaths.value.clear()
 })
 
 const toggleExpandPath = (path) => {
-  const pathStr = JSON.stringify(path)
+  const fullPathStr = JSON.stringify(getFullPath(path))
   const currentlyExpanded = isPathExpanded(path)
-  userToggledPaths.value.set(pathStr, !currentlyExpanded)
+  userToggledPaths.value.set(fullPathStr, !currentlyExpanded)
 }
 
 const isPathExpanded = (path) => {
-  const pathStr = JSON.stringify(path)
-  if (userToggledPaths.value.has(pathStr)) {
-    return userToggledPaths.value.get(pathStr)
+  const fullPathStr = JSON.stringify(getFullPath(path))
+  if (userToggledPaths.value.has(fullPathStr)) {
+    return userToggledPaths.value.get(fullPathStr)
   }
   return treeExpanded.value
-}
-
-// ─── Path resolution & Hover/Select synchronization helpers ───────────────────
-const getFullPath = (subPath) => {
-  return [...props.pathPrefix, ...subPath]
 }
 
 const isKeySelected = (path) => {
@@ -501,26 +506,49 @@ const isValSelected = (path) => {
 }
 
 const isColSelected = (col, parentPath = []) => {
-  if (injectedSelectedType.value === 'value') return false
   const cur = currentSelectedPath.value
-  if (!cur || cur.length < 2) return false
+  if (!cur || cur.length === 0) return false
   const fullParent = getFullPath(parentPath)
-  if (cur.length !== fullParent.length + 2) return false
-  for (let i = 0; i < fullParent.length; i++) {
-    if (String(cur[i]) !== String(fullParent[i])) return false
+  
+  // 1. 如果当前选中的就是该属性（例如顶层直接选中 [col]，或父级下直接选中 [...fullParent, col]）
+  if (cur.length === fullParent.length + 1) {
+    for (let i = 0; i < fullParent.length; i++) {
+      if (String(cur[i]) !== String(fullParent[i])) return false
+    }
+    return String(cur[cur.length - 1]) === String(col)
   }
-  return String(cur[cur.length - 1]) === String(col)
+
+  // 2. 如果当前选中的是某行的这一列（例如 [...fullParent, rowIdx, col]）
+  if (cur.length === fullParent.length + 2) {
+    for (let i = 0; i < fullParent.length; i++) {
+      if (String(cur[i]) !== String(fullParent[i])) return false
+    }
+    return String(cur[cur.length - 1]) === String(col)
+  }
+
+  return false
 }
 
 const isColHovered = (col, parentPath = []) => {
   const cur = props.hoveredPath
-  if (!cur || cur.length < 2) return false
+  if (!cur || cur.length === 0) return false
   const fullParent = getFullPath(parentPath)
-  if (cur.length !== fullParent.length + 2) return false
-  for (let i = 0; i < fullParent.length; i++) {
-    if (String(cur[i]) !== String(fullParent[i])) return false
+
+  if (cur.length === fullParent.length + 1) {
+    for (let i = 0; i < fullParent.length; i++) {
+      if (String(cur[i]) !== String(fullParent[i])) return false
+    }
+    return String(cur[cur.length - 1]) === String(col)
   }
-  return String(cur[cur.length - 1]) === String(col)
+
+  if (cur.length === fullParent.length + 2) {
+    for (let i = 0; i < fullParent.length; i++) {
+      if (String(cur[i]) !== String(fullParent[i])) return false
+    }
+    return String(cur[cur.length - 1]) === String(col)
+  }
+
+  return false
 }
 
 const isPathHovered = (path) => {
@@ -958,7 +986,8 @@ watch(currentSelectedPath, (newPath) => {
   }
 
   nextTick(() => {
-    // 虚拟滚动预定位：如果目标属于顶层大数组，先将视口粗定位到目标行附近以触发虚拟行挂载
+    // 虚拟滚动预定位：
+    // 1. 如果目标属于顶层大数组，先将外层视口粗定位到目标行附近以触发虚拟行挂载
     if (props.depth === 0 && typeof newPath[0] === 'number') {
       const targetIdx = newPath[0]
       const estRowH = estimatedRowHeight.value || 30
@@ -967,6 +996,18 @@ watch(currentSelectedPath, (newPath) => {
       const rootWrapper = scrollContainerRef.value || document.querySelector('.table-view-wrapper:not(.nested-wrapper)')
       if (rootWrapper && Math.abs(rootWrapper.scrollTop - estScrollTop) > vpHeight) {
         rootWrapper.scrollTop = estScrollTop
+      }
+    }
+    // 2. 如果目标属于嵌套在某个对象属性下的大数组（例如 records: [...]），预定位内部虚拟容器
+    else if (props.depth === 0 && newPath.length >= 2 && typeof newPath[1] === 'number') {
+      const pathKey = JSON.stringify(getFullPath([newPath[0]]))
+      const targetIdx = newPath[1]
+      const estRowH = estimatedRowHeight.value || 30
+      const estTop = Math.max(0, targetIdx * estRowH - 150)
+      if (!innerScrollMap[pathKey]) {
+        innerScrollMap[pathKey] = { scrollTop: estTop, viewportHeight: 500 }
+      } else {
+        innerScrollMap[pathKey].scrollTop = estTop
       }
     }
 
@@ -1005,18 +1046,69 @@ watch(currentSelectedPath, (newPath) => {
           }
         }
 
+        // 如果 focusEl 存在中间可滚动的父容器（如 .inner-grid-container.is-inner-virtual 等），先滚动内部容器确保目标在内层视口内
+        let currParent = focusEl.parentElement
+        while (currParent && currParent !== rootWrapper) {
+          const style = window.getComputedStyle(currParent)
+          const isScrollable = (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflowX === 'auto' || style.overflowX === 'scroll')
+          if (isScrollable && (currParent.scrollHeight > currParent.clientHeight || currParent.scrollWidth > currParent.clientWidth)) {
+            const pBox = currParent.getBoundingClientRect()
+            const fBox = focusEl.getBoundingClientRect()
+            let pDiffY = 0
+            if (fBox.top < pBox.top + 20 || fBox.bottom > pBox.bottom - 20) {
+              pDiffY = (fBox.top + fBox.height / 2) - (pBox.top + pBox.height / 2)
+            }
+            let pDiffX = 0
+            if (fBox.left < pBox.left + 20 || fBox.right > pBox.right - 20) {
+              pDiffX = fBox.left - (pBox.left + 20)
+            }
+            if (pDiffY !== 0 || pDiffX !== 0) {
+              currParent.scrollBy({ top: pDiffY, left: pDiffX, behavior: 'smooth' })
+            }
+          }
+          currParent = currParent.parentElement
+        }
+
         const pRect = rootWrapper.getBoundingClientRect()
         const tRect = focusEl.getBoundingClientRect()
-        const diffY = (tRect.top + tRect.height / 2) - (pRect.top + pRect.height / 2)
         
+        // 垂直对齐：若不在视口舒适区域内才平滑滚动，已可见则不剧烈跳动
+        let diffY = 0
+        const isVerticallyVisible = tRect.top >= pRect.top + 30 && tRect.bottom <= pRect.bottom - 30
+        if (!isVerticallyVisible) {
+          diffY = (tRect.top + tRect.height / 2) - (pRect.top + pRect.height / 2)
+        }
+
+        // 水平对齐：动态计算最左侧顶层粘滞列宽度（如 root-key-cell.is-sticky-root 或 grid-index-header.is-sticky-header）
+        let stickyLeftWidth = 0
+        const stickyEl = rootWrapper.querySelector('.root-key-cell.is-sticky-root, .grid-index-header.is-sticky-header, .grid-index-cell.is-sticky-index')
+        if (stickyEl) {
+          stickyLeftWidth = stickyEl.getBoundingClientRect().width || 0
+        }
+        if (stickyLeftWidth <= 0) {
+          stickyLeftWidth = isRootDirectArrayOfObjects.value ? 48 : 110
+        }
+
+        const visibleMinX = pRect.left + stickyLeftWidth
+        const visibleMaxX = pRect.right
+
         let diffX = 0
-        // 如果目标是顶层 root-key-cell，或者整个数据的第一层根属性，直接让水平滚动完全复位到最左侧 (scrollLeft = 0)
-        if (focusEl.classList.contains('root-key-cell') || (Array.isArray(newPath) && newPath.length === 1)) {
+        // 1. 如果目标就是最外层粘滞列本身（整个数据的第一层根属性），直接让水平滚动完全复位到最左侧 (scrollLeft = 0)
+        if (focusEl.classList.contains('is-sticky-root') || focusEl.classList.contains('is-sticky-index') || (Array.isArray(newPath) && newPath.length === 1)) {
           diffX = -rootWrapper.scrollLeft
-        } else if (focusEl.tagName === 'TD' || focusEl.tagName === 'TH' || focusEl.classList.contains('val-primitive-wrap')) {
-          diffX = (tRect.left + tRect.width / 2) - (pRect.left + pRect.width / 2)
-        } else {
-          diffX = tRect.left - (pRect.left + 50)
+        }
+        // 2. 通用单元格定位：只有当单元格超出可视区域（被左侧 sticky 列盖住、在左外侧或在右外侧）时才按需平移，绝不在已可见时盲目跳动
+        else {
+          if (tRect.left < visibleMinX + 8) {
+            // 被左侧 sticky 列盖住或在左外侧，往左滚动平移至 sticky 列右方安全区
+            diffX = tRect.left - (visibleMinX + 16)
+          } else if (tRect.right > visibleMaxX - 8) {
+            // 在右侧视口外，平滑向右滚动至完整露出
+            diffX = tRect.left - (visibleMinX + 16)
+          } else {
+            // 已经在可视区范围内，完全不需要横向滚动！
+            diffX = 0
+          }
         }
 
         rootWrapper.scrollBy({
@@ -1047,12 +1139,13 @@ watch(currentSelectedPath, (newPath) => {
       <table v-if="isRootDirectArrayOfObjects" class="json-table data-grid-table">
       <thead>
         <tr class="grid-header-row">
-          <th class="grid-col-header grid-index-header">#</th>
+          <th class="grid-col-header grid-index-header" :class="{ 'is-sticky-header': depth === 0 }">#</th>
           <th
             v-for="col in rootDirectColumns"
             :key="col"
             class="grid-col-header"
             :class="{
+              'is-sticky-header': depth === 0,
               'is-selected': isColSelected(col, []),
               'is-hovered': isColHovered(col, [])
             }"
@@ -1093,7 +1186,7 @@ watch(currentSelectedPath, (newPath) => {
           <!-- Row Index -->
           <td
             class="grid-index-cell"
-            :class="{ 'is-selected': isKeySelected([idx]) }"
+            :class="{ 'is-sticky-index': depth === 0, 'is-selected': isKeySelected([idx]) }"
             @click.stop="emitClick([idx], 'key')"
             @mouseenter.stop="emitHover([idx])"
             @mouseleave.stop="emitHover(null)"
@@ -1341,6 +1434,7 @@ watch(currentSelectedPath, (newPath) => {
             :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))"
             data-type="key"
             :class="{ 
+              'is-sticky-root': depth === 0,
               'root-index-cell': entry.isIndex,
               'is-selected': isKeySelected([entry.isIndex ? Number(entry.key) : entry.key]),
               'is-hovered': isPathHovered([entry.isIndex ? Number(entry.key) : entry.key])
@@ -1360,6 +1454,8 @@ watch(currentSelectedPath, (newPath) => {
           <!-- ─── 右侧键值列 (Value Column) ─── -->
           <td
             class="value-cell"
+            :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))"
+            data-type="value"
             :class="{
               [`val-${getValueType(entry.value)}`]: true,
               'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key]),
@@ -1621,6 +1717,7 @@ watch(currentSelectedPath, (newPath) => {
                         :key="col"
                         class="inner-grid-td"
                         :data-path="JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]))"
+                        data-type="value"
                         :class="{
                           [`val-${getValueType(subObj?.[col])}`]: true,
                           'is-selected': !isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]) && isValSelected([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx, col]),
@@ -2337,6 +2434,7 @@ watch(currentSelectedPath, (newPath) => {
   border-right: 1px solid var(--border-color);
   border-bottom: 1px solid var(--border-color);
   box-sizing: border-box;
+  vertical-align: top;
 }
 
 .json-table tr > th:last-child,
@@ -2348,11 +2446,13 @@ watch(currentSelectedPath, (newPath) => {
   border-bottom: none;
 }
 
+.nested-wrapper .json-table tbody tr:last-child > td {
+  border-bottom: 1px solid var(--border-color) !important;
+}
+
 /* 2D Data Grid Column Header */
 .grid-col-header {
-  position: sticky !important;
-  top: 0 !important;
-  z-index: 20 !important;
+  position: static;
   background-color: var(--table-header-bg, #f1f5f9) !important;
   color: var(--table-subkey-fg, #991b1b);
   font-family: var(--font-mono);
@@ -2367,6 +2467,12 @@ watch(currentSelectedPath, (newPath) => {
   cursor: pointer;
   letter-spacing: 0.01em;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.grid-col-header.is-sticky-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 20 !important;
 }
 
 .inner-grid-th {
@@ -2461,10 +2567,7 @@ watch(currentSelectedPath, (newPath) => {
 }
 
 .grid-index-header {
-  position: sticky !important;
-  top: 0 !important;
-  left: 0 !important;
-  z-index: 30 !important;
+  position: static;
   width: var(--table-index-width, 48px);
   min-width: var(--table-index-width, 48px);
   text-align: center;
@@ -2472,14 +2575,19 @@ watch(currentSelectedPath, (newPath) => {
   box-shadow: 1px 0 0 var(--border-color);
 }
 
+.grid-index-header.is-sticky-header {
+  position: sticky !important;
+  top: 0 !important;
+  left: 0 !important;
+  z-index: 30 !important;
+}
+
 :global(.dark-mode) .grid-index-header {
   background-color: #26262b !important;
 }
 
 .grid-index-cell {
-  position: sticky !important;
-  left: 0 !important;
-  z-index: 12 !important;
+  position: static;
   color: var(--json-number, #2563eb);
   font-family: var(--font-mono);
   font-weight: 600;
@@ -2495,6 +2603,12 @@ watch(currentSelectedPath, (newPath) => {
   box-shadow: 1px 0 0 var(--border-color);
 }
 
+.grid-index-cell.is-sticky-index {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 12 !important;
+}
+
 .grid-index-cell:not(.is-selected):not(.is-hovered) {
   background-color: var(--bg-panel, #ffffff) !important;
 }
@@ -2503,9 +2617,17 @@ watch(currentSelectedPath, (newPath) => {
   background-color: #1e1e22 !important;
 }
 
-/* 内嵌子表格中的表头与序号列不应跨级粘滞脱离父级，避免外层横向滚动时浮动错位与吃字 */
+/* 内嵌子表格中的表头与序号列、根键列不应跨级粘滞脱离父级，避免外层横向滚动时浮动错位与吃字 */
 .nested-wrapper .grid-index-header,
-.nested-wrapper .grid-index-cell {
+.nested-wrapper .grid-index-cell,
+.nested-wrapper .grid-col-header,
+.nested-wrapper .root-key-cell,
+.nested-wrapper .root-index-cell,
+.is-nested-child .grid-index-header,
+.is-nested-child .grid-index-cell,
+.is-nested-child .grid-col-header,
+.is-nested-child .root-key-cell,
+.is-nested-child .root-index-cell {
   position: static !important;
   top: auto !important;
   left: auto !important;
@@ -2513,17 +2635,9 @@ watch(currentSelectedPath, (newPath) => {
   box-shadow: none !important;
 }
 
-.nested-wrapper .grid-col-header {
-  position: static !important;
-  top: auto !important;
-  z-index: auto !important;
-}
-
 /* Root key cell styling */
 .root-key-cell {
-  position: sticky !important;
-  left: 0 !important;
-  z-index: 20 !important;
+  position: static;
   color: var(--table-root-fg, #991b1b);
   padding: var(--table-header-padding-y, 7px) var(--table-header-padding-x, 12px);
   font-size: var(--table-font-size, 13px);
@@ -2540,6 +2654,12 @@ watch(currentSelectedPath, (newPath) => {
   letter-spacing: 0.01em;
   transition: background-color 0.15s ease, color 0.15s ease;
   box-shadow: 1px 0 0 var(--border-color);
+}
+
+.root-key-cell.is-sticky-root {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 20 !important;
 }
 
 .root-key-cell:not(.is-selected):not(.is-hovered) {
@@ -2580,7 +2700,7 @@ watch(currentSelectedPath, (newPath) => {
   color: var(--text-primary);
   word-break: break-word;
   background: transparent;
-  vertical-align: middle;
+  vertical-align: top;
   min-width: var(--table-min-val-width, 140px);
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -2598,6 +2718,7 @@ watch(currentSelectedPath, (newPath) => {
   border: none;
   background: transparent;
   width: 100% !important;
+  border-collapse: collapse;
 }
 
 /* Complex cell container */
@@ -2605,6 +2726,8 @@ watch(currentSelectedPath, (newPath) => {
   display: flex;
   flex-direction: column;
   width: 100%;
+  height: 100%;
+  justify-content: flex-start;
 }
 
 .complex-header-row {
@@ -2755,7 +2878,7 @@ watch(currentSelectedPath, (newPath) => {
   font-family: var(--font-mono);
   font-size: var(--table-font-size, 13px);
   border-right: 1px solid var(--border-color);
-  vertical-align: middle;
+  vertical-align: top;
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -2817,7 +2940,7 @@ watch(currentSelectedPath, (newPath) => {
   padding: var(--table-padding-y, 6px) var(--table-padding-x, 12px);
   font-family: var(--font-mono);
   font-size: var(--table-font-size, 13px);
-  vertical-align: middle;
+  vertical-align: top;
   transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -2860,10 +2983,12 @@ watch(currentSelectedPath, (newPath) => {
 .grid-index-header:hover,
 .grid-col-header.is-hovered,
 .inner-grid-th.is-hovered,
-.grid-index-header.is-hovered {
+.grid-index-header.is-hovered,
+.inner-grid-container.is-inner-virtual .inner-grid-header-row th:hover,
+.inner-grid-container.is-inner-virtual .inner-grid-header-row th.is-hovered {
   /* 表头吸顶单元格使用表头实体底色衬底，垂直/水平滚动时 100% 遮挡 */
   background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.14)), var(--json-hover-bg, rgba(99, 102, 241, 0.14))), var(--table-header-bg, #f1f5f9) !important;
-  color: var(--json-key) !important;
+  color: var(--json-key, #4f46e5) !important;
 }
 
 :global(.dark-mode) .grid-col-header:hover,
@@ -2871,9 +2996,11 @@ watch(currentSelectedPath, (newPath) => {
 :global(.dark-mode) .grid-index-header:hover,
 :global(.dark-mode) .grid-col-header.is-hovered,
 :global(.dark-mode) .inner-grid-th.is-hovered,
-:global(.dark-mode) .grid-index-header.is-hovered {
+:global(.dark-mode) .grid-index-header.is-hovered,
+:global(.dark-mode) .inner-grid-container.is-inner-virtual .inner-grid-header-row th:hover,
+:global(.dark-mode) .inner-grid-container.is-inner-virtual .inner-grid-header-row th.is-hovered {
   background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.14)), var(--json-hover-bg, rgba(99, 102, 241, 0.14))), #26262b !important;
-  color: var(--json-key) !important;
+  color: #61afef !important;
 }
 
 .value-cell:not(.value-cell--complex):hover,
@@ -2908,10 +3035,12 @@ watch(currentSelectedPath, (newPath) => {
 
 .grid-col-header.is-selected,
 .inner-grid-th.is-selected,
-.grid-index-header.is-selected {
-  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.18)), var(--json-hover-bg, rgba(99, 102, 241, 0.18))), var(--table-header-bg, #f1f5f9) !important;
+.grid-index-header.is-selected,
+.inner-grid-container.is-inner-virtual .inner-grid-header-row th.is-selected {
+  background: linear-gradient(var(--json-hover-bg, rgba(99, 102, 241, 0.22)), var(--json-hover-bg, rgba(99, 102, 241, 0.22))), var(--table-header-bg, #f1f5f9) !important;
   color: var(--json-key, #4f46e5) !important;
   font-weight: 700 !important;
+  box-shadow: inset 0 0 0 2px var(--json-key, #6366f1) !important;
 }
 
 :global(.dark-mode .table-view-root .root-key-cell.is-selected),
@@ -2925,10 +3054,12 @@ watch(currentSelectedPath, (newPath) => {
 
 :global(.dark-mode .table-view-root .grid-col-header.is-selected),
 :global(.dark-mode .table-view-root .inner-grid-th.is-selected),
-:global(.dark-mode .table-view-root .grid-index-header.is-selected) {
-  background: linear-gradient(rgba(97, 175, 239, 0.32), rgba(97, 175, 239, 0.32)), #26262b !important;
+:global(.dark-mode .table-view-root .grid-index-header.is-selected),
+:global(.dark-mode) .inner-grid-container.is-inner-virtual .inner-grid-header-row th.is-selected {
+  background: linear-gradient(rgba(97, 175, 239, 0.35), rgba(97, 175, 239, 0.35)), #26262b !important;
   color: #61afef !important;
-  box-shadow: inset 0 0 0 1.5px #61afef !important;
+  font-weight: 700 !important;
+  box-shadow: inset 0 0 0 2px #61afef !important;
 }
 
 .value-cell:not(.value-cell--complex).is-selected,
