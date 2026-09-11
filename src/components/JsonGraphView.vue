@@ -71,6 +71,15 @@ const handleCopyKey = (key) => {
   })
 }
 
+const handleCopyIndex = (idx) => {
+  if (idx === null || idx === undefined) return
+  navigator.clipboard.writeText(String(idx)).then(() => {
+    if (showToast) {
+      showToast(`已复制行号: ${idx}`)
+    }
+  })
+}
+
 const handleCopyValue = (val) => {
   if (val === undefined || val === null) return
   const disp = getDisplayValue(val)
@@ -1285,18 +1294,21 @@ const centerOnPath = (path, shouldPan = true) => {
   const flashSet = new Set()
   flashSet.add(path.map(String).join('/'))
 
-  // 计算目标行索引 (无论是第 0 行还是第 4936 行)
+  // 计算目标行索引与目标列名
   let targetRowIdx = -1
-  const childKey = path[matchedNode.path.length]
+  let targetCol = null
 
-  if (childKey !== undefined) {
+  const rowKey = path[matchedNode.path.length]
+  const colKey = path[matchedNode.path.length + 1]
+
+  if (rowKey !== undefined) {
     if (matchedNode.isTable || matchedNode.isArray) {
-      const r = Number(childKey)
+      const r = Number(rowKey)
       if (!isNaN(r) && r >= 0 && r < matchedNode.totalCount) {
         targetRowIdx = r
       }
     } else {
-      const keyStr = String(childKey)
+      const keyStr = String(rowKey)
       if (matchedNode.rawEntries) {
         targetRowIdx = matchedNode.rawEntries.findIndex(([k]) => String(k) === keyStr)
       } else if (matchedNode.entries) {
@@ -1305,22 +1317,50 @@ const centerOnPath = (path, shouldPan = true) => {
     }
   }
 
-  // 1. 如果当前目标节点是虚拟滚动节点，内部滚动条自动锚点定位到目标行
-  if (targetRowIdx >= 0 && matchedNode.isVirtualScroll) {
-    const rowH = matchedNode.isTable ? TABLE_ROW_H : CARD_ROW_H
-    const maxScrollTop = Math.max(0, (matchedNode.totalCount - NODE_MAX_VISIBLE_ROWS) * rowH)
-    const targetScrollTop = Math.min(maxScrollTop, Math.max(0, Math.floor((targetRowIdx - 15) * rowH)))
+  if (colKey !== undefined && matchedNode.isTable) {
+    targetCol = String(colKey)
+  }
 
-    setNodeScrollTop(matchedNode.id, targetScrollTop)
+  // 1. 目标节点内部滚动条自动锚点定位到目标行与目标列 (支持虚拟与非虚拟滚动表格)
+  nextTick(() => {
+    const scrollEl = findNodeScrollEl(matchedNode.id)
+    if (!scrollEl) return
 
-    nextTick(() => {
-      const scrollEl = findNodeScrollEl(matchedNode.id)
-      if (scrollEl) {
+    // 纵向 (Y) 滚动定位
+    if (targetRowIdx >= 0) {
+      const rowH = matchedNode.isTable ? TABLE_ROW_H : CARD_ROW_H
+      if (matchedNode.isVirtualScroll) {
+        const maxScrollTop = Math.max(0, (matchedNode.totalCount - NODE_MAX_VISIBLE_ROWS) * rowH)
+        const targetScrollTop = Math.min(maxScrollTop, Math.max(0, Math.floor((targetRowIdx - 15) * rowH)))
+        setNodeScrollTop(matchedNode.id, targetScrollTop)
         scrollEl.scrollTop = targetScrollTop
         scrollEl.scrollTo({ top: targetScrollTop, behavior: 'smooth' })
+      } else {
+        // 非虚拟滚动：平滑将目标行滚动至视口中央
+        const targetTop = Math.max(0, targetRowIdx * rowH - scrollEl.clientHeight / 2 + rowH / 2)
+        scrollEl.scrollTo({ top: targetTop, behavior: 'smooth' })
       }
-    })
-  }
+    }
+
+    // 横向 (X) 滚动定位：解决表格模式下选中列靠右或被遮挡问题
+    if (matchedNode.isTable && targetCol) {
+      let colOffsetLeft = matchedNode.indexColW || 42
+      let targetColWidth = 120
+      if (matchedNode.columns && matchedNode.colWidths) {
+        for (const c of matchedNode.columns) {
+          const cw = matchedNode.colWidths[c] || 100
+          if (c === targetCol) {
+            targetColWidth = cw
+            break
+          }
+          colOffsetLeft += cw
+        }
+      }
+      // 将目标列水平居中显示在表格可视窗口内
+      const targetScrollLeft = Math.max(0, colOffsetLeft + targetColWidth / 2 - scrollEl.clientWidth / 2)
+      scrollEl.scrollTo({ left: targetScrollLeft, behavior: 'smooth' })
+    }
+  })
 
   // 2. 向上回溯所有父级虚拟滚动节点，同样自动滚动定位到对应的产生行并高亮
   let curr = matchedNode
@@ -1370,38 +1410,51 @@ const centerOnPath = (path, shouldPan = true) => {
     anchorFlashPaths.value.clear()
   }, 2200)
 
-  // 3. 外部画布平移：将目标卡片聚焦在屏幕主视野
+  // 3. 外部画布平移：将目标卡片与选中的单元格聚焦在屏幕主视野
   if (shouldPan) {
     const cw = containerRef.value.clientWidth || 800
     const ch = containerRef.value.clientHeight || 600
     const s = scale.value
 
-    // X 轴定位：
-    // 若卡片渲染宽度超出或接近视口，左对齐并保留安全边距，避免左侧分栏遮挡；否则水平居中
-    let destTx = cw / 2 - (focusNode.x + focusNode.width / 2) * s
+    // 计算聚焦卡片内部目标点的世界坐标 X (focusX)
+    let focusX = focusNode.x + focusNode.width / 2
+    if (focusNode.isTable && targetCol) {
+      let colOffsetLeft = focusNode.indexColW || 42
+      let targetColWidth = 120
+      if (focusNode.columns && focusNode.colWidths) {
+        for (const c of focusNode.columns) {
+          const cw = focusNode.colWidths[c] || 100
+          if (c === targetCol) {
+            targetColWidth = cw
+            break
+          }
+          colOffsetLeft += cw
+        }
+      }
+      const innerColCenterX = colOffsetLeft + targetColWidth / 2
+      focusX = focusNode.x + Math.min(focusNode.width, innerColCenterX)
+    }
+
+    // X 轴定位：优先将目标点置于屏幕中央 cw / 2
+    let destTx = cw / 2 - focusX * s
     if (focusNode.width * s > cw - 80) {
-      destTx = 32 - focusNode.x * s
-    } else {
-      destTx = Math.max(28 - focusNode.x * s, destTx)
+      // 超宽卡片安全边界：保证卡片左侧不超过左侧边距，同时右侧不会被完全抛出屏幕
+      const minTx = cw - 80 - (focusNode.x + focusNode.width) * s
+      const maxTx = 36 - focusNode.x * s
+      destTx = Math.min(maxTx, Math.max(minTx, destTx))
     }
 
     // Y 轴定位：
-    // 关键修复：卡片高度通常很大（50 行表格约 1150px），如果简单以几何中心对齐屏幕中央，
-    // 卡片顶部（表头、前几行）会被直接顶出屏幕上方天花板！
     let destTy
     const cardRenderedH = focusNode.height * s
     if (cardRenderedH > ch * 0.55) {
       // 大卡片（高度超过屏幕 55%）：
       if (targetRowIdx >= 0 && targetRowIdx < 15) {
-        // 1. 目标行在卡片最顶部（如第 0 ~ 14 行）：卡片顶部对齐屏幕上方舒适区域，绝不冲出天花板
         destTy = Math.max(36, Math.round(ch * 0.1)) - focusNode.y * s
       } else if (targetRowIdx >= 0 && matchedNode.totalCount && targetRowIdx > matchedNode.totalCount - 30) {
-        // 2. 目标行在卡片最底部（如倒数后 30 行，第 9970 ~ 10000 行）：
-        // 卡片底部对齐屏幕下方舒适区域，保证最后几行 100% 完整落在视野中，绝不掉出屏幕下方
         const paddingBottom = Math.max(36, Math.round(ch * 0.08))
         destTy = (ch - paddingBottom) - (focusNode.y + focusNode.height) * s
       } else {
-        // 3. 目标行在中间：卡片顶部留出安全边距，此时内部虚拟滚动已将目标行定位在卡片可视区中段，正好落在黄金视线中心
         destTy = Math.max(28, Math.round(ch * 0.08)) - focusNode.y * s
       }
     } else {
@@ -1439,6 +1492,14 @@ const isRowSelected = (path) => {
   return selectedType.value === 'all'
 }
 
+const isTableRowSelected = (path) => {
+  const cur = effectiveSelectedPath.value
+  if (!cur || !path || path.length === 0 || path.length !== cur.length) return false
+  const match = path.every((v, i) => String(v) === String(cur[i]))
+  if (!match) return false
+  return selectedType.value === 'all' || selectedType.value === 'key'
+}
+
 const isKeySelected = (path) => {
   if (selectedType.value === 'value') return false
   const cur = effectiveSelectedPath.value
@@ -1447,11 +1508,23 @@ const isKeySelected = (path) => {
 }
 
 const isValSelected = (path) => {
-  if (selectedType.value === 'key') return false
   const cur = effectiveSelectedPath.value
-  if (!cur || !path || path.length !== cur.length) return false
-  return path.every((v, i) => String(v) === String(cur[i]))
+  if (!cur || !path || path.length === 0) return false
+
+  // 1. 精确匹配当前选中的数据单元格
+  if (path.length === cur.length) {
+    if (selectedType.value === 'key') return false
+    return path.every((v, i) => String(v) === String(cur[i]))
+  }
+
+  // 2. 祖先/父级关联单元格匹配（如父表格中衍生出当前子节点的 [14] 等复合单元格）
+  if (path.length < cur.length) {
+    return path.every((v, i) => String(v) === String(cur[i]))
+  }
+
+  return false
 }
+
 
 const isColSelected = (col, parentPath = []) => {
   if (selectedType.value === 'value') return false
@@ -1777,7 +1850,7 @@ const startMinimapDrag = (e) => {
                   :key="row.rowIdx"
                   class="tbl-tr"
                   :class="{
-                    'is-selected': isRowSelected(row.path),
+                    'is-selected': isTableRowSelected(row.path),
                     'is-hovered': isPathHovered(row.path),
                     'is-anchor-target': isAnchorTarget(row.path)
                   }"
@@ -1798,8 +1871,8 @@ const startMinimapDrag = (e) => {
                     <span
                       class="tbl-index-text"
                       data-tooltip="点击复制行号"
-                      @click.stop="handleCopyKey(row.rowIdx); emitClick(row.path, 'key')"
-                    >{{ row.rowIdx }}</span>
+                      @click.stop="handleCopyIndex(row.rowIdx + 1); emitClick(row.path, 'key')"
+                    >{{ row.rowIdx + 1 }}</span>
                   </td>
 
                   <!-- Data Cells -->
@@ -2683,16 +2756,12 @@ const startMinimapDrag = (e) => {
   overflow-y: auto;
   overflow-x: auto;
   min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
 }
 
 .card-entries-viewport.is-virtual-scroll {
   overflow-y: auto;
   overflow-x: hidden;
   min-height: 0;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(100, 116, 139, 0.4) transparent;
 }
 
 /* ── 拓扑图节点内虚拟滚动条优化 ── */
@@ -2900,7 +2969,7 @@ const startMinimapDrag = (e) => {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
   color: var(--json-key, #4f46e5) !important;
   font-weight: 700 !important;
-  /* box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important; */
+  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
 }
 
 :global(.dark-mode .graph-view .tbl-th.is-selected),
@@ -2908,21 +2977,45 @@ const startMinimapDrag = (e) => {
 :global(.dark-mode .graph-view .card-key.is-selected) {
   background-color: rgba(97, 175, 239, 0.32) !important;
   color: #61afef !important;
-  /* box-shadow: inset 0 0 0 1.5px #61afef !important; */
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
 }
 
-.tbl-td:not(.tbl-td--complex).is-selected,
 .card-val.is-selected {
   padding: 2px 4px;
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
-  /* box-shadow: inset 0 0 0 1px var(--json-key, #6366f1) !important; */
+  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
 }
 
-:global(.dark-mode .graph-view .tbl-td:not(.tbl-td--complex).is-selected),
+.tbl-td.is-selected {
+  background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.18)) !important;
+  box-shadow: inset 0 0 0 1.5px var(--json-key, #6366f1) !important;
+}
+
 :global(.dark-mode .graph-view .card-val.is-selected) {
   padding: 2px 4px;
   background-color: rgba(97, 175, 239, 0.32) !important;
-  /* box-shadow: inset 0 0 0 1px #61afef !important; */
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
+}
+
+:global(.dark-mode .graph-view .tbl-td.is-selected) {
+  background-color: rgba(97, 175, 239, 0.32) !important;
+  box-shadow: inset 0 0 0 1.5px #61afef !important;
+}
+
+.tbl-td.is-selected .cval-array,
+.tbl-td.is-selected .cval-object,
+.card-val.is-selected .cval-array,
+.card-val.is-selected .cval-object {
+  color: var(--json-key, #4f46e5) !important;
+  font-weight: 700 !important;
+}
+
+:global(.dark-mode .graph-view .tbl-td.is-selected .cval-array),
+:global(.dark-mode .graph-view .tbl-td.is-selected .cval-object),
+:global(.dark-mode .graph-view .card-val.is-selected .cval-array),
+:global(.dark-mode .graph-view .card-val.is-selected .cval-object) {
+  color: #61afef !important;
+  font-weight: 700 !important;
 }
 
 .tbl-th.is-hovered,
@@ -2936,7 +3029,7 @@ const startMinimapDrag = (e) => {
   color: var(--json-key) !important;
 }
 
-.tbl-td:not(.tbl-td--complex).is-hovered {
+.tbl-td.is-hovered {
   background-color: var(--json-hover-bg, rgba(99, 102, 241, 0.12)) !important;
   box-shadow: inset 0 0 0 1px var(--json-key, #6366f1);
 }

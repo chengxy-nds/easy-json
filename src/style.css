@@ -64,8 +64,8 @@
     SFMono-Regular, Menlo, Monaco, Consolas, 'Cascadia Code', 'Fira Code', monospace;
 
   /* Table view colors */
-  --table-root-bg: rgba(0, 0, 0, 0.05);
-  --table-header-bg: rgba(0, 0, 0, 0.08);
+  --table-root-bg: #f8fafc;
+  --table-header-bg: #f1f5f9;
   --table-root-fg: var(--json-key);
   --table-subkey-fg: var(--json-key);
   --bg-hover: rgba(0, 0, 0, 0.025);
@@ -137,8 +137,8 @@
   --graph-node-border: #555555;
 
   /* Table view colors (dark) */
-  --table-root-bg: rgba(255, 255, 255, 0.04);
-  --table-header-bg: rgba(255, 255, 255, 0.08);
+  --table-root-bg: #2d2d32;
+  --table-header-bg: #26262b;
   --table-root-fg: var(--json-key);
   --table-subkey-fg: var(--json-key);
   --bg-hover: rgba(255, 255, 255, 0.04);

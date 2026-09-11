@@ -1,26 +1,40 @@
 <template>
-  <div class="codemirror-editor-wrapper" ref="editorContainerRef" @keydown="handleKeyDown">
-    <!-- Floating Copy Selection Icon Button -->
+  <div class="codemirror-editor-wrapper" ref="editorContainerRef" @keydown="handleKeyDown" @mouseup="handleMouseUp">
+    <!-- Floating Selection Toolbar (复制 / 在新 Tab 打开) -->
     <Transition name="floating-copy-fade">
-      <button
+      <div
         v-if="floatingCopyVisible"
-        type="button"
-        class="floating-copy-btn"
-        :class="{ 'is-dark': darkMode, 'is-copied': isCopied }"
+        class="floating-selection-toolbar"
+        :class="{ 'is-dark': darkMode }"
         :style="{ top: `${floatingCopyPos.top}px`, left: `${floatingCopyPos.left}px` }"
         @mousedown.prevent.stop
-        @click.stop="handleCopySelection"
-        :title="isCopied ? '已复制' : '复制选中内容'"
       >
-        <component :is="isCopied ? Check : Copy" class="floating-copy-icon" :class="{ 'is-copied': isCopied }" />
-      </button>
+        <button
+          type="button"
+          class="floating-toolbar-btn"
+          :class="{ 'is-copied': isCopied }"
+          @click.stop="handleCopySelection"
+          :title="isCopied ? '已复制' : '复制选中内容'"
+        >
+          <component :is="isCopied ? Check : Copy" class="floating-toolbar-icon" :class="{ 'is-copied': isCopied }" />
+        </button>
+        <div class="floating-toolbar-sep"></div>
+        <button
+          type="button"
+          class="floating-toolbar-btn"
+          @click.stop="handleOpenSelectionInNewTab"
+          title="在新 Tab 打开"
+        >
+          <ExternalLink class="floating-toolbar-icon" />
+        </button>
+      </div>
     </Transition>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch, inject } from 'vue'
-import { Copy, Check } from 'lucide-vue-next'
+import { Copy, Check, ExternalLink } from 'lucide-vue-next'
 import {
   EditorView,
   lineNumbers,
@@ -172,11 +186,14 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'cursor-change', 'copy-selection', 'focus', 'blur', 'paste', 'scroll', 'toggle-fold'])
 
 const treeExpanded = inject('treeExpanded', ref(true))
+const showToast = inject('showToast', null)
+const openNestedJsonTab = inject('openNestedJsonTab', null)
 const editorContainerRef = ref(null)
 let editorView = null
 let isInternalFoldSync = false
 let isExternalSelectionSync = false
 let externalSelectionTimer = null
+let activeSelectionTimer = null
 
 // Floating copy selection pill state
 const floatingCopyVisible = ref(false)
@@ -209,11 +226,11 @@ const updateFloatingCopyPosition = () => {
   const relX = coords.left - containerRect.left
   const relY = coords.top - containerRect.top
 
-  let top = relY - 28
+  let top = relY - 30
   if (top < 4) {
     top = Math.max(4, relY + 22)
   }
-  const left = Math.max(8, Math.min(relX, containerRect.width - 34))
+  const left = Math.max(8, Math.min(relX, containerRect.width - 64))
 
   floatingCopyPos.value = { top, left }
 }
@@ -259,6 +276,9 @@ const handleCopySelection = async () => {
       document.body.removeChild(ta)
     }
     isCopied.value = true
+    if (showToast) {
+      showToast('已复制选中内容')
+    }
     emit('copy-selection', text)
 
     if (copyTimeoutId) clearTimeout(copyTimeoutId)
@@ -268,6 +288,41 @@ const handleCopySelection = async () => {
     }, 1500)
   } catch (err) {
     console.error('Failed to copy selection:', err)
+  }
+}
+
+const handleOpenSelectionInNewTab = () => {
+  if (!editorView) return
+  const sel = editorView.state.selection.main
+  let text = editorView.state.sliceDoc(Math.min(sel.anchor, sel.head), Math.max(sel.anchor, sel.head))
+  if (!text) return
+
+  text = text.trim()
+  let cleanText = text
+  // 智能剥离最外层包裹的单/双引号 (如 "获取策略成功" -> 获取策略成功)
+  if ((cleanText.startsWith('"') && cleanText.endsWith('"')) || (cleanText.startsWith("'") && cleanText.endsWith("'"))) {
+    if (cleanText.length >= 2) {
+      cleanText = cleanText.slice(1, -1)
+    }
+  }
+
+  if (openNestedJsonTab) {
+    const previewTitle = cleanText.length > 10 ? cleanText.slice(0, 10) + '...' : cleanText
+    openNestedJsonTab(cleanText, previewTitle ? `选中: ${previewTitle}` : '选中文本')
+  } else if (showToast) {
+    showToast('新 Tab 打开功能未就绪')
+  }
+
+  hideFloatingCopy()
+}
+
+const handleMouseUp = () => {
+  if (!editorView) return
+  const sel = editorView.state.selection.main
+  if (!sel.empty) {
+    setTimeout(() => {
+      showFloatingCopy()
+    }, 20)
   }
 }
 
@@ -866,6 +921,17 @@ const initCodeMirror = () => {
             path,
             type
           })
+
+          // 用户在编辑器中主动选中文本时，防抖弹出悬浮工具条 (复制 / 新 Tab 打开)
+          if (!sel.empty && !update.docChanged) {
+            if (activeSelectionTimer) clearTimeout(activeSelectionTimer)
+            activeSelectionTimer = setTimeout(() => {
+              activeSelectionTimer = null
+              if (editorView && !editorView.state.selection.main.empty) {
+                showFloatingCopy()
+              }
+            }, 80)
+          }
         }
         if (update.transactions) {
           for (const tr of update.transactions) {
@@ -1534,76 +1600,89 @@ onBeforeUnmount(() => {
   color: #e2e8f0 !important;
 }
 
-/* Floating Copy Selection Pill */
-.floating-copy-btn {
+/* ── Floating Selection Toolbar (复制 / 新 Tab 打开双按钮工具条) ── */
+.floating-selection-toolbar {
   position: absolute;
   z-index: 100;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border-radius: 5px;
-  cursor: pointer;
+  gap: 2px;
+  padding: 2px 3px;
+  border-radius: 6px;
   user-select: none;
   border: 1px solid var(--border-color, rgba(148, 163, 184, 0.28));
   background: var(--bg-surface-elevated, #ffffff);
-  color: var(--text-secondary, #475569);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
   transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: center bottom;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
 
-.floating-copy-btn:hover {
-  background: var(--primary-color, #3b82f6);
-  border-color: var(--primary-color, #3b82f6);
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.38);
-  transform: translateY(-1px) scale(1.05);
-}
-
-/* Dark mode compatibility */
-:global(.dark-mode) .floating-copy-btn,
-.floating-copy-btn.is-dark {
+:global(.dark-mode) .floating-selection-toolbar,
+.floating-selection-toolbar.is-dark {
   background: var(--bg-surface-elevated, #242427);
-  border-color: var(--border-color, rgba(255, 255, 255, 0.15));
+  border-color: var(--border-color, rgba(255, 255, 255, 0.16));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.floating-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  color: var(--text-secondary, #475569);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+:global(.dark-mode) .floating-toolbar-btn,
+.floating-selection-toolbar.is-dark .floating-toolbar-btn {
   color: var(--text-secondary, #cbd5e1);
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
-:global(.dark-mode) .floating-copy-btn:hover,
-.floating-copy-btn.is-dark:hover {
-  background: var(--primary-color, #3b82f6);
-  border-color: var(--primary-color, #3b82f6);
-  color: #ffffff;
-  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.45);
+.floating-toolbar-btn:hover {
+  background: var(--primary-light, rgba(59, 130, 246, 0.12));
+  color: var(--primary-color, #3b82f6);
+  transform: scale(1.06);
 }
 
-/* Copied state */
-.floating-copy-btn.is-copied {
-  border-color: #22c55e !important;
+.floating-toolbar-btn.is-copied {
   color: #22c55e !important;
-  background: rgba(34, 197, 94, 0.12) !important;
+  background: rgba(34, 197, 94, 0.14) !important;
 }
 
-:global(.dark-mode) .floating-copy-btn.is-copied,
-.floating-copy-btn.is-dark.is-copied {
-  border-color: #22c55e !important;
+:global(.dark-mode) .floating-toolbar-btn.is-copied,
+.floating-selection-toolbar.is-dark .floating-toolbar-btn.is-copied {
   color: #4ade80 !important;
-  background: rgba(34, 197, 94, 0.18) !important;
+  background: rgba(34, 197, 94, 0.2) !important;
 }
 
-.floating-copy-icon {
+.floating-toolbar-sep {
+  width: 1px;
+  height: 12px;
+  background: var(--border-color, rgba(148, 163, 184, 0.25));
+  margin: 0 1px;
+}
+
+:global(.dark-mode) .floating-toolbar-sep,
+.floating-selection-toolbar.is-dark .floating-toolbar-sep {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.floating-toolbar-icon {
   width: 13px;
   height: 13px;
   stroke-width: 2;
   transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.floating-copy-icon.is-copied {
+.floating-toolbar-icon.is-copied {
   transform: scale(1.12);
 }
 

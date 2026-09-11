@@ -22,6 +22,15 @@ const handleCopyKey = (key) => {
   })
 }
 
+const handleCopyIndex = (idx) => {
+  if (idx === null || idx === undefined) return
+  navigator.clipboard.writeText(String(idx)).then(() => {
+    if (showToast) {
+      showToast(`已复制行号: ${idx}`)
+    }
+  })
+}
+
 const handleCopyValue = (val) => {
   if (val === null || val === undefined) return
   const disp = getDisplayValue(val)
@@ -1091,9 +1100,9 @@ watch(currentSelectedPath, (newPath) => {
           >
             <span
               class="table-key-text"
-              data-tooltip="点击复制键名"
-              @click.stop="handleCopyKey(idx); emitClick([idx], 'key')"
-            >{{ idx }}</span>
+              data-tooltip="点击复制行号"
+              @click.stop="handleCopyIndex(idx + 1); emitClick([idx], 'key')"
+            >{{ idx + 1 }}</span>
           </td>
 
           <!-- Columns -->
@@ -1603,9 +1612,9 @@ watch(currentSelectedPath, (newPath) => {
                       >
                         <span
                           class="table-key-text"
-                          data-tooltip="点击复制索引"
-                          @click.stop="handleCopyKey(getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx); emitClick([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx], 'key')"
-                        >{{ getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx }}</span>
+                          data-tooltip="点击复制行号"
+                          @click.stop="handleCopyIndex(getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx + 1); emitClick([entry.isIndex ? Number(entry.key) : entry.key, getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx], 'key')"
+                        >{{ getInnerGridVirtualData(entry.value, JSON.stringify(getFullPath([entry.isIndex ? Number(entry.key) : entry.key]))).rowOffset + localIdx + 1 }}</span>
                       </td>
                       <td
                         v-for="col in getColumnsFromObjectArray(entry.value)"
@@ -2261,6 +2270,43 @@ watch(currentSelectedPath, (newPath) => {
   background-size: 16px 16px;
 }
 
+/* 彻底隐藏原生滚动条上下/左右三角箭头按钮 (▲ ▼ ◀ ▶) */
+.table-view-wrapper::-webkit-scrollbar-button,
+.inner-grid-container.is-inner-virtual::-webkit-scrollbar-button,
+.nested-table-container.is-inner-virtual::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* 对齐左侧 CodeMirror 编辑区 1:1 的饱满圆角滚动条体验 (7px) */
+.table-view-wrapper::-webkit-scrollbar,
+.inner-grid-container.is-inner-virtual::-webkit-scrollbar,
+.nested-table-container.is-inner-virtual::-webkit-scrollbar {
+  width: 7px !important;
+  height: 7px !important;
+}
+
+.table-view-wrapper::-webkit-scrollbar-track,
+.inner-grid-container.is-inner-virtual::-webkit-scrollbar-track,
+.nested-table-container.is-inner-virtual::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+.table-view-wrapper::-webkit-scrollbar-thumb,
+.inner-grid-container.is-inner-virtual::-webkit-scrollbar-thumb,
+.nested-table-container.is-inner-virtual::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45) !important;
+  border-radius: 4px !important;
+  transition: background-color 0.15s ease;
+}
+
+.table-view-wrapper::-webkit-scrollbar-thumb:hover,
+.inner-grid-container.is-inner-virtual::-webkit-scrollbar-thumb:hover,
+.nested-table-container.is-inner-virtual::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.8) !important;
+}
+
 .table-view-wrapper.nested-wrapper {
   padding: 0;
   background: transparent;
@@ -2306,8 +2352,8 @@ watch(currentSelectedPath, (newPath) => {
 .grid-col-header {
   position: sticky !important;
   top: 0 !important;
-  z-index: 10 !important;
-  background: var(--table-header-bg, #f1f5f9) !important;
+  z-index: 20 !important;
+  background-color: var(--table-header-bg, #f1f5f9) !important;
   color: var(--table-subkey-fg, #991b1b);
   font-family: var(--font-mono);
   font-size: var(--table-font-size, 13px);
@@ -2418,22 +2464,22 @@ watch(currentSelectedPath, (newPath) => {
   position: sticky !important;
   top: 0 !important;
   left: 0 !important;
-  z-index: 25 !important;
+  z-index: 30 !important;
   width: var(--table-index-width, 48px);
   min-width: var(--table-index-width, 48px);
   text-align: center;
-  background: var(--table-header-bg, #f1f5f9) !important;
+  background-color: var(--table-header-bg, #f1f5f9) !important;
   box-shadow: 1px 0 0 var(--border-color);
 }
 
 :global(.dark-mode) .grid-index-header {
-  background: #26262b !important;
+  background-color: #26262b !important;
 }
 
 .grid-index-cell {
   position: sticky !important;
   left: 0 !important;
-  z-index: 20 !important;
+  z-index: 12 !important;
   color: var(--json-number, #2563eb);
   font-family: var(--font-mono);
   font-weight: 600;
