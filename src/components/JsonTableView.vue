@@ -1262,6 +1262,7 @@ watch(currentSelectedPath, (newPath) => {
                 <div v-if="isPathExpanded([idx, col])" class="nested-table-container">
                   <JsonTableView
                     :data="item[col]"
+                    :rawInput="props.rawInput"
                     :depth="depth + 1"
                     :hoveredPath="hoveredPath"
                     :selectedPath="currentSelectedPath"
@@ -1984,12 +1985,12 @@ watch(currentSelectedPath, (newPath) => {
                         </div>
 
                         <!-- 嵌套 JSON 就地展开表格 -->
-                        <div v-else-if="detectNestedJson(Array.isArray(entry.value) ? subVal : subVal[1]) && isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])" class="complex-cell-container">
+                        <div v-else-if="detectNestedJson(subVal) && isCellNestedExpanded([entry.isIndex ? Number(entry.key) : entry.key, subK])" class="complex-cell-container">
                           <div class="complex-header-row nested-json-header">
                             <span
                               class="tree-nested-badge is-expanded"
-                              @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
-                              @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]], Array.isArray(entry.value) ? subVal : subVal[1], Array.isArray(entry.value) ? subK : subVal[0], $event)"
+                              @click.stop="toggleNestedExpand([entry.isIndex ? Number(entry.key) : entry.key, subK])"
+                              @mouseenter="onNestedBadgeEnter([entry.isIndex ? Number(entry.key) : entry.key, subK], subVal, subK, $event)"
                               @mouseleave="onNestedBadgeLeave"
                             >
                               <Braces class="capsule-icon" />
@@ -1997,12 +1998,12 @@ watch(currentSelectedPath, (newPath) => {
                             <span class="preview-text">嵌套 JSON (已转义展开)</span>
                           </div>
                           <JsonTableView
-                            :data="detectNestedJson(Array.isArray(entry.value) ? subVal : subVal[1]).parsed"
+                            :data="detectNestedJson(subVal).parsed"
                             :rawInput="props.rawInput"
                             :depth="depth + 1"
                             :hoveredPath="hoveredPath"
                             :selectedPath="currentSelectedPath"
-                            :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                            :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subK])"
                             @hover-path="handleChildHover"
                             @click-path="handleChildClick"
                           />
@@ -2010,12 +2011,12 @@ watch(currentSelectedPath, (newPath) => {
 
                         <div v-else class="complex-cell-container">
                           <JsonTableView
-                            :data="Array.isArray(entry.value) ? subVal : subVal[1]"
+                            :data="subVal"
                             :rawInput="props.rawInput"
                             :depth="depth + 1"
                             :hoveredPath="hoveredPath"
                             :selectedPath="currentSelectedPath"
-                            :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, Array.isArray(entry.value) ? subK : subVal[0]])"
+                            :pathPrefix="getFullPath([entry.isIndex ? Number(entry.key) : entry.key, subK])"
                             @hover-path="handleChildHover"
                             @click-path="handleChildClick"
                           />
