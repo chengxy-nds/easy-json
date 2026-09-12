@@ -139,6 +139,11 @@ jobs:
     name: Publish GitHub Release & Sync Aliyun OSS
     needs: [build-plugin, build-windows, build-macos]
     runs-on: ubuntu-latest
+    env:
+      ALIYUN_OSS_KEY_ID: ${{ secrets.ALIYUN_OSS_KEY_ID }}
+      ALIYUN_OSS_KEY_SECRET: ${{ secrets.ALIYUN_OSS_KEY_SECRET }}
+      ALIYUN_OSS_BUCKET: ${{ secrets.ALIYUN_OSS_BUCKET }}
+      ALIYUN_OSS_ENDPOINT: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -175,18 +180,18 @@ jobs:
 
       # 4.2 安装配置阿里云官方 ossutil 工具
       - name: Setup Aliyun ossutil
-        if: ${{ secrets.ALIYUN_OSS_KEY_ID != '' }}
+        if: env.ALIYUN_OSS_KEY_ID != ''
         uses: manyuanrong/setup-ossutil@v2.0
         with:
-          endpoint: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
-          access-key-id: ${{ secrets.ALIYUN_OSS_KEY_ID }}
-          access-key-secret: ${{ secrets.ALIYUN_OSS_KEY_SECRET }}
+          endpoint: ${{ env.ALIYUN_OSS_ENDPOINT }}
+          access-key-id: ${{ env.ALIYUN_OSS_KEY_ID }}
+          access-key-secret: ${{ env.ALIYUN_OSS_KEY_SECRET }}
 
       # 4.3 重命名并覆盖同步到阿里云 OSS 根目录固定文件名
       - name: Sync Fixed Names to Aliyun OSS
-        if: ${{ secrets.ALIYUN_OSS_KEY_ID != '' }}
+        if: env.ALIYUN_OSS_KEY_ID != ''
         run: |
-          BUCKET="${{ secrets.ALIYUN_OSS_BUCKET }}"
+          BUCKET="${{ env.ALIYUN_OSS_BUCKET }}"
           mkdir -p oss-fixed-assets
 
           # 1. Windows 安装包重命名为 easyjson.exe
