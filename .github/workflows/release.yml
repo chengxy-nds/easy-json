@@ -134,9 +134,9 @@ jobs:
           name: macos-artifact
           path: dist-assets/*.dmg
 
-  # ─── 4. 发布 GitHub Release 并挂载 3 个附件 ─────────────────
+  # ─── 4. 发布 GitHub Release 并同步阿里云 OSS ────────────────
   publish-release:
-    name: Publish GitHub Release
+    name: Publish GitHub Release & Sync Aliyun OSS
     needs: [build-plugin, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:
@@ -161,6 +161,7 @@ jobs:
           echo "tag=v$VER" >> $GITHUB_OUTPUT
           echo "title=EasyJSON v$VER" >> $GITHUB_OUTPUT
 
+      # 4.1 发布到 GitHub Release（保留版本号历史归档）
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -171,3 +172,49 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 4.2 安装配置阿里云官方 ossutil 工具
+      - name: Setup Aliyun ossutil
+        if: ${{ secrets.ALIYUN_OSS_KEY_ID != '' }}
+        uses: manyuanrong/setup-ossutil@v2.0
+        with:
+          endpoint: ${{ secrets.ALIYUN_OSS_ENDPOINT }}
+          access-key-id: ${{ secrets.ALIYUN_OSS_KEY_ID }}
+          access-key-secret: ${{ secrets.ALIYUN_OSS_KEY_SECRET }}
+
+      # 4.3 重命名并覆盖同步到阿里云 OSS 根目录固定文件名
+      - name: Sync Fixed Names to Aliyun OSS
+        if: ${{ secrets.ALIYUN_OSS_KEY_ID != '' }}
+        run: |
+          BUCKET="${{ secrets.ALIYUN_OSS_BUCKET }}"
+          mkdir -p oss-fixed-assets
+
+          # 1. Windows 安装包重命名为 easyjson.exe
+          WIN_FILE=$(find release-assets/ -name "*.exe" | head -n 1)
+          if [ -n "$WIN_FILE" ]; then
+            cp "$WIN_FILE" oss-fixed-assets/easyjson.exe
+            echo "Prepared: easyjson.exe from $WIN_FILE"
+          fi
+
+          # 2. macOS 安装包重命名为 easyjson.dmg
+          MAC_FILE=$(find release-assets/ -name "*.dmg" | head -n 1)
+          if [ -n "$MAC_FILE" ]; then
+            cp "$MAC_FILE" oss-fixed-assets/easyjson.dmg
+            echo "Prepared: easyjson.dmg from $MAC_FILE"
+          fi
+
+          # 3. Chrome 插件压缩包重命名为 easyjson-plugin.zip
+          PLUGIN_FILE=$(find release-assets/ -name "*.zip" | head -n 1)
+          if [ -n "$PLUGIN_FILE" ]; then
+            cp "$PLUGIN_FILE" oss-fixed-assets/easyjson-plugin.zip
+            echo "Prepared: easyjson-plugin.zip from $PLUGIN_FILE"
+          fi
+
+          # 4. 强制覆盖上传 (-f) 到阿里云 OSS 根目录
+          echo "Uploading fixed-name assets to oss://${BUCKET}/ ..."
+          ossutil cp oss-fixed-assets/easyjson.exe "oss://${BUCKET}/easyjson.exe" -f
+          ossutil cp oss-fixed-assets/easyjson.dmg "oss://${BUCKET}/easyjson.dmg" -f
+          ossutil cp oss-fixed-assets/easyjson-plugin.zip "oss://${BUCKET}/easyjson-plugin.zip" -f
+
+          echo "Aliyun OSS fixed-name synchronization completed successfully!"
+
