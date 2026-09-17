@@ -888,10 +888,10 @@ defineExpose({
                   </div>
                 </div>
 
-                <!-- 2. 原版 CodeMirror 完整代码预览模式 (接入搜索关键词全量高亮) -->
+                <!-- 2. 原版 CodeMirror 完整代码预览模式 (直接展示存储的真实文本形态：压缩存单行即展示单行，格式化存多行即展示多行) -->
                 <div v-else class="preview-editor-wrapper">
                   <CodeMirrorEditor
-                    :model-value="formattedSelectedContent"
+                    :model-value="selectedRecord?.content || ''"
                     :search-query="searchQuery"
                     :read-only="true"
                     :word-wrap="editorWordWrap === 'wrap'"

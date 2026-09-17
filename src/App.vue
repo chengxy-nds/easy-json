@@ -8,7 +8,7 @@ const HomeView = defineAsyncComponent(() => import('./components/HomeView.vue'))
 const TestView = defineAsyncComponent(() => import('./components/TestView.vue'))
 const CommentView = defineAsyncComponent(() => import('./components/Comment.vue'))
 const ChangelogView = defineAsyncComponent(() => import('./components/ChangelogView.vue'))
-import { Sun, Moon, Split, Braces, History, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check, Settings, ChevronDown } from 'lucide-vue-next'
+import { Sun, Moon, Split, Braces, History, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check, Settings, ChevronDown, Link, Languages, SlidersHorizontal, Plus, Minus, TextWrap } from 'lucide-vue-next'
 import { useUpdateCheck } from './composables/useUpdateCheck.js'
 import { useInstallCheck } from './composables/useInstallCheck.js'
 
@@ -317,6 +317,8 @@ const autoFormat = ref(true)
 const autoCopy = ref(true)
 const autoExtract = ref(true)
 const autoPaste = ref(true)
+const autoUrlDecode = ref(true)
+const autoUnicodeDecode = ref(true)
 
 provide('sortKeys', sortKeys)
 provide('ignoreWhitespace', ignoreWhitespace)
@@ -324,6 +326,8 @@ provide('autoFormat', autoFormat)
 provide('autoCopy', autoCopy)
 provide('autoExtract', autoExtract)
 provide('autoPaste', autoPaste)
+provide('autoUrlDecode', autoUrlDecode)
+provide('autoUnicodeDecode', autoUnicodeDecode)
 provide('incomingExtractText', incomingExtractText)
 provide('incomingCompareText', incomingCompareText)
 provide('isHistoryDrawerOpen', isHistoryDrawerOpen)
@@ -352,6 +356,14 @@ watch(autoExtract, (newVal) => {
 
 watch(autoPaste, (newVal) => {
   localStorage.setItem('ej_auto_paste', newVal ? '1' : '0')
+})
+
+watch(autoUrlDecode, (newVal) => {
+  localStorage.setItem('ej_auto_url_decode', newVal ? '1' : '0')
+})
+
+watch(autoUnicodeDecode, (newVal) => {
+  localStorage.setItem('ej_auto_unicode_decode', newVal ? '1' : '0')
 })
 
 // ── 编辑器偏好设置：字号、行号与展示方式 (换行/平铺) ──
@@ -395,10 +407,12 @@ const getSavedFontFamily = () => {
       if (saved.includes('"Courier New"') || saved === 'Consolas, "Courier New", monospace') {
         return "Consolas, ui-monospace, 'SF Mono', Menlo, Monaco, monospace"
       }
-      return saved
+      if (fontOptions.some(f => f.value === saved)) {
+        return saved
+      }
     }
   } catch (e) {}
-  return "'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace"
+  return fontOptions[0].value
 }
 
 const getSavedWordWrap = () => {
@@ -542,19 +556,6 @@ const getToastStyle = (index) => {
 }
 
 
-const toggleTheme = () => {
-  // 切换瞬间禁用全局 transition，避免背景色/文字色闪动
-  document.documentElement.classList.add('no-transition')
-  isDark.value = !isDark.value
-  updateThemeClass()
-  localStorage.setItem('ej_dark', isDark.value ? '1' : '0')
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      document.documentElement.classList.remove('no-transition')
-    })
-  })
-}
-
 const updateThemeClass = () => {
   if (isDark.value) {
     document.documentElement.classList.add('dark-mode')
@@ -565,11 +566,41 @@ const updateThemeClass = () => {
   }
 }
 
+const executeThemeChange = (nextVal) => {
+  isDark.value = nextVal
+  updateThemeClass()
+  localStorage.setItem('ej_dark', isDark.value ? '1' : '0')
+}
+
+const toggleTheme = () => {
+  setTheme(!isDark.value)
+}
+
+const setTheme = (val) => {
+  if (isDark.value === val) return
+  if (typeof document !== 'undefined' && document.startViewTransition) {
+    document.startViewTransition(() => {
+      executeThemeChange(val)
+    })
+  } else {
+    document.documentElement.classList.add('theme-smooth-transition')
+    executeThemeChange(val)
+    setTimeout(() => {
+      document.documentElement.classList.remove('theme-smooth-transition')
+    }, 260)
+  }
+}
+
 const toggleSyntaxTheme = () => {
   isPremiumTheme.value = !isPremiumTheme.value
   updateSyntaxThemeClass()
   localStorage.setItem('ej_premium_syntax', isPremiumTheme.value ? '1' : '0')
   showToast(isPremiumTheme.value ? '已切换为 Premium 配色' : '已切换为 One Dark 配色')
+}
+
+const setSyntaxTheme = (val) => {
+  if (isPremiumTheme.value === val) return
+  toggleSyntaxTheme()
 }
 
 const updateSyntaxThemeClass = () => {
@@ -810,6 +841,18 @@ onMounted(() => {
     autoPaste.value = savedAutoPaste === '1'
   }
 
+  // Restore auto-url-decode preference (default false)
+  const savedAutoUrlDecode = localStorage.getItem('ej_auto_url_decode')
+  if (savedAutoUrlDecode !== null) {
+    autoUrlDecode.value = savedAutoUrlDecode === '1'
+  }
+
+  // Restore auto-unicode-decode preference (default false)
+  const savedAutoUnicodeDecode = localStorage.getItem('ej_auto_unicode_decode')
+  if (savedAutoUnicodeDecode !== null) {
+    autoUnicodeDecode.value = savedAutoUnicodeDecode === '1'
+  }
+
   applyEditorStyles()
   document.addEventListener('click', onDocumentClick)
 
@@ -994,12 +1037,21 @@ onBeforeUnmount(() => {
         <button class="sidebar-btn" :class="{ active: autoPaste }" @click="autoPaste = !autoPaste" :data-tooltip-right="autoPaste ? '关闭自动粘贴' : '开启自动粘贴'">
           <Clipboard class="sidebar-btn-icon" />
         </button>
-        <button class="sidebar-btn" @click="toggleSyntaxTheme" :data-tooltip-right="isPremiumTheme ? '切换至 One Dark' : '切换至 Premium'">
-          <Palette class="sidebar-btn-icon" />
+        <button
+          class="sidebar-btn"
+          :class="{ active: autoUrlDecode }"
+          @click="autoUrlDecode = !autoUrlDecode"
+          :data-tooltip-right="autoUrlDecode ? '关闭格式化 URL 解码' : '开启格式化 URL 解码'"
+        >
+          <Link class="sidebar-btn-icon" />
         </button>
-        <button v-if="!isVscode" class="sidebar-btn" @click="toggleTheme" :data-tooltip-right="isDark ? '切换至浅色' : '切换至深色'">
-          <Sun v-if="isDark" class="sidebar-btn-icon" />
-          <Moon v-else class="sidebar-btn-icon" />
+        <button
+          class="sidebar-btn"
+          :class="{ active: autoUnicodeDecode }"
+          @click="autoUnicodeDecode = !autoUnicodeDecode"
+          :data-tooltip-right="autoUnicodeDecode ? '关闭格式化 Unicode 解码' : '开启格式化 Unicode 解码'"
+        >
+          <Languages class="sidebar-btn-icon" />
         </button>
         <button v-if="isPopup" class="sidebar-btn" @click="openInTab" data-tooltip-right="在新标签页中打开（全屏）">
           <Maximize class="sidebar-btn-icon" />
@@ -1026,7 +1078,7 @@ onBeforeUnmount(() => {
       </div>
     </aside>
 
-    <!-- Settings Popover Panel -->
+    <!-- Settings Popover Panel (Minimalist Flat Floating Menu) -->
     <Teleport to="body">
       <Transition name="settings-pop">
         <div
@@ -1034,6 +1086,22 @@ onBeforeUnmount(() => {
           class="settings-popover"
           @click.stop
         >
+          <!-- Popover Header -->
+          <div class="settings-pop-header">
+            <div class="settings-pop-title">
+              <SlidersHorizontal class="settings-pop-icon" />
+              <span>偏好设置</span>
+            </div>
+            <button
+              type="button"
+              class="settings-close-btn"
+              @click="closeSettings"
+              title="关闭"
+            >
+              <X class="settings-close-icon" />
+            </button>
+          </div>
+
           <!-- Font Size Setting Row -->
           <div class="settings-row">
             <span class="settings-label">编辑区字号</span>
@@ -1045,7 +1113,7 @@ onBeforeUnmount(() => {
                 :disabled="editorFontSize <= 10"
                 title="减小 0.5px"
               >
-                -
+                <Minus class="stepper-icon" />
               </button>
               <div class="stepper-val-wrap">
                 <input
@@ -1067,7 +1135,7 @@ onBeforeUnmount(() => {
                 :disabled="editorFontSize >= 24"
                 title="增大 0.5px"
               >
-                +
+                <Plus class="stepper-icon" />
               </button>
             </div>
           </div>
@@ -1106,22 +1174,78 @@ onBeforeUnmount(() => {
           <!-- Display Mode Setting Row (换行 vs 平铺) -->
           <div class="settings-row">
             <span class="settings-label">行内展示</span>
-            <div class="settings-segmented">
+            <div class="ej-seg-control">
+              <div class="ej-seg-thumb" :class="{ 'is-right': editorWordWrap === 'nowrap' }"></div>
               <button
                 type="button"
-                class="segmented-btn"
+                class="ej-seg-btn"
                 :class="{ active: editorWordWrap === 'wrap' }"
                 @click="editorWordWrap = 'wrap'"
               >
-                换行
+                <TextWrap class="ej-seg-icon" />
+                <span>换行</span>
               </button>
               <button
                 type="button"
-                class="segmented-btn"
+                class="ej-seg-btn"
                 :class="{ active: editorWordWrap === 'nowrap' }"
                 @click="editorWordWrap = 'nowrap'"
               >
-                平铺
+                <span>平铺</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 主题外观 Setting Row (深色 vs 浅色) -->
+          <template v-if="!isVscode">
+            <div class="settings-divider"></div>
+            <div class="settings-row">
+              <span class="settings-label">主题外观</span>
+              <div class="ej-seg-control">
+                <div class="ej-seg-thumb" :class="{ 'is-right': !isDark }"></div>
+                <button
+                  type="button"
+                  class="ej-seg-btn"
+                  :class="{ active: isDark }"
+                  @click="setTheme(true)"
+                >
+                  <Moon class="ej-seg-icon" />
+                  <span>深色</span>
+                </button>
+                <button
+                  type="button"
+                  class="ej-seg-btn"
+                  :class="{ active: !isDark }"
+                  @click="setTheme(false)"
+                >
+                  <Sun class="ej-seg-icon" />
+                  <span>浅色</span>
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <!-- 代码高亮风格 Setting Row (Premium vs One Dark) -->
+          <div class="settings-divider"></div>
+          <div class="settings-row">
+            <span class="settings-label">高亮风格</span>
+            <div class="ej-seg-control">
+              <div class="ej-seg-thumb" :class="{ 'is-right': !isPremiumTheme }"></div>
+              <button
+                type="button"
+                class="ej-seg-btn"
+                :class="{ active: isPremiumTheme }"
+                @click="setSyntaxTheme(true)"
+              >
+                <span>Premium</span>
+              </button>
+              <button
+                type="button"
+                class="ej-seg-btn"
+                :class="{ active: !isPremiumTheme }"
+                @click="setSyntaxTheme(false)"
+              >
+                <span>One Dark</span>
               </button>
             </div>
           </div>
@@ -1526,50 +1650,188 @@ onBeforeUnmount(() => {
 }
 
 /* ─── Settings Popover Panel (Sleek Floating Menu) ─── */
+/* ─── Settings Popover Panel (Sleek Minimalist Flat Design) ─── */
 .settings-popover {
   position: fixed;
   left: 48px;
-  bottom: 12px;
-  width: 236px;
+  bottom: 16px;
+  width: 254px;
   background: var(--bg-panel);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.16), 0 4px 10px -2px rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.12), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
   z-index: 10000;
-  padding: 8px 12px;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
   font-family: var(--font-sans, sans-serif);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 :global(.dark-mode) .settings-popover {
   background: var(--bg-panel);
-  border-color: var(--border-color);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  border-color: rgba(255, 255, 255, 0.09);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
 }
 
-.settings-row {
+/* Header */
+.settings-pop-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 28px;
+  padding: 2px 2px 7px 2px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--border-color);
 }
 
-.settings-label {
-  font-size: 12.5px;
-  font-weight: 500;
+.settings-pop-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-primary);
   user-select: none;
 }
 
-/* Unified Stepper Control */
+.settings-pop-icon {
+  width: 13px;
+  height: 13px;
+  color: var(--primary-color);
+}
+
+.settings-close-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.settings-close-btn:hover {
+  background: var(--bg-app);
+  color: var(--text-primary);
+}
+
+.settings-close-icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* Row & Label */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+}
+
+.settings-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  user-select: none;
+  letter-spacing: -0.01em;
+}
+
+.settings-divider {
+  height: 1px;
+  background: var(--border-color);
+  opacity: 0.5;
+  margin: 2px 0;
+}
+
+/* ── Minimalist Flat Gliding Segmented Control ── */
+.ej-seg-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  width: 132px;
+  background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 2px;
+  user-select: none;
+}
+
+.ej-seg-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  background: var(--bg-panel);
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.1);
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.2s ease, box-shadow 0.2s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ej-seg-thumb.is-right {
+  transform: translateX(100%);
+}
+
+:global(.dark-mode) .ej-seg-thumb {
+  background: #2c2c34;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.ej-seg-btn {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3.5px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.18s ease;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.ej-seg-btn:hover {
+  color: var(--text-primary);
+}
+
+.ej-seg-btn.active {
+  color: var(--primary-color);
+  font-weight: 600;
+}
+
+:global(.dark-mode) .ej-seg-btn.active {
+  color: #38bdf8;
+}
+
+.ej-seg-icon {
+  width: 11.5px;
+  height: 11.5px;
+  flex-shrink: 0;
+  stroke-width: 2.2;
+}
+
+/* ── Unified Stepper Control ── */
 .unified-stepper {
   display: inline-flex;
   align-items: center;
-  height: 24px;
+  height: 26px;
   background: var(--bg-app);
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -1591,10 +1853,8 @@ onBeforeUnmount(() => {
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  font-size: 13px;
-  font-weight: 600;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
   user-select: none;
   padding: 0;
 }
@@ -1604,9 +1864,19 @@ onBeforeUnmount(() => {
   color: var(--primary-color);
 }
 
+.stepper-btn:active:not(:disabled) {
+  transform: scale(0.88);
+}
+
 .stepper-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+.stepper-icon {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.5;
 }
 
 .stepper-val-wrap {
@@ -1648,13 +1918,7 @@ onBeforeUnmount(() => {
   user-select: none;
 }
 
-.settings-divider {
-  height: 1px;
-  background: var(--border-color);
-  margin: 1px 0;
-}
-
-/* Custom Select for Font Family */
+/* ── Custom Select for Font Family ── */
 .settings-select-wrapper {
   position: relative;
   display: inline-flex;
@@ -1664,8 +1928,8 @@ onBeforeUnmount(() => {
 .settings-select {
   appearance: none;
   -webkit-appearance: none;
-  height: 24px;
-  padding: 0 20px 0 8px;
+  height: 26px;
+  padding: 0 22px 0 8px;
   background: var(--bg-app);
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -1676,8 +1940,8 @@ onBeforeUnmount(() => {
   outline: none;
   cursor: pointer;
   transition: all 0.15s ease;
-  min-width: 104px;
-  max-width: 118px;
+  min-width: 120px;
+  max-width: 132px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1706,12 +1970,12 @@ onBeforeUnmount(() => {
   padding: 4px 6px;
 }
 
-/* Refined Sleek Switch */
+/* ── Refined Bouncy Switch ── */
 .settings-switch {
   position: relative;
   display: inline-block;
-  width: 28px;
-  height: 16px;
+  width: 32px;
+  height: 18px;
   flex-shrink: 0;
   cursor: pointer;
 }
@@ -1725,22 +1989,22 @@ onBeforeUnmount(() => {
 .switch-slider {
   position: absolute;
   inset: 0;
-  background-color: var(--border-color-active, #cbd5e1);
-  border-radius: 16px;
-  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background-color: var(--border-color);
+  border-radius: 12px;
+  transition: background-color 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .switch-slider:before {
   position: absolute;
   content: "";
-  height: 12px;
-  width: 12px;
+  height: 14px;
+  width: 14px;
   left: 2px;
-  bottom: 2px;
+  top: 2px;
   background-color: #ffffff;
   border-radius: 50%;
-  transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
 }
 
 .settings-switch input:checked + .switch-slider {
@@ -1748,65 +2012,54 @@ onBeforeUnmount(() => {
 }
 
 .settings-switch input:checked + .switch-slider:before {
-  transform: translateX(12px);
+  transform: translateX(14px);
 }
 
-/* Segmented Control for Display Mode (换行 / 平铺) */
-.settings-segmented {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  background: var(--bg-app);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 2px;
-  gap: 2px;
+/* ── Sidebar Settings Gear Rotation Animation ── */
+.sidebar-settings-btn .sidebar-btn-icon {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease;
 }
 
-.segmented-btn {
-  height: 100%;
-  padding: 0 8px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 11.5px;
-  font-weight: 500;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.segmented-btn:hover {
-  color: var(--text-primary);
-}
-
-.segmented-btn.active {
-  background: var(--bg-panel);
+.sidebar-settings-btn.active .sidebar-btn-icon {
+  transform: rotate(90deg);
   color: var(--primary-color);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-:global(.dark-mode) .segmented-btn.active {
-  background: #28282e;
-  color: #38bdf8;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+/* ── Popover Entrance & Exit Transitions (Originating from Button) ── */
+.settings-pop-enter-active {
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: 0% 100%;
 }
 
-/* Transitions */
-.settings-pop-enter-active,
 .settings-pop-leave-active {
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 1, 1),
+              transform 0.15s cubic-bezier(0.4, 0, 1, 1);
+  transform-origin: 0% 100%;
 }
 
-.settings-pop-enter-from,
+.settings-pop-enter-from {
+  opacity: 0;
+  transform: scale(0.92) translateY(6px) translateX(-4px);
+}
+
 .settings-pop-leave-to {
   opacity: 0;
-  transform: scale(0.92) translateX(-8px);
+  transform: scale(0.95) translateY(2px);
+}
+
+/* ── Smooth Theme Switch Animation ── */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.theme-smooth-transition,
+.theme-smooth-transition * {
+  transition: background-color 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.22s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.2s ease !important;
 }
 
 </style>

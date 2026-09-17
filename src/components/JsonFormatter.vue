@@ -36,6 +36,7 @@ import {
 } from '../utils/tabStorage.js';
 import { addHistoryRecord, clearTabHistoryRecords } from '../utils/historyStorage.js';
 import { HAS_UNICODE_ESCAPE_RE } from '../utils/capsuleDetector.js';
+import { transformJsonValues } from '../utils/jsonValueDecoder.js';
 
 const showToast = inject('showToast')
 const isDark = inject('isDark', ref(true))
@@ -49,14 +50,34 @@ const autoFormat = inject('autoFormat', ref(false))
 const autoCopy = inject('autoCopy', ref(false))
 const autoExtract = inject('autoExtract', ref(true))
 const autoPaste = inject('autoPaste', ref(false))
+const autoUrlDecode = inject('autoUrlDecode', ref(true))
+const autoUnicodeDecode = inject('autoUnicodeDecode', ref(true))
 const incomingExtractText = inject('incomingExtractText', ref(null))
 const isHistoryDrawerOpen = inject('isHistoryDrawerOpen', ref(false))
 const toggleHistoryDrawer = inject('toggleHistoryDrawer', () => {})
 const formatterLastPasted = ref('')
 
-// 保护左侧源码原文（Unicode 转义字符或转义 JSON 字符串绝不被解码后的文本自动覆盖）
+// ── 大 JSON 性能模式 ──
+const HEAVY_SIZE = 50_000
+const HEAVY_LINES = 1000
+const VERY_HEAVY_SIZE = 200_000
+const isHeavy = (text) => {
+  if (!text) return false
+  if (text.length > HEAVY_SIZE) return true
+  let lines = 0
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\n' && ++lines >= HEAVY_LINES) return true
+  }
+  return false
+}
+
+// 保护左侧源码原文：
+// 1. 大文本（>50KB 或 >1000 行）绝不可自动回填覆盖输入框，避免 CodeMirror 重建百万行文档导致主线程假死
+// 2. 含有 Unicode 转义的源码绝不可自动回填覆盖，保留左侧源码原文
+// 3. 含有转义引号或转义字符串的源码不可自动覆盖
 const canSafelyOverwriteInput = (inputText) => {
   if (!inputText) return false
+  if (isHeavy(inputText)) return false
   if (HAS_UNICODE_ESCAPE_RE.test(inputText)) return false
   if (inputText.includes('\\"') ||
       (inputText.startsWith('"') && inputText.endsWith('"') && inputText.includes('\\'))) {
@@ -1205,11 +1226,16 @@ const openInNewTab = (text, title = '') => {
   const isDuplicateTitle = title && tabs.value.some(t => t.title === title)
   const finalTitle = (!title || isDuplicateTitle) ? `格式化 ${num}` : title
 
+  const isMinified = !text.includes('\n') && text.trim().length > 1
+  if (isMinified) {
+    indentSize.value = 'minify'
+  }
+
   tabs.value.push({
     id: newId,
     title: finalTitle,
     inputText: text,
-    outputText: '',
+    outputText: isMinified ? text : '',
     parsedObj: null,
     validationError: null,
     errorLine: null,
@@ -1229,7 +1255,14 @@ const openInNewTab = (text, title = '') => {
 
 const loadToCurrentTab = (text) => {
   if (!text || !activeTab.value) return
+  const isMinified = !text.includes('\n') && text.trim().length > 1
+  if (isMinified) {
+    indentSize.value = 'minify'
+  }
   activeTab.value.inputText = text
+  if (isMinified) {
+    activeTab.value.outputText = text
+  }
   saveFormatterState(true)
   nextTick(() => {
     formatJSON()
@@ -1949,11 +1982,11 @@ const toolbarToolDefs = [
   { id: 'minify', label: '压缩', icon: Minimize2, tooltip: '压缩 JSON', minWidth: 235 },
   { id: 'escape', label: '转义', icon: Code, tooltip: '转义 JSON', minWidth: 280 },
   { id: 'unescape', label: '去转义', icon: FileCode, tooltip: '去转义 JSON', minWidth: 330 },
-  { id: 'import', label: '导入', icon: UploadCloud, tooltip: '导入数据', minWidth: 380, isImport: true },
-  { id: 'extract', label: '提取', icon: Wand2, tooltip: '智能提取 JSON', minWidth: 430 },
-  { id: 'removeComments', label: '去注释', icon: Strikethrough, tooltip: '去除 JSON 注释', minWidth: 480 },
-  { id: 'jsonpath', label: 'JSONPath', icon: Workflow, tooltip: 'JSONPath 表达式提取', minWidth: 540, active: () => showJsonPathBar.value },
-  { id: 'mask', label: '脱敏', icon: ShieldCheck, tooltip: '智能数据脱敏', minWidth: 600 },
+  { id: 'extract', label: '提取', icon: Wand2, tooltip: '智能提取 JSON', minWidth: 380 },
+  { id: 'removeComments', label: '去注释', icon: Strikethrough, tooltip: '去除 JSON 注释', minWidth: 430 },
+  { id: 'jsonpath', label: 'JSONPath', icon: Workflow, tooltip: 'JSONPath 表达式提取', minWidth: 490, active: () => showJsonPathBar.value },
+  { id: 'mask', label: '脱敏', icon: ShieldCheck, tooltip: '智能数据脱敏', minWidth: 550 },
+  { id: 'import', label: '导入', icon: UploadCloud, tooltip: '导入数据', minWidth: 600, isImport: true },
   { id: 'history', label: '历史', icon: History, tooltip: '历史记录', minWidth: 650, active: () => isHistoryDrawerOpen.value }
 ]
 
@@ -1963,11 +1996,11 @@ const handleToolAction = (toolId) => {
     case 'minify': handleMinifyDirect(); break;
     case 'escape': handleEscape(); break;
     case 'unescape': handleUnescape(); break;
-    case 'import': handleOpenImportFromMore(); break;
     case 'extract': handleExtract(); break;
     case 'removeComments': handleRemoveComments(); break;
     case 'jsonpath': toggleJsonPathBar(); break;
     case 'mask': openDataMaskModal(); break;
+    case 'import': handleOpenImportFromMore(); break;
     case 'history': handleOpenHistory(); break;
   }
 }
@@ -1984,11 +2017,11 @@ const toolThresholds = {
   minify: 235,
   escape: 280,
   unescape: 330,
-  import: 380,
-  extract: 430,
-  removeComments: 480,
-  jsonpath: 540,
-  mask: 600,
+  extract: 380,
+  removeComments: 430,
+  jsonpath: 490,
+  mask: 550,
+  import: 600,
   history: 650
 }
 
@@ -2103,6 +2136,15 @@ const formatJSON = () => {
       }
     }
 
+    if ((autoUrlDecode.value || autoUnicodeDecode.value) && !isHeavy(tab.inputText)) {
+      obj = transformJsonValues(obj, {
+        urlDecode: autoUrlDecode.value,
+        unicodeDecode: autoUnicodeDecode.value,
+        rawText: tab.inputText
+      })
+    }
+    tab.parsedObj = obj
+
     if (indentSize.value === 'minify') {
       tab.outputText = safeStringify(obj)
     } else {
@@ -2133,6 +2175,15 @@ const formatJSON = () => {
           tab.parsedObj = obj
         }
       }
+
+      if ((autoUrlDecode.value || autoUnicodeDecode.value) && !isHeavy(tab.inputText)) {
+        obj = transformJsonValues(obj, {
+          urlDecode: autoUrlDecode.value,
+          unicodeDecode: autoUnicodeDecode.value,
+          rawText: tab.inputText
+        })
+      }
+      tab.parsedObj = obj
 
       if (indentSize.value === 'minify') {
         tab.outputText = safeStringify(obj)
@@ -2177,6 +2228,15 @@ const formatJSON = () => {
                 tab.parsedObj = obj
               }
             }
+
+            if ((autoUrlDecode.value || autoUnicodeDecode.value) && !isHeavy(tab.inputText)) {
+              obj = transformJsonValues(obj, {
+                urlDecode: autoUrlDecode.value,
+                unicodeDecode: autoUnicodeDecode.value,
+                rawText: tab.inputText
+              })
+            }
+            tab.parsedObj = obj
 
             if (indentSize.value === 'minify') {
               tab.outputText = safeStringify(obj)
@@ -2348,14 +2408,25 @@ const scheduleFormatJSON = (immediate = false) => {
 // Watch inputs and format; save only input-derived fields (NOT tabs deeply — avoids infinite loop
 // because formatJSON() mutates tab.outputText/parsedObj which are inside tabs)
 watch(
-  [() => activeTab.value?.inputText, indentSize, sortKeys, activeTabId],
-  ([newText], [oldText]) => {
-    // 切换标签页或切换缩进/排序设置时，立即执行
+  [() => activeTab.value?.inputText, indentSize, sortKeys, activeTabId, autoUrlDecode, autoUnicodeDecode],
+  ([newText, newIndent, newSort, newTabId, newUrl, newUnicode], [oldText, oldIndent, oldSort, oldTabId, oldUrl, oldUnicode]) => {
+    // 1. 如果是切换标签页 (newTabId !== oldTabId)：
+    if (newTabId !== oldTabId) {
+      // 若当前切换到的 Tab 已经有格式化结果或错误状态，直接复用已有的 parsedObj 与 outputText，绝不重复解析与存储，实现 0ms 顺滑瞬切
+      const curTab = activeTab.value
+      if (curTab && !curTab.parsedObj && !curTab.validationError && curTab.inputText) {
+        scheduleFormatJSON(true)
+      }
+      return
+    }
+
+    // 2. 如果是切换缩进、排序规则或转码开关（文本未变但设置改变）：立即执行格式化
     if (newText === oldText) {
       scheduleFormatJSON(true)
       return
     }
-    // 用户编辑/修改内容时：采用自适应防抖，防止高频击键阻塞主线程
+
+    // 3. 用户在当前 Tab 输入/修改文本时：采用自适应防抖，防止高频击键阻塞主线程
     scheduleFormatJSON(false)
   }
 )
@@ -3482,19 +3553,7 @@ const applyJsonHighlightWithPath = (text, counter) => {
 // Input highlight (left pane) — no current-match tracking
 // Input highlight (left pane) — drives match count since replace targets input text
 
-// ── 大 JSON 性能模式 ──
-const HEAVY_SIZE = 50_000
-const HEAVY_LINES = 1000
-const VERY_HEAVY_SIZE = 200_000
-const isHeavy = (text) => {
-  if (!text) return false
-  if (text.length > HEAVY_SIZE) return true
-  let lines = 0
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '\n' && ++lines >= HEAVY_LINES) return true
-  }
-  return false
-}
+// ── 大 JSON 性能模式响应式判定 ──
 const isHeavyInput = computed(() => isHeavy(activeTab.value?.inputText))
 const isHeavyOutput = computed(() => isHeavy(activeTab.value?.outputText))
 
@@ -3765,6 +3824,13 @@ const handleFormatDirect = () => {
       if (sortKeys.value) {
         obj = sortJSONKeys(obj, sortKeys.value === 2)
       }
+      if (autoUrlDecode.value || autoUnicodeDecode.value) {
+        obj = transformJsonValues(obj, {
+          urlDecode: autoUrlDecode.value,
+          unicodeDecode: autoUnicodeDecode.value,
+          rawText: tab.inputText
+        })
+      }
       const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
       const formatted = safeStringify(obj, null, space)
       tab.inputText = formatted
@@ -3809,9 +3875,17 @@ const handleMinifyDirect = () => {
       if (!obj) {
         obj = safeParse(tab.inputText)
       }
+      if (autoUrlDecode.value || autoUnicodeDecode.value) {
+        obj = transformJsonValues(obj, {
+          urlDecode: autoUrlDecode.value,
+          unicodeDecode: autoUnicodeDecode.value,
+          rawText: tab.inputText
+        })
+      }
 
-      // 避免重复 stringify：若已是紧凑单行形式直接使用
-      const isAlreadyMinified = !tab.inputText.includes('\n')
+      // 避免重复 stringify：若已是紧凑单行形式直接使用（未开启解码转换时）
+      const hasTransform = autoUrlDecode.value || autoUnicodeDecode.value
+      const isAlreadyMinified = !hasTransform && !tab.inputText.includes('\n')
       const minified = isAlreadyMinified ? tab.inputText.trim() : safeStringify(obj)
 
       tab.inputText = minified
@@ -3827,7 +3901,14 @@ const handleMinifyDirect = () => {
     } catch (err) {
       try {
         const jsonStr = convertJsObjectToJson(tab.inputText)
-        const obj = safeParse(jsonStr)
+        let obj = safeParse(jsonStr)
+        if (autoUrlDecode.value || autoUnicodeDecode.value) {
+          obj = transformJsonValues(obj, {
+            urlDecode: autoUrlDecode.value,
+            unicodeDecode: autoUnicodeDecode.value,
+            rawText: tab.inputText
+          })
+        }
         const minified = safeStringify(obj)
         tab.inputText = minified
         tab.outputText = minified
@@ -4620,22 +4701,19 @@ defineExpose({
               <span class="toolbar-label">去转义</span>
             </button>
 
-            <!-- 5. 导入 (平铺时显示，收纳时仅保留弹窗实例) -->
-            <ImportDropdown ref="importDropdownRef" :hide-trigger="!isToolVisible('import')" @import-text="handleImportText" @import-file="handleImportFile" />
-
-            <!-- 6. 提取 -->
+            <!-- 5. 提取 -->
             <button v-if="isToolVisible('extract')" class="toolbar-item" @click="handleExtract" data-tooltip-bottom="智能提取 JSON">
               <Wand2 class="toolbar-icon" />
               <span class="toolbar-label">提取</span>
             </button>
 
-            <!-- 7. 去注释 -->
+            <!-- 6. 去注释 -->
             <button v-if="isToolVisible('removeComments')" class="toolbar-item" @click="handleRemoveComments" data-tooltip-bottom="去除 JSON 注释">
               <Strikethrough class="toolbar-icon" />
               <span class="toolbar-label">去注释</span>
             </button>
 
-            <!-- 8. JSONPath -->
+            <!-- 7. JSONPath -->
             <button 
               v-if="isToolVisible('jsonpath')"
               class="toolbar-item" 
@@ -4647,13 +4725,16 @@ defineExpose({
               <span class="toolbar-label">JSONPath</span>
             </button>
 
-            <!-- 9. 脱敏 -->
+            <!-- 8. 脱敏 -->
             <button v-if="isToolVisible('mask')" class="toolbar-item" @click="openDataMaskModal" data-tooltip-bottom="智能数据脱敏">
               <ShieldCheck class="toolbar-icon" />
               <span class="toolbar-label">脱敏</span>
             </button>
 
-            <!-- 10. 历史记录 (脱敏右侧) -->
+            <!-- 9. 导入 (脱敏右侧，平铺时显示，收纳时仅保留弹窗实例) -->
+            <ImportDropdown ref="importDropdownRef" :hide-trigger="!isToolVisible('import')" @import-text="handleImportText" @import-file="handleImportFile" />
+
+            <!-- 10. 历史记录 -->
             <button
               v-if="isToolVisible('history')"
               class="toolbar-item"

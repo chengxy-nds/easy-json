@@ -63,6 +63,9 @@ export async function saveTabContentToDb(tabId, content) {
   }
 }
 
+// 记录各标签页已持久化的最新内容缓存，避免高频重复向 IndexedDB 序列化写入未变更的大文本
+const lastSavedTabContentMap = new Map()
+
 /**
  * 批量异步保存所有 tabs 的内容到 IndexedDB
  * @param {Array<{ id: number|string, inputText: string }>} tabList 
@@ -71,11 +74,24 @@ export async function saveAllTabsContentToDb(tabList) {
   try {
     const db = await getDB()
     if (!db) return false
+
+    // 脏检查过滤：未修改的 tab 直接跳过，避免重复克隆写入几十兆数据
+    const dirtyTabs = tabList.filter(t => {
+      const id = String(t.id)
+      const cur = t.inputText || ''
+      return lastSavedTabContentMap.get(id) !== cur
+    })
+
+    if (dirtyTabs.length === 0) return true
+
     return new Promise((resolve) => {
       const tx = db.transaction(STORE_NAME, 'readwrite')
       const store = tx.objectStore(STORE_NAME)
-      tabList.forEach(t => {
-        store.put({ id: String(t.id), content: t.inputText || '', updatedAt: Date.now() })
+      dirtyTabs.forEach(t => {
+        const id = String(t.id)
+        const content = t.inputText || ''
+        store.put({ id, content, updatedAt: Date.now() })
+        lastSavedTabContentMap.set(id, content)
       })
       tx.oncomplete = () => resolve(true)
       tx.onerror = () => resolve(false)
