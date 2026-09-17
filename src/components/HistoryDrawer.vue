@@ -1086,7 +1086,7 @@ defineExpose({
   align-items: center;
   gap: 4px;
   padding: 3px 6px;
-  font-size: 0.7rem;
+  font-size: 11px;
   font-weight: 500;
   border: none;
   background: none;
@@ -1578,7 +1578,7 @@ defineExpose({
   gap: 4px;
   height: 24px;
   padding: 0 8px;
-  font-size: 0.7rem;
+  font-size: 11px;
   font-weight: 500;
   border-radius: 4px;
   border: none;
@@ -2155,7 +2155,7 @@ defineExpose({
   border: none;
   background: transparent;
   color: var(--text-secondary, #64748b);
-  font-size: 0.7rem;
+  font-size: 11px;
   font-weight: 500;
   border-radius: 4px;
   cursor: pointer;
