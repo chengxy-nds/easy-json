@@ -2214,11 +2214,11 @@ const formatJSON = () => {
   }
 }
 
-// 历史记录采集：仅在显式格式化/压缩/导入/提取或失焦离开时触发，禁止打字中途自动录入
+// 历史记录采集：显式格式化/压缩/转义/去转义/去注释或失焦离开时触发，禁止打字中途自动录入
 let recordHistoryTimer = null
 let lastRecordedTabMap = new Map()
 
-const recordHistoryItem = (text, title = '格式化记录') => {
+const recordHistoryItem = (text, title = '格式化记录', immediate = false) => {
   if (!text || !text.trim() || text.trim().length <= 1) return
   const trimmed = text.trim()
   const currentTab = activeTab.value
@@ -2228,8 +2228,7 @@ const recordHistoryItem = (text, title = '格式化记录') => {
   if (lastRecordedTabMap.get(currentTabId) === trimmed) return
   lastRecordedTabMap.set(currentTabId, trimmed)
 
-  clearTimeout(recordHistoryTimer)
-  recordHistoryTimer = setTimeout(() => {
+  const saveAction = () => {
     try {
       const lines = trimmed.split('\n').length
       let size = 0
@@ -2250,7 +2249,18 @@ const recordHistoryItem = (text, title = '格式化记录') => {
     } catch (e) {
       console.warn('recordHistory failed:', e)
     }
-  }, 200)
+  }
+
+  if (immediate) {
+    if (recordHistoryTimer) {
+      clearTimeout(recordHistoryTimer)
+      recordHistoryTimer = null
+    }
+    saveAction()
+  } else {
+    clearTimeout(recordHistoryTimer)
+    recordHistoryTimer = setTimeout(saveAction, 200)
+  }
 }
 
 // 在新 Tab 打开并格式化嵌套 JSON
@@ -2984,7 +2994,9 @@ const handleRemoveComments = () => {
   }
 
   tab.inputText = result
+  saveFormatterState(true)
   showToast('注释已去除')
+  recordHistoryItem(result, tab.title, true)
 }
 
 // File upload handler
@@ -3762,7 +3774,7 @@ const handleFormatDirect = () => {
       tab.errorLine = null
       showToast('格式化成功')
       autoCopyResult(formatted)
-      recordHistoryItem(formatted, tab.title)
+      recordHistoryItem(formatted, tab.title, true)
     } catch (err) {
       formatJSON()
     } finally {
@@ -3811,7 +3823,7 @@ const handleMinifyDirect = () => {
 
       showToast('压缩成功')
       autoCopyResult(minified)
-      recordHistoryItem(minified, tab.title)
+      recordHistoryItem(minified, tab.title, true)
     } catch (err) {
       try {
         const jsonStr = convertJsObjectToJson(tab.inputText)
@@ -3826,7 +3838,7 @@ const handleMinifyDirect = () => {
 
         showToast('压缩成功')
         autoCopyResult(minified)
-        recordHistoryItem(minified, tab.title)
+        recordHistoryItem(minified, tab.title, true)
       } catch (e2) {
         tab.validationError = `压缩失败: ${err.message}`
       }
@@ -3878,6 +3890,7 @@ const handleEscape = () => {
     tab.errorLine = null
     showToast('转义成功')
     autoCopyResult(escapedStr)
+    recordHistoryItem(escapedStr, tab.title, true)
   } finally {
     setTimeout(() => { formatGuard = false }, 350)
   }
@@ -3886,6 +3899,7 @@ const handleEscape = () => {
 
 // Recursively unescape string values that represent valid JSON objects or arrays
 const recursiveUnescape = (val) => {
+  if (isLosslessNumber(val)) return val
   if (typeof val === 'string') {
     const trimmed = val.trim()
     if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
@@ -3964,6 +3978,7 @@ const handleUnescape = () => {
         tab.errorLine = null
         showToast('去转义成功')
         autoCopyResult(formatted)
+        recordHistoryItem(formatted, tab.title, true)
         return
       }
 
@@ -3975,6 +3990,7 @@ const handleUnescape = () => {
       tab.errorLine = null
       showToast('去转义成功')
       autoCopyResult(tab.inputText)
+      recordHistoryItem(unescaped, tab.title, true)
     } catch (err) {
       tab.validationError = `去转义失败: ${err.message}`
     } finally {
@@ -4011,7 +4027,7 @@ const handleExtract = () => {
     tab.extractedFormat = null
     showToast(result.format !== 'JSON' ? `已从 ${result.format} 提取 JSON` : 'JSON 提取成功')
     autoCopyResult(activeTab.value.inputText)
-    recordHistoryItem(activeTab.value.inputText, tab.title)
+    recordHistoryItem(activeTab.value.inputText, tab.title, true)
   } catch (err) {
     tab.validationError = `提取失败: ${err.message}`
   }

@@ -4,9 +4,7 @@
 const DB_NAME = 'easy_json_history_db'
 const DB_VERSION = 1
 const STORE_NAME = 'history_records'
-const MAX_TAB_HISTORY_ITEMS = 20 // 每个 Tab 历史版本严格只保留最近的 20 个版本 (先进先出FIFO)
-const MAX_HISTORY_ITEMS = 200 // 全局兜底最大保留条数
-
+// 放开历史记录条数限制，全量保留历史版本
 let dbPromise = null
 
 function getDB() {
@@ -76,20 +74,9 @@ export async function getAllHistoryRecords() {
  */
 export async function getHistoryRecordsByTabId(tabId) {
   const all = await getAllHistoryRecords()
-  if (tabId == null) return all.slice(0, MAX_TAB_HISTORY_ITEMS)
+  if (tabId == null) return all
   const target = String(tabId)
-  const list = all.filter(item => item.tabId === target)
-  if (list.length > MAX_TAB_HISTORY_ITEMS) {
-    const toDelete = list.slice(MAX_TAB_HISTORY_ITEMS)
-    getDB().then(db => {
-      if (!db) return
-      const tx = db.transaction(STORE_NAME, 'readwrite')
-      const store = tx.objectStore(STORE_NAME)
-      toDelete.forEach(item => store.delete(item.id))
-    }).catch(() => {})
-    return list.slice(0, MAX_TAB_HISTORY_ITEMS)
-  }
-  return list
+  return all.filter(item => item.tabId === target)
 }
 
 /**
@@ -106,7 +93,16 @@ export async function getHistoryRecordsByTabId(tabId) {
  * @param {string} [param0.sizeText] 大小描述 (如 1.2 KB)
  * @returns {Promise<Object|null>} 新增的记录
  */
-export async function addHistoryRecord({
+// 串行写入锁，确保连续快速操作（格式化、压缩、转义、去转义、去注释）时版本号自增严格有序、互不冲突
+let addHistoryPromiseChain = Promise.resolve()
+
+export async function addHistoryRecord(params) {
+  const run = () => _doAddHistoryRecord(params)
+  addHistoryPromiseChain = addHistoryPromiseChain.then(run, run)
+  return addHistoryPromiseChain
+}
+
+async function _doAddHistoryRecord({
   type = 'format',
   content = '',
   leftContent = '',
@@ -153,7 +149,14 @@ export async function addHistoryRecord({
             const tx = db.transaction(STORE_NAME, 'readwrite')
             const store = tx.objectStore(STORE_NAME)
             const req = store.put(latestInTab)
-            req.onsuccess = () => resolve(latestInTab)
+            req.onsuccess = () => {
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('easy-json-history-updated', {
+                  detail: { tabId: targetTabId, record: latestInTab }
+                }))
+              }
+              resolve(latestInTab)
+            }
             req.onerror = () => resolve(null)
           })
         }
@@ -199,22 +202,10 @@ export async function addHistoryRecord({
       const req = store.add(newRecord)
 
       req.onsuccess = async () => {
-        // 单个 Tab 严格最多只保留最新的 MAX_TAB_HISTORY_ITEMS (15) 条历史记录
-        if (targetTabId) {
-          const tabRecords = currentList.filter(item => item.tabId === targetTabId)
-          if (tabRecords.length >= MAX_TAB_HISTORY_ITEMS) {
-            const toDelete = tabRecords.slice(MAX_TAB_HISTORY_ITEMS - 1)
-            const cleanTx = db.transaction(STORE_NAME, 'readwrite')
-            const cleanStore = cleanTx.objectStore(STORE_NAME)
-            toDelete.forEach(item => cleanStore.delete(item.id))
-          }
-        } else {
-          if (currentList.length >= MAX_TAB_HISTORY_ITEMS) {
-            const toDelete = currentList.slice(MAX_TAB_HISTORY_ITEMS - 1)
-            const cleanTx = db.transaction(STORE_NAME, 'readwrite')
-            const cleanStore = cleanTx.objectStore(STORE_NAME)
-            toDelete.forEach(item => cleanStore.delete(item.id))
-          }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('easy-json-history-updated', {
+            detail: { tabId: targetTabId, record: newRecord }
+          }))
         }
         resolve(newRecord)
       }

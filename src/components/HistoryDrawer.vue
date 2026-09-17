@@ -527,12 +527,23 @@ const onKeyDown = (e) => {
   }
 }
 
+const onHistoryUpdated = (e) => {
+  if (!props.visible) return
+  const eventTabId = e.detail?.tabId
+  if (!props.currentTabId || !eventTabId || String(props.currentTabId) === String(eventTabId)) {
+    loadRecords()
+    refreshCurrentTabContent()
+  }
+}
+
 onMounted(() => {
   window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('easy-json-history-updated', onHistoryUpdated)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('easy-json-history-updated', onHistoryUpdated)
 })
 
 defineExpose({

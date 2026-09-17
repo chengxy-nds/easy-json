@@ -197,7 +197,8 @@ export const safeStringify = (obj, replacer, space) => {
       return `${BIGINT_TAG}${value.toString()}`
     }
     if (isLosslessNumber(value)) {
-      return `${BIGDECIMAL_TAG}${value.toString()}`
+      const numStr = value.value != null ? String(value.value) : (typeof value.toString === 'function' ? value.toString() : String(value))
+      return `${BIGDECIMAL_TAG}${numStr}`
     }
     return value
   }
