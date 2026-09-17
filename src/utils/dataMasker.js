@@ -1,6 +1,7 @@
 /**
  * dataMasker.js - 智能数据脱敏工具（支持内置规则与自定义指定 Key）
  */
+import { isLosslessNumber } from './jsonBigInt.js'
 
 // 1. 正则表达式规则定义
 const PHONE_RE = /(?<!\d)(1[3-9]\d)(\d{4})(\d{4})(?!\d)/g
@@ -340,6 +341,10 @@ export function maskJsonData(data, options = {}) {
       return node.map(item => walk(item, parentKey))
     }
 
+    if (isLosslessNumber(node)) {
+      return node
+    }
+
     if (typeof node === 'object') {
       const result = {}
       for (const k of Object.keys(node)) {
@@ -363,7 +368,7 @@ export function maskJsonData(data, options = {}) {
 export function extractAllKeys(data) {
   const keys = new Set()
   function walk(node) {
-    if (node === null || typeof node !== 'object') return
+    if (node === null || typeof node !== 'object' || isLosslessNumber(node)) return
     if (Array.isArray(node)) {
       node.forEach(walk)
     } else {

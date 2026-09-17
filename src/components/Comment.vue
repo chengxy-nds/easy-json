@@ -169,6 +169,8 @@ onUnmounted(() => {
   border-radius: 6px;
   cursor: pointer;
   height: 28px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: transform 0.1s ease, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
@@ -718,10 +720,20 @@ onUnmounted(() => {
     padding: 0 12px;
   }
   .comment-topbar-spacer {
-    width: 48px;
+    width: 36px;
+    flex-shrink: 0;
+  }
+  .comment-topbar-title {
+    font-size: 13.5px;
+    white-space: nowrap;
+  }
+  .comment-back-btn {
+    padding: 0 8px;
+    height: 28px;
+    font-size: 12px;
   }
   .comment-main {
-    padding: 10px 8px;
+    padding: 10px 8px 36px;
     gap: 10px;
   }
   .comment-card {
@@ -738,12 +750,57 @@ onUnmounted(() => {
   :deep(.wl-header .wl-header-item) {
     flex: 1 1 100% !important;
   }
+  :deep(.wl-editor) {
+    min-height: 80px !important;
+    padding: 10px 12px !important;
+    font-size: 13px !important;
+  }
   :deep(.wl-footer) {
     flex-wrap: wrap !important;
     gap: 8px !important;
+    padding: 6px 10px !important;
   }
   :deep(.wl-actions) {
     flex-wrap: wrap !important;
+    gap: 4px !important;
+  }
+  /* 表情弹窗限制在手机视口内，防止撑破产生横向滚动条 */
+  :deep(.wl-emoji-popup) {
+    max-width: calc(100vw - 28px) !important;
+    left: 4px !important;
+    right: 4px !important;
+    box-sizing: border-box !important;
+  }
+  /* 评论子回复缩进在手机端收窄，避免深层回复被挤压 */
+  :deep(.wl-quote) {
+    padding-left: 8px !important;
+    margin-left: 4px !important;
+    border-left-width: 2px !important;
+  }
+  :deep(.wl-cards .wl-card) {
+    padding: 12px 0 !important;
+  }
+  :deep(.wl-cards .wl-avatar) {
+    width: 32px !important;
+    height: 32px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .comment-main {
+    padding: 8px 6px 32px;
+  }
+  .comment-card {
+    padding: 10px 12px;
+  }
+  .comment-card-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  :deep(.wl-head) {
+    gap: 4px 6px !important;
   }
 }
 

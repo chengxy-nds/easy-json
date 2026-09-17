@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, inject, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ChevronDown, ChevronRight, ExternalLink, Image as ImageIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, Volume2, Video as VideoIcon, KeyRound, FileCode, Code2, CalendarClock } from 'lucide-vue-next'
-import { safeStringify } from '../utils/jsonBigInt.js'
+import { safeStringify, isLosslessNumber } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
 import { detectTimestamp, detectUnicode, detectNestedJson, getFormatNow } from '../utils/capsuleDetector.js'
 import { detectMedia, detectJwt, detectBase64Text, detectUrlEncoded, detectCron, detectHtml } from '../utils/advancedDetectors.js'
@@ -68,7 +68,7 @@ const initExpandedState = () => {
     collapsedKeys.value.clear()
   } else {
     expandedKeys.value.clear()
-    expandedKeys.value.add('root')
+    // 全部折叠时直接折叠根节点
   }
 }
 
@@ -160,6 +160,52 @@ const setNodeFold = (path, isFolded) => {
   }
 }
 
+const foldAll = () => {
+  collapsedKeys.value.clear()
+  expandedKeys.value.clear()
+  treeExpanded.value = false
+}
+
+const unfoldAll = () => {
+  collapsedKeys.value.clear()
+  expandedKeys.value.clear()
+  treeExpanded.value = true
+}
+
+const expandToLevel = (targetLevel) => {
+  collapsedKeys.value.clear()
+  expandedKeys.value.clear()
+  treeExpanded.value = true
+
+  if (!props.data || typeof props.data !== 'object' || isLosslessNumber(props.data)) return
+
+  const traverse = (val, path, depth) => {
+    if (val === null || typeof val !== 'object' || isLosslessNumber(val)) return
+    const id = getPathId(path)
+    const isArr = Array.isArray(val)
+
+    // 深度达到或超过目标层级时折叠该节点
+    // 根节点 depth 为 0，展开至第 1 层即 depth 0 展开，depth 1 及更深折叠
+    if (depth >= targetLevel) {
+      collapsedKeys.value.add(id)
+      return
+    }
+
+    if (isArr) {
+      for (let i = 0; i < val.length; i++) {
+        traverse(val[i], [...path, i], depth + 1)
+      }
+    } else {
+      const keys = Object.keys(val)
+      for (let i = 0; i < keys.length; i++) {
+        traverse(val[keys[i]], [...path, keys[i]], depth + 1)
+      }
+    }
+  }
+
+  traverse(props.data, [], 0)
+}
+
 // Tree Flattening Engine: converts arbitrary nested JSON into a 1D flat list of visible rows
 // Tree Flattening Engine: converts arbitrary nested JSON into a 1D flat list of visible rows (极速轻量平铺引擎，保障10万行秒开)
 const flatRows = computed(() => {
@@ -173,7 +219,7 @@ const flatRows = computed(() => {
     // 惰性检测：只有用户主动点击展开过该嵌套节点时，才需要将其作为子树展开
     const isNestedExpanded = expandedNestedKeys.value.size > 0 && expandedNestedKeys.value.has(id) && typeof val === 'string'
     const nestedData = isNestedExpanded ? detectNestedJson(val) : null
-    const isObj = (val !== null && typeof val === 'object') || (isNestedExpanded && nestedData)
+    const isObj = (val !== null && typeof val === 'object' && !isLosslessNumber(val)) || (isNestedExpanded && nestedData)
     const targetVal = isNestedExpanded && nestedData ? nestedData.parsed : val
     const isArr = Array.isArray(targetVal)
 
@@ -230,7 +276,7 @@ const flatRows = computed(() => {
 
       let valClass = ''
       if (typeof val === 'string') valClass = 'tree-string'
-      else if (typeof val === 'number' || typeof val === 'bigint') valClass = 'tree-number'
+      else if (typeof val === 'number' || typeof val === 'bigint' || isLosslessNumber(val)) valClass = 'tree-number'
       else if (typeof val === 'boolean') valClass = 'tree-boolean'
       else if (val === null) valClass = 'tree-null'
 
@@ -661,7 +707,9 @@ const handleCopyValue = (val, path) => {
   }
   emit('click-path', path, 'value')
   let text = ''
-  if (typeof val === 'object' && val !== null) {
+  if (isLosslessNumber(val)) {
+    text = String(val)
+  } else if (typeof val === 'object' && val !== null) {
     text = safeStringify(val, null, 2)
   } else if (typeof val === 'string') {
     text = val
@@ -1055,6 +1103,9 @@ defineExpose({
   },
   scrollContainer: containerRef,
   setNodeFold,
+  expandToLevel,
+  foldAll,
+  unfoldAll,
   scrollToTop: () => {
     if (containerRef.value) containerRef.value.scrollTop = 0
   },

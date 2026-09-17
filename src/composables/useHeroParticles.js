@@ -211,6 +211,15 @@ export function useHeroParticles() {
   let mouse = { x: null, y: null }
   let resizeObserver = null
 
+  function isMobileMode() {
+    if (typeof window === 'undefined') return false
+    const isSmallScreen = window.innerWidth <= 768
+    const hasTouchScreen = 'ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
+    const mobileRegex = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera || ''
+    return isSmallScreen || (hasTouchScreen && window.innerWidth <= 1024) || mobileRegex.test(userAgent.toLowerCase())
+  }
+
   function initParticleSystem() {
     if (!container) return
     const rect = container.getBoundingClientRect()
@@ -223,6 +232,20 @@ export function useHeroParticles() {
     canvas.height = height
     canvas.style.width = `${rect.width}px`
     canvas.style.height = `${rect.height}px`
+
+    // 手机模式：不生成大括号 shape 目标粒子，仅保留优美轻量的自由漂浮背景粒子，绝不汇聚成大括号
+    if (isMobileMode()) {
+      const mobileBgCount = 60
+      const tempParticles = []
+      for (let i = 0; i < mobileBgCount; i++) {
+        tempParticles.push(new AntigravityParticle(0, 0, width, height, 'scatter'))
+      }
+      particles = tempParticles
+      for (const p of particles) {
+        p.updateTheme()
+      }
+      return
+    }
 
     const offscreen = document.createElement('canvas')
     offscreen.width = width
@@ -285,19 +308,24 @@ export function useHeroParticles() {
     const time = Date.now()
     ctx.clearRect(0, 0, width, height)
 
+    const effectiveHover = isMobileMode() ? false : isHovering
     for (let i = 0; i < particles.length; i++) {
-      particles[i].update(isHovering, mouse, width, height, time)
+      particles[i].update(effectiveHover, mouse, width, height, time)
       particles[i].draw(ctx)
     }
     animId = requestAnimationFrame(animate)
   }
 
-  function onMouseEnter() { isHovering = true }
+  function onMouseEnter() {
+    if (isMobileMode()) return
+    isHovering = true
+  }
   function onMouseLeave() {
     isHovering = false
     mouse = { x: null, y: null }
   }
   function onMouseMove(e) {
+    if (isMobileMode()) return
     const rect = canvas.getBoundingClientRect()
     mouse = {
       x: (e.clientX - rect.left) * dpr,

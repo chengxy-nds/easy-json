@@ -1,7 +1,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, inject, nextTick } from 'vue'
 import { ExternalLink, Image as ImageIcon, Volume2, Video as VideoIcon, Table, GitFork, Copy, ArrowLeft, Minus, Plus, Map as MapIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, CalendarClock, KeyRound } from 'lucide-vue-next'
-import { safeStringify } from '../utils/jsonBigInt.js'
+import { safeStringify, isLosslessNumber } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
 import { detectTimestamp, detectUnicode, detectNestedJson, getFormatNow } from '../utils/capsuleDetector.js'
 import { detectMedia, detectBase64Text, detectUrlEncoded, detectCron, detectJwt, detectHtml } from '../utils/advancedDetectors.js'
@@ -84,7 +84,9 @@ const handleCopyValue = (val) => {
   if (val === undefined || val === null) return
   const disp = getDisplayValue(val)
   let text = ''
-  if (typeof disp === 'object') {
+  if (isLosslessNumber(disp)) {
+    text = String(disp)
+  } else if (typeof disp === 'object') {
     text = safeStringify(disp, null, 2)
   } else if (typeof disp === 'string' && detectNestedJson(disp)) {
     text = JSON.stringify(disp)
@@ -301,11 +303,12 @@ const toggleGlobalTableMode = () => {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const isPrimitive = (v) => v === null || typeof v !== 'object'
+const isPrimitive = (v) => v === null || typeof v !== 'object' || isLosslessNumber(v)
 
 const getValueType = (v) => {
   if (v === undefined) return 'undefined'
   if (v === null) return 'null'
+  if (isLosslessNumber(v)) return 'number'
   if (Array.isArray(v)) return 'array'
   if (typeof v === 'object') return 'object'
   return typeof v
@@ -315,6 +318,7 @@ const getPreview = (v) => {
   if (v === undefined) return ''
   const disp = getDisplayValue(v)
   if (disp === null) return 'null'
+  if (isLosslessNumber(disp)) return String(disp)
   if (Array.isArray(disp)) return `[${disp.length}]`
   if (typeof disp === 'object') return `{${Object.keys(disp).length}}`
   if (typeof disp === 'string') {
@@ -3015,7 +3019,6 @@ const startMinimapDrag = (e) => {
 :global(.dark-mode .graph-view .card-val.is-selected .cval-array),
 :global(.dark-mode .graph-view .card-val.is-selected .cval-object) {
   color: #61afef !important;
-  font-weight: 700 !important;
 }
 
 .tbl-th.is-hovered,

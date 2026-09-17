@@ -1822,6 +1822,17 @@ mark.search-match-current {
   position: relative;
   flex-shrink: 0;
   white-space: nowrap;
+  max-width: 160px;
+  min-width: 60px;
+}
+
+.compare-tab>span,
+.compare-tab .tab-title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
 }
 
 .compare-tab:hover {

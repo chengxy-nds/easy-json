@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, FileCode, Layers, Table2, Network, ListTree,
   ClipboardPaste, HelpCircle, Chrome, Laptop, Terminal, MessageCircle,
   Check, Plus, X, ArrowUpDown, MousePointerClick, RefreshCw,
-  Sun, Moon, FlaskConical
+  Sun, Moon, FlaskConical, Menu, ExternalLink
 } from 'lucide-vue-next'
 
 const isDark = inject('isDark')
@@ -15,9 +15,34 @@ import TargetCursor from './TargetCursor.vue'
 import { extractJsonFromText } from '../utils/jsonExtractor.js'
 import { safeParse, safeStringify } from '../utils/jsonBigInt.js'
 import { useHeroParticles } from '../composables/useHeroParticles.js'
+import pkg from '../../package.json'
+
+const currentVersion = `v${pkg.version || '1.0.0'}`
+
+const mobileMenuOpen = ref(false)
+const toggleMobileMenu = () => {
+  mobileMenuOpen.value = !mobileMenuOpen.value
+}
+const closeMobileMenu = () => {
+  mobileMenuOpen.value = false
+}
 
 const heroRef = ref(null)
 const heroParticles = useHeroParticles()
+
+const isMobile = ref(false)
+const checkMobile = () => {
+  if (typeof window === 'undefined') return
+  if (window.innerWidth > 990) {
+    mobileMenuOpen.value = false
+  }
+  const isSmallScreen = window.innerWidth <= 768
+  const userAgent = navigator.userAgent || navigator.vendor || window.opera || ''
+  const mobileRegex = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini/i
+  const hasTouchScreen = 'ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
+  isMobile.value = isSmallScreen || (hasTouchScreen && window.innerWidth <= 1024) || mobileRegex.test(userAgent.toLowerCase())
+}
+
 const isDesktopOrPlugin = computed(() => {
   if (typeof window === 'undefined') return false
   return !!(
@@ -486,6 +511,8 @@ const staticTabCompareB = highlightJson('{\n  "host": "0.0.0.0",\n  "port": 8080
 const heroContentRef = ref(null)
 
 onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile, { passive: true })
   handleParse(playgroundInput.value)
   if (heroRef.value && heroContentRef.value) {
     heroParticles.mount(heroRef.value, heroContentRef.value)
@@ -504,6 +531,7 @@ watch(() => props.active, (val) => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('resize', checkMobile)
   heroParticles.unmount()
 })
 </script>
@@ -514,7 +542,7 @@ onBeforeUnmount(() => {
     <!-- ─── 100% Full-Width Combined Top Hero Block (Navbar + Hero Section) ─── -->
     <div ref="heroRef" class="hero-top-block animate-fade-in">
       <!-- Floating 3D Physics Lanyard Card (Positioned at Top-Right Corner of Screen) -->
-      <div v-if="!isUTools" class="hero-right-lanyard">
+      <div v-if="!isUTools && !isMobile" class="hero-right-lanyard">
         <LanyardWrapper
           :position="[0, 0, 20]"
           :gravity="[0, -40, 0]"
@@ -534,7 +562,7 @@ onBeforeUnmount(() => {
               <img src="/images/logo.png" class="home-nav-logo-icon" alt="easyJSON logo" />
               <span class="home-nav-logo-text">EASY JSON</span>
             </a>
-            <span class="home-nav-badge">v1.0.7</span>
+            <span class="home-nav-badge">{{ currentVersion }}</span>
             <span class="home-nav-sep" />
           </div>
 
@@ -555,7 +583,7 @@ onBeforeUnmount(() => {
 
           <!-- Right: CTA + GitHub -->
           <div class="home-nav-right">
-            <button class="cursor-target home-btn-primary" @click="$emit('go-to-app')" id="home-open-app-btn">
+            <button class="cursor-target home-btn-primary home-nav-enter-btn" @click="$emit('go-to-app')" id="home-open-app-btn">
               进入
             </button>
             <a href="https://github.com/chengxy-nds/easy-json" target="_blank" class="cursor-target home-nav-ghost-btn" title="GitHub">
@@ -567,8 +595,69 @@ onBeforeUnmount(() => {
               <Sun v-if="isDark" :size="16" />
               <Moon v-else :size="16" />
             </button>
+            <button
+              class="cursor-target home-nav-theme-btn home-mobile-menu-btn"
+              @click="toggleMobileMenu"
+              :title="mobileMenuOpen ? '关闭菜单' : '更多功能'"
+              :aria-expanded="mobileMenuOpen"
+            >
+              <X v-if="mobileMenuOpen" :size="17" />
+              <Menu v-else :size="17" />
+            </button>
           </div>
         </nav>
+
+        <!-- Mobile Dropdown Menu -->
+        <Transition name="mobile-menu-drop">
+          <div v-if="mobileMenuOpen" class="home-mobile-dropdown">
+            <div class="mobile-menu-list">
+              <a
+                href="http://xiaofucode.com"
+                target="_blank"
+                class="mobile-menu-item"
+                @click="closeMobileMenu"
+              >
+                <span>面试专题</span>
+                <ExternalLink :size="14" class="menu-ext-icon" />
+              </a>
+              <a
+                href="#contact"
+                class="mobile-menu-item"
+                @click="closeMobileMenu"
+              >
+                <span>联系交流</span>
+              </a>
+              <a
+                class="mobile-menu-item"
+                href="#"
+                @click.prevent="$emit('go-to-changelog'); closeMobileMenu()"
+              >
+                <span>更新历史</span>
+              </a>
+              <a
+                class="mobile-menu-item"
+                href="#"
+                @click.prevent="$emit('go-to-comment'); closeMobileMenu()"
+              >
+                <div class="menu-item-left">
+                  <MessageCircle :size="15" />
+                  <span>评论</span>
+                </div>
+              </a>
+              <a
+                class="mobile-menu-item"
+                href="#"
+                @click.prevent="$emit('go-to-test'); closeMobileMenu()"
+              >
+                <div class="menu-item-left">
+                  <FlaskConical :size="15" />
+                  <span>示例</span>
+                </div>
+              </a>
+            </div>
+          </div>
+        </Transition>
+        <div v-if="mobileMenuOpen" class="mobile-menu-backdrop" @click="closeMobileMenu"></div>
       </header>
 
       <!-- ─── Hero Section ─── -->
@@ -812,7 +901,7 @@ onBeforeUnmount(() => {
                   <div class="popup-header">
                     <img src="/images/logo.png" class="popup-logo" />
                     <span>easyJSON 弹窗</span>
-                    <span class="popup-badge">v1.0.7</span>
+                    <span class="popup-badge">{{ currentVersion }}</span>
                   </div>
                   <div class="popup-content">
                     <div class="popup-result">
@@ -829,7 +918,7 @@ onBeforeUnmount(() => {
         </section>
 
         <!-- ─── Zero-Click Auto Paste Flow Section (自动粘贴) ─── -->
-        <section id="auto-paste" class="auto-paste-section">
+        <section v-if="!isMobile" id="auto-paste" class="auto-paste-section">
           <div class="section-header">
             <h2 class="section-title">自动粘贴 — 零操作格式化</h2>
             <p class="section-subtitle-small">复制 → 切回 easyJSON → 自动粘贴并格式化，全程零点击。</p>
@@ -1216,6 +1305,83 @@ onBeforeUnmount(() => {
 .home-btn-primary:hover{background:rgba(0,0,0,0.92);transform:translateY(-0.5px);box-shadow:0 3px 8px rgba(0,0,0,0.16)}
 .dark-mode .home-btn-primary:hover{background:rgba(255,255,255,0.22);transform:translateY(-0.5px)}
 .home-btn-primary:active{transform:scale(0.97);box-shadow:0 1px 2px rgba(0,0,0,0.1)}
+
+/* Mobile menu trigger button & dropdown */
+.home-mobile-menu-btn {
+  display: none !important;
+}
+.mobile-menu-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9997;
+  background: rgba(0, 0, 0, 0.15);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.home-mobile-dropdown {
+  position: absolute;
+  top: 48px;
+  left: 12px;
+  right: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  padding: 8px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.12), 0 4px 12px rgba(0, 0, 0, 0.04);
+  z-index: 9998;
+}
+.dark-mode .home-mobile-dropdown {
+  background: rgba(26, 26, 30, 0.95);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+}
+.mobile-menu-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mobile-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 14px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+.mobile-menu-item:hover,
+.mobile-menu-item:active {
+  background: rgba(0, 0, 0, 0.04);
+}
+.dark-mode .mobile-menu-item:hover,
+.dark-mode .mobile-menu-item:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+.menu-item-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.menu-ext-icon {
+  color: var(--text-muted);
+}
+.mobile-menu-drop-enter-active,
+.mobile-menu-drop-leave-active {
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.mobile-menu-drop-enter-from,
+.mobile-menu-drop-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+}
 
 /* ═══ MAIN LAYOUT ═══ */
 .home-main{flex:1;display:flex;justify-content:center;padding:0 24px;position:relative;z-index:1}
@@ -1651,6 +1817,11 @@ body.utools-mode .hero-badge {
   .home-page{--section-gap:60px} .home-content-wrap{margin-bottom:60px} .home-content-wrap > section{margin-bottom:var(--section-gap, 60px);padding:32px clamp(16px,4vw,32px)}
   .hero-section{padding:0 0 48px}
   .hero-badge{margin-top:32px}
+  .home-nav-enter-btn{display:none !important}
+  .hero-right-lanyard{display:none !important}
+  .auto-paste-section{display:none !important}
+  .footer-qr-section{flex-direction:column !important;align-items:center !important;gap:36px !important;padding:32px 16px !important}
+  .footer-qr-item{width:100%;max-width:280px}
   .grid-features-cards{grid-template-columns:repeat(2,1fr)}
   .showcase-content,.interactive-showcase-section.reverse .showcase-content{grid-template-columns:1fr;gap:32px}
   .mv-cards{grid-template-columns:repeat(2,1fr)}
@@ -1663,7 +1834,10 @@ body.utools-mode .hero-badge {
   .hero-dl-card-desc{display:none}
   .hero-dl-card-meta{font-size:9px}
 }
-@media(max-width:990px){.home-nav-links{display:none}}
+@media(max-width:990px){
+  .home-nav-links{display:none}
+  .home-mobile-menu-btn{display:inline-flex !important}
+}
 @media(max-width:860px){
   .code-mockup-grid{grid-template-columns:1fr}
   .flow-arrow-wrap{padding:8px 0}

@@ -180,6 +180,10 @@ const props = defineProps({
   replaceQuery: {
     type: String,
     default: ''
+  },
+  readOnly: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -331,6 +335,7 @@ const wrapCompartment = new Compartment()
 const gutterCompartment = new Compartment()
 const themeCompartment = new Compartment()
 const customThemeCompartment = new Compartment()
+const readOnlyCompartment = new Compartment()
 
 // Hanging indent wrap plugin: keeps wrapped lines aligned with the line's indent level (never exceeding the key)
 const indentWrapPlugin = ViewPlugin.fromClass(
@@ -871,6 +876,7 @@ const initCodeMirror = () => {
   const startState = EditorState.create({
     doc: props.modelValue || '',
     extensions: [
+      readOnlyCompartment.of(EditorState.readOnly.of(!!props.readOnly)),
       focusField,
       gutterCompartment.of(getGutterExtensions(props.showLineNumbers)),
       codeFolding({
@@ -1038,6 +1044,13 @@ watch(() => props.showLineNumbers, (newShow) => {
   if (!editorView) return
   editorView.dispatch({
     effects: gutterCompartment.reconfigure(getGutterExtensions(newShow))
+  })
+})
+
+watch(() => props.readOnly, (newReadOnly) => {
+  if (!editorView) return
+  editorView.dispatch({
+    effects: readOnlyCompartment.reconfigure(EditorState.readOnly.of(!!newReadOnly))
   })
 })
 
@@ -1365,62 +1378,7 @@ const foldAllNodes = () => {
   if (!editorView) return
   isInternalFoldSync = true
   try {
-    unfoldAll(editorView)
-
-    const state = editorView.state
-    const tree = syntaxTree(state)
-    let root = null
-    let c = tree.topNode.firstChild
-    while (c) {
-      if (c.name === 'Object' || c.name === 'Array') {
-        root = c
-        break
-      }
-      c = c.nextSibling
-    }
-
-    if (!root) {
-      foldAll(editorView)
-      return
-    }
-
-    const effects = []
-
-    const collectFoldableRanges = (node, depth = 0) => {
-      let child = node.firstChild
-      while (child) {
-        if (child.name === 'Property') {
-          let valNode = child.getChild('PropertyName')?.nextSibling
-          while (valNode && (valNode.name === ':' || valNode.name === ',')) {
-            valNode = valNode.nextSibling
-          }
-          if (valNode && (valNode.name === 'Object' || valNode.name === 'Array')) {
-            const startLine = state.doc.lineAt(valNode.from)
-            const endLine = state.doc.lineAt(valNode.to)
-            if (endLine.number > startLine.number) {
-              effects.push(foldEffect.of({ from: valNode.from + 1, to: valNode.to - 1 }))
-              collectFoldableRanges(valNode, depth + 1)
-            }
-          }
-        } else if (child.name === 'Object' || child.name === 'Array') {
-          if (depth > 0 || node === root) {
-            const startLine = state.doc.lineAt(child.from)
-            const endLine = state.doc.lineAt(child.to)
-            if (endLine.number > startLine.number) {
-              effects.push(foldEffect.of({ from: child.from + 1, to: child.to - 1 }))
-            }
-          }
-          collectFoldableRanges(child, depth + 1)
-        }
-        child = child.nextSibling
-      }
-    }
-
-    collectFoldableRanges(root, 0)
-
-    if (effects.length > 0) {
-      editorView.dispatch({ effects })
-    }
+    foldAll(editorView)
   } catch (e) {
     console.warn('foldAllNodes error:', e)
   } finally {
@@ -1435,6 +1393,75 @@ const unfoldAllNodes = () => {
   isInternalFoldSync = true
   try {
     unfoldAll(editorView)
+  } finally {
+    setTimeout(() => {
+      isInternalFoldSync = false
+    }, 50)
+  }
+}
+
+const foldToLevel = (targetLevel) => {
+  if (!editorView) return
+  isInternalFoldSync = true
+  try {
+    unfoldAll(editorView)
+    if (targetLevel === null || targetLevel === undefined) return
+
+    const state = editorView.state
+    const tree = syntaxTree(state)
+    let root = null
+    let c = tree.topNode.firstChild
+    while (c) {
+      if (c.name === 'Object' || c.name === 'Array') {
+        root = c
+        break
+      }
+      c = c.nextSibling
+    }
+
+    if (!root) return
+
+    const effects = []
+
+    const collectRanges = (node, depth = 0) => {
+      let child = node.firstChild
+      while (child) {
+        if (child.name === 'Property') {
+          let valNode = child.getChild('PropertyName')?.nextSibling
+          while (valNode && (valNode.name === ':' || valNode.name === ',')) {
+            valNode = valNode.nextSibling
+          }
+          if (valNode && (valNode.name === 'Object' || valNode.name === 'Array')) {
+            const startLine = state.doc.lineAt(valNode.from)
+            const endLine = state.doc.lineAt(valNode.to)
+            if (endLine.number > startLine.number) {
+              if (depth + 1 >= targetLevel) {
+                effects.push(foldEffect.of({ from: valNode.from + 1, to: valNode.to - 1 }))
+              }
+              collectRanges(valNode, depth + 1)
+            }
+          }
+        } else if (child.name === 'Object' || child.name === 'Array') {
+          const startLine = state.doc.lineAt(child.from)
+          const endLine = state.doc.lineAt(child.to)
+          if (endLine.number > startLine.number) {
+            if (depth >= targetLevel) {
+              effects.push(foldEffect.of({ from: child.from + 1, to: child.to - 1 }))
+            }
+          }
+          collectRanges(child, depth + 1)
+        }
+        child = child.nextSibling
+      }
+    }
+
+    collectRanges(root, 0)
+
+    if (effects.length > 0) {
+      editorView.dispatch({ effects })
+    }
+  } catch (e) {
+    console.warn('foldToLevel error:', e)
   } finally {
     setTimeout(() => {
       isInternalFoldSync = false
@@ -1470,6 +1497,7 @@ defineExpose({
   foldPath,
   foldAll: foldAllNodes,
   unfoldAll: unfoldAllNodes,
+  foldToLevel,
   getEditorView: () => editorView,
   getScrollDOM: () => editorView?.scrollDOM
 })

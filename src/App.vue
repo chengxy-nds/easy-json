@@ -1,13 +1,14 @@
 <script setup>
-import { ref, computed, onMounted, provide, watch, onBeforeUnmount, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, provide, watch, onBeforeUnmount, defineAsyncComponent, nextTick } from 'vue'
 import JsonFormatter from './components/JsonFormatter.vue'
 import JsonComparer from './components/JsonComparer.vue'
 import GlobalTooltip from './components/GlobalTooltip.vue'
+import HistoryDrawer from './components/HistoryDrawer.vue'
 const HomeView = defineAsyncComponent(() => import('./components/HomeView.vue'))
 const TestView = defineAsyncComponent(() => import('./components/TestView.vue'))
 const CommentView = defineAsyncComponent(() => import('./components/Comment.vue'))
 const ChangelogView = defineAsyncComponent(() => import('./components/ChangelogView.vue'))
-import { Sun, Moon, Split, Braces, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check, Settings, ChevronDown } from 'lucide-vue-next'
+import { Sun, Moon, Split, Braces, History, CheckCircle, AlertTriangle, Palette, ArrowUpDown, ArrowUp, ArrowDown, Space, Zap, ClipboardCheck, Search, Home, Maximize, Clipboard, FlaskConical, Download, X, MessageCircle, Check, Settings, ChevronDown } from 'lucide-vue-next'
 import { useUpdateCheck } from './composables/useUpdateCheck.js'
 import { useInstallCheck } from './composables/useInstallCheck.js'
 
@@ -191,6 +192,122 @@ const setTab = (tab) => {
   currentTab.value = tab
   localStorage.setItem('ej_tab', tab)
 }
+
+// 历史记录抽屉状态与操作处理
+const isHistoryDrawerOpen = ref(false)
+const currentHistoryTabInfo = ref({ tabId: null, title: '' })
+const formatterRef = ref(null)
+const comparerRef = ref(null)
+
+const getCurrentActiveTabContent = () => {
+  if (formatterRef.value && typeof formatterRef.value.getCurrentContent === 'function') {
+    return formatterRef.value.getCurrentContent() || ''
+  }
+  return ''
+}
+
+const setHistoryTabInfo = (info) => {
+  if (info && info.tabId != null) {
+    currentHistoryTabInfo.value = {
+      tabId: info.tabId,
+      title: info.title || ''
+    }
+  }
+}
+
+const toggleHistoryDrawer = (info) => {
+  if (info && info.tabId != null) {
+    currentHistoryTabInfo.value = {
+      tabId: info.tabId,
+      title: info.title || ''
+    }
+  } else if (formatterRef.value?.getActiveTabId) {
+    currentHistoryTabInfo.value = {
+      tabId: formatterRef.value.getActiveTabId(),
+      title: formatterRef.value.getActiveTabTitle() || ''
+    }
+  }
+  isHistoryDrawerOpen.value = !isHistoryDrawerOpen.value
+}
+
+const handleOpenNewTabFromHistory = (item) => {
+  const content = typeof item === 'string' ? item : item?.content
+  if (!content) {
+    showToast('历史记录内容为空', 'error')
+    return
+  }
+  setTab('format')
+  // 命名格式：原来的tab名字-版本号-四位随机字符
+  const baseTitle = item?.tabTitle || item?.title || '格式化'
+  const versionTag = item?.versionTag || 'v1'
+  const chars = '0123456789abcdefghijklmnopqrstuvwxyz'
+  let randomStr = ''
+  for (let i = 0; i < 4; i++) {
+    randomStr += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  const newTabTitle = `${baseTitle}-${versionTag}-${randomStr}`
+  const doOpen = () => {
+    if (formatterRef.value && typeof formatterRef.value.openInNewTab === 'function') {
+      formatterRef.value.openInNewTab(content, newTabTitle)
+      showToast('已在新建 Tab 中打开历史记录')
+    } else {
+      setTimeout(() => {
+        if (formatterRef.value && typeof formatterRef.value.openInNewTab === 'function') {
+          formatterRef.value.openInNewTab(content, newTabTitle)
+          showToast('已在新建 Tab 中打开历史记录')
+        }
+      }, 80)
+    }
+  }
+  nextTick(doOpen)
+}
+
+const handleLoadToCurrentFromHistory = (item) => {
+  const content = typeof item === 'string' ? item : item?.content
+  if (!content) {
+    showToast('历史记录内容为空', 'error')
+    return
+  }
+  setTab('format')
+  const doLoad = () => {
+    if (formatterRef.value && typeof formatterRef.value.loadToCurrentTab === 'function') {
+      formatterRef.value.loadToCurrentTab(content)
+      showToast('已载入至当前 Tab')
+    } else {
+      setTimeout(() => {
+        if (formatterRef.value && typeof formatterRef.value.loadToCurrentTab === 'function') {
+          formatterRef.value.loadToCurrentTab(content)
+          showToast('已载入至当前 Tab')
+        }
+      }, 80)
+    }
+  }
+  nextTick(doLoad)
+}
+
+const handleCompareWithCurrentFromHistory = (item) => {
+  let currentText = ''
+  if (formatterRef.value && typeof formatterRef.value.getCurrentContent === 'function') {
+    currentText = formatterRef.value.getCurrentContent()
+  }
+
+  setTab('compare')
+
+  nextTick(() => {
+    const doOpen = () => {
+      if (comparerRef.value && typeof comparerRef.value.openInNewTab === 'function') {
+        const title = item.title ? `历史对比 (${item.title})` : '历史版本对比'
+        comparerRef.value.openInNewTab(item.content, currentText, title)
+        showToast('已在对比页面打开历史版本对比')
+      }
+    }
+    if (comparerRef.value) {
+      doOpen()
+    } else {
+      setTimeout(doOpen, 100)
+    }
+  })
+}
 const isDark = ref(true)
 const isPremiumTheme = ref(true)
 // sortKeys: 0 = off, 1 = asc (A→Z), 2 = desc (Z→A)
@@ -209,6 +326,9 @@ provide('autoExtract', autoExtract)
 provide('autoPaste', autoPaste)
 provide('incomingExtractText', incomingExtractText)
 provide('incomingCompareText', incomingCompareText)
+provide('isHistoryDrawerOpen', isHistoryDrawerOpen)
+provide('toggleHistoryDrawer', toggleHistoryDrawer)
+provide('setHistoryTabInfo', setHistoryTabInfo)
 
 watch(sortKeys, (newVal) => {
   localStorage.setItem('ej_global_sort_keys', String(newVal))
@@ -1013,13 +1133,24 @@ onBeforeUnmount(() => {
     <main class="app-main-content">
       <div class="main-tab-wrapper">
         <div class="main-tab-pane" :class="{ 'is-hidden': currentTab !== 'format' }">
-          <JsonFormatter />
+          <JsonFormatter ref="formatterRef" />
         </div>
         <div v-if="hasLoadedCompare" class="main-tab-pane" :class="{ 'is-hidden': currentTab !== 'compare' }">
-          <JsonComparer />
+          <JsonComparer ref="comparerRef" />
         </div>
       </div>
     </main>
+
+    <!-- Global History Drawer -->
+    <HistoryDrawer
+      v-model:visible="isHistoryDrawerOpen"
+      :current-tab-id="currentHistoryTabInfo.tabId"
+      :current-tab-title="currentHistoryTabInfo.title"
+      :get-current-content="getCurrentActiveTabContent"
+      @open-new-tab="handleOpenNewTabFromHistory"
+      @load-to-current="handleLoadToCurrentFromHistory"
+      @toast="showToast"
+    />
 
     <!-- Global Toast Notification Stack -->
     <Teleport to="body">

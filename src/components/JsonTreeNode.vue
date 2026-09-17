@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, inject, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ChevronDown, ChevronRight, ExternalLink, Image as ImageIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, Volume2, Video as VideoIcon, KeyRound, FileCode, Code2, CalendarClock } from 'lucide-vue-next'
-import { safeStringify } from '../utils/jsonBigInt.js'
+import { safeStringify, isLosslessNumber } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
 import { detectTimestamp, detectUnicode, detectNestedJson, getFormatNow } from '../utils/capsuleDetector.js'
 import { detectMedia, detectJwt, detectBase64Text, detectUrlEncoded, detectCron, detectHtml } from '../utils/advancedDetectors.js'
@@ -433,7 +433,7 @@ const effectiveValue = computed(() => {
 })
 
 const isObject = computed(() => {
-  return effectiveValue.value !== null && typeof effectiveValue.value === 'object'
+  return effectiveValue.value !== null && typeof effectiveValue.value === 'object' && !isLosslessNumber(effectiveValue.value)
 })
 
 const isArray = computed(() => {
@@ -460,7 +460,7 @@ const formatValue = (val) => {
 const valueClass = computed(() => {
   const val = props.value
   if (typeof val === 'string') return 'tree-string'
-  if (typeof val === 'number' || typeof val === 'bigint') return 'tree-number'
+  if (typeof val === 'number' || typeof val === 'bigint' || isLosslessNumber(val)) return 'tree-number'
   if (typeof val === 'boolean') return 'tree-boolean'
   if (val === null) return 'tree-null'
   return ''
@@ -480,7 +480,9 @@ const handleCopyValue = (e) => {
   onKeyClick()
   let text = ''
   const currentVal = effectiveValue.value
-  if (typeof currentVal === 'object' && currentVal !== null) {
+  if (isLosslessNumber(currentVal)) {
+    text = String(currentVal)
+  } else if (typeof currentVal === 'object' && currentVal !== null) {
     text = safeStringify(currentVal, null, 2)
   } else if (typeof currentVal === 'string') {
     text = currentVal

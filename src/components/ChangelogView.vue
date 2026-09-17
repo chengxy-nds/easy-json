@@ -11,6 +11,20 @@ const emit = defineEmits(['go-back'])
 
 const changelog = [
   {
+    version: 'v1.0.9',
+    date: '2026-09-17',
+    sections: [
+      {
+        icon: Sparkles,
+        title: '功能新增',
+        iconClass: 'cl-section-sparkle',
+        items: [
+          '增加历史版本功能'
+        ]
+      }
+    ]
+  },
+  {
     version: 'v1.0.7',
     date: '2026-09-09',
     sections: [

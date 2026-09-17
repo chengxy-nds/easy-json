@@ -7,7 +7,7 @@ import {
   ChevronDown, ChevronRight, ChevronUp, ChevronLeft, HelpCircle, Minimize2, Code, Search, Plus, X,
   Network, Table2, Menu, FileCode, Maximize2, Strikethrough, ListTree,
   Pencil, ArrowLeft, ArrowRight, Wand2, GripVertical, ArrowLeftToLine, ArrowRightToLine, MoreHorizontal,
-  ShieldCheck, Workflow,
+  ShieldCheck, Workflow, History,
   Smartphone, IdCard, Mail, CreditCard, Globe,
   Car, Building2, BookUser, Database, Loader2
 } from 'lucide-vue-next'
@@ -22,7 +22,7 @@ import MaskKeyTreePicker from './MaskKeyTreePicker.vue'
 import CodeMirrorEditor from './CodeMirrorEditor.vue'
 import { extractJsonFromText, convertJsObjectToJson, safeParseJsLike, tryParseCandidate } from '../utils/jsonExtractor.js';
 import { convertJson, formatLabels, getFormatExtension } from '../utils/jsonConverter.js';
-import { safeParse, safeStringify } from '../utils/jsonBigInt.js';
+import { safeParse, safeStringify, isLosslessNumber } from '../utils/jsonBigInt.js';
 import { maskJsonData } from '../utils/dataMasker.js';
 import { queryJsonPath } from '../utils/jsonPath.js';
 import { isImageUrl } from '../utils/imageDetector.js';
@@ -34,11 +34,13 @@ import {
   deleteTabContentFromDb,
   cleanOrphanTabsInDb
 } from '../utils/tabStorage.js';
+import { addHistoryRecord, clearTabHistoryRecords } from '../utils/historyStorage.js';
 import { HAS_UNICODE_ESCAPE_RE } from '../utils/capsuleDetector.js';
 
 const showToast = inject('showToast')
 const isDark = inject('isDark', ref(true))
 const isPremiumTheme = inject('isPremiumTheme', ref(true))
+const setHistoryTabInfo = inject('setHistoryTabInfo', null)
 const cmEditorRef = ref(null)
 
 const indentSize = ref('2') // '2' | '4' | 'tab' | 'minify'
@@ -48,6 +50,8 @@ const autoCopy = inject('autoCopy', ref(false))
 const autoExtract = inject('autoExtract', ref(true))
 const autoPaste = inject('autoPaste', ref(false))
 const incomingExtractText = inject('incomingExtractText', ref(null))
+const isHistoryDrawerOpen = inject('isHistoryDrawerOpen', ref(false))
+const toggleHistoryDrawer = inject('toggleHistoryDrawer', () => {})
 const formatterLastPasted = ref('')
 
 // 保护左侧源码原文（Unicode 转义字符或转义 JSON 字符串绝不被解码后的文本自动覆盖）
@@ -252,7 +256,7 @@ const formatFileSize = (bytes) => {
   if (!bytes || bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB']
   const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
-  const val = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)
+  const val = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1).replace(/\.0$/, '')
   return `${val} ${units[i]}`
 }
 
@@ -315,6 +319,7 @@ const processImportFile = async (file) => {
     saveFormatterState(true)
 
     showToast(`文件导入成功 (${importLoading.value.fileSize})`)
+    recordHistoryItem(finalText, activeTab.value?.title || importLoading.value.fileName)
   } catch (err) {
     console.error('导入文件失败:', err)
     showToast('文件导入失败: ' + (err.message || '未知错误'), 'error')
@@ -333,6 +338,7 @@ const handleImportText = (text) => {
       activeTabId.value = activeTab.value.id
     }
     saveFormatterState(true)
+    recordHistoryItem(text, activeTab.value.title)
   }
 }
 
@@ -1105,9 +1111,14 @@ const DEMO_JSON = `{
 }`
 
 // Formatter Multi-Tabs State
+const generateTabId = () => {
+  return 'fmt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)
+}
+
+const initialTabId = generateTabId()
 const tabs = ref([
   {
-    id: 1,
+    id: initialTabId,
     title: '格式化 1',
     inputText: '',
     outputText: '',
@@ -1120,11 +1131,22 @@ const tabs = ref([
     extractedFormat: null
   }
 ])
-const activeTabId = ref(1)
+const activeTabId = ref(initialTabId)
 const { tabsListRef, tabsOverflow, onMouseDown: onTabsMouseDown, onWheel: onTabsWheel, scrollToEnd: scrollTabsToEnd, scrollToActive: scrollTabsToActive, checkOverflow: checkTabsOverflow } = useTabsDrag(activeTabId)
 
 const activeTab = computed(() => {
   return tabs.value.find(t => t.id === activeTabId.value) || tabs.value[0]
+})
+
+// 监听活跃 Tab 变化，实时同步当前 Tab 信息给历史记录抽屉
+watch(activeTabId, (newId) => {
+  const cur = tabs.value.find(t => t.id === newId)
+  if (cur && setHistoryTabInfo) {
+    setHistoryTabInfo({
+      tabId: cur.id,
+      title: cur.title || ''
+    })
+  }
 })
 
 watch(() => activeTab.value?.viewMode, (mode) => {
@@ -1144,9 +1166,6 @@ watch(() => activeTab.value?.viewMode, (mode) => {
   }
 })
 
-
-let nextTabId = 2
-
 const nextDisplayNumber = () => {
   const used = new Set(tabs.value.map(t => {
     const m = t.title.match(/^格式化 (\d+)$/)
@@ -1158,7 +1177,7 @@ const nextDisplayNumber = () => {
 }
 
 const addTab = () => {
-  const newId = nextTabId++
+  const newId = generateTabId()
   const num = nextDisplayNumber()
   tabs.value.push({
     id: newId,
@@ -1178,6 +1197,45 @@ const addTab = () => {
   saveFormatterState(true)
 }
 
+const openInNewTab = (text, title = '') => {
+  if (!text) return
+  const newId = generateTabId()
+  const num = nextDisplayNumber()
+  // 若传入的 title 已经存在或为空，自动生成不重复的清晰编号，避免用户产生“未新建”的错觉
+  const isDuplicateTitle = title && tabs.value.some(t => t.title === title)
+  const finalTitle = (!title || isDuplicateTitle) ? `格式化 ${num}` : title
+
+  tabs.value.push({
+    id: newId,
+    title: finalTitle,
+    inputText: text,
+    outputText: '',
+    parsedObj: null,
+    validationError: null,
+    errorLine: null,
+    duplicateLines: [],
+    viewMode: 'tree',
+    convertFormat: null,
+    extractedFormat: null
+  })
+  activeTabId.value = newId
+  scrollTabsToEnd()
+  saveFormatterState(true)
+  nextTick(() => {
+    formatJSON()
+    checkTabsOverflow()
+  })
+}
+
+const loadToCurrentTab = (text) => {
+  if (!text || !activeTab.value) return
+  activeTab.value.inputText = text
+  saveFormatterState(true)
+  nextTick(() => {
+    formatJSON()
+  })
+}
+
 const closeTab = (id) => {
   const index = tabs.value.findIndex(t => t.id === id)
   if (index === -1) return
@@ -1191,6 +1249,8 @@ const closeTab = (id) => {
   }
   tabs.value.splice(index, 1)
   deleteTabContentFromDb(id)
+  clearTabHistoryRecords(id)
+  lastRecordedTabMap.delete(String(id))
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
@@ -1198,7 +1258,7 @@ const closeTab = (id) => {
 // 监听来自扩展的无刷新推送文本（右键"智能提取"）
 watch(incomingExtractText, (text) => {
   if (!text) return
-  const newId = nextTabId++
+  const newId = generateTabId()
   const num = nextDisplayNumber()
   tabs.value.push({
     id: newId,
@@ -1295,7 +1355,11 @@ const closeLeftTabs = () => {
   if (removed.some(t => t.id === activeTabId.value)) {
     activeTabId.value = tabs.value[0].id
   }
-  removed.forEach(t => deleteTabContentFromDb(t.id))
+  removed.forEach(t => {
+    deleteTabContentFromDb(t.id)
+    clearTabHistoryRecords(t.id)
+    lastRecordedTabMap.delete(String(t.id))
+  })
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
@@ -1307,7 +1371,11 @@ const closeRightTabs = () => {
   if (removed.some(t => t.id === activeTabId.value)) {
     activeTabId.value = tabs.value[tabs.value.length - 1].id
   }
-  removed.forEach(t => deleteTabContentFromDb(t.id))
+  removed.forEach(t => {
+    deleteTabContentFromDb(t.id)
+    clearTabHistoryRecords(t.id)
+    lastRecordedTabMap.delete(String(t.id))
+  })
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
@@ -1318,15 +1386,20 @@ const closeOtherTabs = () => {
   const removed = tabs.value.filter(t => t.id !== targetId)
   tabs.value = tabs.value.filter(t => t.id === targetId)
   activeTabId.value = targetId
-  removed.forEach(t => deleteTabContentFromDb(t.id))
+  removed.forEach(t => {
+    deleteTabContentFromDb(t.id)
+    clearTabHistoryRecords(t.id)
+    lastRecordedTabMap.delete(String(t.id))
+  })
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
 
 const closeAllTabs = () => {
-  const removed = tabs.value.slice(1)
+  const removed = tabs.value.slice()
+  const freshId = generateTabId()
   tabs.value = [{
-    id: tabs.value[0].id,
+    id: freshId,
     title: '格式化 1',
     inputText: '',
     outputText: '',
@@ -1338,8 +1411,12 @@ const closeAllTabs = () => {
     convertFormat: null,
     extractedFormat: null
   }]
-  activeTabId.value = tabs.value[0].id
-  removed.forEach(t => deleteTabContentFromDb(t.id))
+  activeTabId.value = freshId
+  removed.forEach(t => {
+    deleteTabContentFromDb(t.id)
+    clearTabHistoryRecords(t.id)
+    lastRecordedTabMap.delete(String(t.id))
+  })
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
@@ -1515,7 +1592,7 @@ const getErrorLineAndColumn = (error, text) => {
 
 // Recursively sort object keys alphabetically
 const sortJSONKeys = (obj, desc = false) => {
-  if (obj === null || typeof obj !== 'object') {
+  if (obj === null || typeof obj !== 'object' || isLosslessNumber(obj)) {
     return obj;
   }
   if (Array.isArray(obj)) {
@@ -1876,7 +1953,8 @@ const toolbarToolDefs = [
   { id: 'extract', label: '提取', icon: Wand2, tooltip: '智能提取 JSON', minWidth: 430 },
   { id: 'removeComments', label: '去注释', icon: Strikethrough, tooltip: '去除 JSON 注释', minWidth: 480 },
   { id: 'jsonpath', label: 'JSONPath', icon: Workflow, tooltip: 'JSONPath 表达式提取', minWidth: 540, active: () => showJsonPathBar.value },
-  { id: 'mask', label: '脱敏', icon: ShieldCheck, tooltip: '智能数据脱敏', minWidth: 600 }
+  { id: 'mask', label: '脱敏', icon: ShieldCheck, tooltip: '智能数据脱敏', minWidth: 600 },
+  { id: 'history', label: '历史', icon: History, tooltip: '历史记录', minWidth: 650, active: () => isHistoryDrawerOpen.value }
 ]
 
 const handleToolAction = (toolId) => {
@@ -1890,7 +1968,15 @@ const handleToolAction = (toolId) => {
     case 'removeComments': handleRemoveComments(); break;
     case 'jsonpath': toggleJsonPathBar(); break;
     case 'mask': openDataMaskModal(); break;
+    case 'history': handleOpenHistory(); break;
   }
+}
+
+const handleOpenHistory = () => {
+  toggleHistoryDrawer({
+    tabId: activeTabId.value,
+    title: activeTab.value?.title || ''
+  })
 }
 
 const toolThresholds = {
@@ -1902,7 +1988,8 @@ const toolThresholds = {
   extract: 430,
   removeComments: 480,
   jsonpath: 540,
-  mask: 600
+  mask: 600,
+  history: 650
 }
 
 const isToolVisible = (toolIdOrObj) => {
@@ -2127,6 +2214,45 @@ const formatJSON = () => {
   }
 }
 
+// 历史记录采集：仅在显式格式化/压缩/导入/提取或失焦离开时触发，禁止打字中途自动录入
+let recordHistoryTimer = null
+let lastRecordedTabMap = new Map()
+
+const recordHistoryItem = (text, title = '格式化记录') => {
+  if (!text || !text.trim() || text.trim().length <= 1) return
+  const trimmed = text.trim()
+  const currentTab = activeTab.value
+  const currentTabId = currentTab?.id != null ? String(currentTab.id) : 'default'
+  const currentTabTitle = currentTab?.title || ''
+
+  if (lastRecordedTabMap.get(currentTabId) === trimmed) return
+  lastRecordedTabMap.set(currentTabId, trimmed)
+
+  clearTimeout(recordHistoryTimer)
+  recordHistoryTimer = setTimeout(() => {
+    try {
+      const lines = trimmed.split('\n').length
+      let size = 0
+      if (typeof Blob !== 'undefined') {
+        size = new Blob([trimmed]).size
+      } else {
+        size = trimmed.length
+      }
+      const sizeText = formatFileSize(size)
+      addHistoryRecord({
+        content: trimmed,
+        title: currentTabTitle || title,
+        tabId: currentTab?.id,
+        tabTitle: currentTabTitle,
+        lines,
+        sizeText
+      })
+    } catch (e) {
+      console.warn('recordHistory failed:', e)
+    }
+  }, 200)
+}
+
 // 在新 Tab 打开并格式化嵌套 JSON
 const openNestedJsonInNewTab = (rawVal, title = '') => {
   if (rawVal === undefined || rawVal === null) return
@@ -2142,7 +2268,7 @@ const openNestedJsonInNewTab = (rawVal, title = '') => {
     textToFormat = safeStringify(rawVal, null, 2)
   }
 
-  const newId = nextTabId++
+  const newId = generateTabId()
   const num = nextDisplayNumber()
   const tabTitle = title ? `${title}` : `格式化 ${num}`
 
@@ -2325,6 +2451,23 @@ const inputLinesCount = computed(() => {
 const outputLinesCount = computed(() => {
   if (convertFormat.value && convertedOutput.value) return convertedOutput.value.split('\n').length
   return activeTab.value.outputText ? activeTab.value.outputText.split('\n').length : 1
+})
+
+// UTF-8 byte size of input text
+const inputSizeText = computed(() => {
+  const text = activeTab.value.inputText
+  if (!text) return '0 B'
+  let bytes = 0
+  if (typeof Blob !== 'undefined') {
+    try {
+      bytes = new Blob([text]).size
+    } catch (_) {}
+  } else if (typeof TextEncoder !== 'undefined') {
+    bytes = new TextEncoder().encode(text).length
+  } else {
+    bytes = text.length
+  }
+  return formatFileSize(bytes)
 })
 
 const inputGutterHtml = computed(() => {
@@ -2723,16 +2866,86 @@ const countKeys = (obj, maxLimit = 800) => {
   return n
 }
 
-const handleToggleExpand = () => {
-  treeExpanded.value = !treeExpanded.value
-  if (cmEditorRef.value) {
-    if (treeExpanded.value) {
-      cmEditorRef.value.unfoldAll?.()
+// 计算当前 JSON 实际最大可折叠嵌套深度
+const maxJsonDepth = computed(() => {
+  const tab = activeTab.value
+  if (!tab) return 0
+  const obj = tab.parsedObj || parseJsonRobust(tab.inputText)
+  if (!obj || typeof obj !== 'object' || isLosslessNumber(obj)) return 0
+
+  const getContainerDepth = (val, current = 1) => {
+    if (current >= 30) return 30 // 安全上限
+    if (val === null || typeof val !== 'object' || isLosslessNumber(val)) return current - 1
+    let max = current
+    if (Array.isArray(val)) {
+      for (let i = 0; i < val.length; i++) {
+        if (val[i] !== null && typeof val[i] === 'object' && !isLosslessNumber(val[i])) {
+          const d = getContainerDepth(val[i], current + 1)
+          if (d > max) max = d
+        }
+      }
     } else {
-      cmEditorRef.value.foldAll?.()
+      const keys = Object.keys(val)
+      for (let i = 0; i < keys.length; i++) {
+        const child = val[keys[i]]
+        if (child !== null && typeof child === 'object' && !isLosslessNumber(child)) {
+          const d = getContainerDepth(child, current + 1)
+          if (d > max) max = d
+        }
+      }
     }
+    return max
   }
-  showToast(treeExpanded.value ? '已展开全部节点' : '已折叠全部节点')
+
+  return getContainerDepth(obj, 1)
+})
+
+const showFoldMenu = ref(false)
+const foldMenuRef = ref(null)
+const currentExpandLevel = ref(null)
+const manualFoldMode = ref(null)
+
+// 层级动作模式：全部展开态默认折叠，全部折叠态默认展开
+const currentFoldActionType = computed(() => {
+  if (manualFoldMode.value) return manualFoldMode.value
+  return treeExpanded.value ? 'fold' : 'expand'
+})
+
+const handleExpandAll = () => {
+  treeExpanded.value = true
+  currentExpandLevel.value = null
+  manualFoldMode.value = 'fold'
+  showFoldMenu.value = false
+  treeWrapperRef.value?.unfoldAll?.()
+  cmEditorRef.value?.unfoldAll?.()
+  showToast('已展开全部节点')
+}
+
+const handleFoldAll = () => {
+  treeExpanded.value = false
+  currentExpandLevel.value = null
+  manualFoldMode.value = 'expand'
+  showFoldMenu.value = false
+  treeWrapperRef.value?.foldAll?.()
+  cmEditorRef.value?.foldAll?.()
+  showToast('已折叠全部节点')
+}
+
+const handleLevelAction = (level) => {
+  currentExpandLevel.value = level
+  showFoldMenu.value = false
+  treeExpanded.value = true
+  treeWrapperRef.value?.expandToLevel?.(level)
+  cmEditorRef.value?.foldToLevel?.(level)
+  if (currentFoldActionType.value === 'fold') {
+    showToast(`已折叠第 ${level} 层`)
+  } else {
+    showToast(`已展开第 ${level} 层`)
+  }
+}
+
+const handleToggleExpand = () => {
+  showFoldMenu.value = !showFoldMenu.value
 }
 
 const handleEditorToggleFold = ({ path, isFolded }) => {
@@ -2806,6 +3019,58 @@ const copyToClipboard = () => {
   }).catch(() => {
     showToast('复制失败', 'error')
   })
+}
+
+// Copy processed JSON from tree view / parsedObj
+const copyTreeSuccess = ref(false)
+const copyProcessedJson = () => {
+  const tab = activeTab.value
+  if (!tab) return
+  let text = ''
+  if (tab.parsedObj !== null && tab.parsedObj !== undefined) {
+    const space = indentSize.value === 'minify' ? 0 : (indentSize.value === 'tab' ? '\t' : (parseInt(indentSize.value) || 2))
+    text = safeStringify(tab.parsedObj, null, space)
+  } else {
+    text = tab.outputText || tab.inputText || ''
+  }
+
+  if (!text) {
+    showToast('暂无处理后的 JSON 可复制', 'error')
+    return
+  }
+
+  const handleSuccess = () => {
+    copyTreeSuccess.value = true
+    showToast('已复制处理后的 JSON')
+    setTimeout(() => {
+      copyTreeSuccess.value = false
+    }, 1500)
+  }
+
+  if (window.utools && typeof window.utools.copyText === 'function') {
+    window.utools.copyText(text)
+    handleSuccess()
+    return
+  }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(handleSuccess).catch(() => {
+      if (window.__TAURI__ || window.__TAURI_INTERNALS__) {
+        import('@tauri-apps/api/core').then(({ invoke }) => {
+          invoke('write_clipboard', { text }).then(handleSuccess).catch(err => {
+            console.error('Tauri clipboard write failed:', err)
+            showToast('复制失败', 'error')
+          })
+        }).catch(() => {
+          showToast('复制失败', 'error')
+        })
+      } else {
+        showToast('复制失败', 'error')
+      }
+    })
+  } else {
+    showToast('当前环境不支持剪贴板操作', 'error')
+  }
 }
 
 // Handle editor textarea focus (auto-paste support)
@@ -2888,6 +3153,12 @@ const handleTextareaBlur = () => {
         }
       } catch (_) {}
     }
+  }
+
+  // 仅在失焦离开输入区时沉淀有效历史，杜绝打字中途垃圾污染
+  const currentTab = activeTab.value
+  if (currentTab && currentTab.inputText && currentTab.parsedObj) {
+    recordHistoryItem(currentTab.inputText, currentTab.title)
   }
 }
 
@@ -2991,6 +3262,9 @@ const convertMenuRef = ref(null)
 const onConvertMenuClickOutside = (e) => {
   if (showConvertMenu.value && convertMenuRef.value && !convertMenuRef.value.contains(e.target)) {
     showConvertMenu.value = false
+  }
+  if (showFoldMenu.value && foldMenuRef.value && !foldMenuRef.value.contains(e.target)) {
+    showFoldMenu.value = false
   }
 }
 
@@ -3488,6 +3762,7 @@ const handleFormatDirect = () => {
       tab.errorLine = null
       showToast('格式化成功')
       autoCopyResult(formatted)
+      recordHistoryItem(formatted, tab.title)
     } catch (err) {
       formatJSON()
     } finally {
@@ -3536,6 +3811,7 @@ const handleMinifyDirect = () => {
 
       showToast('压缩成功')
       autoCopyResult(minified)
+      recordHistoryItem(minified, tab.title)
     } catch (err) {
       try {
         const jsonStr = convertJsObjectToJson(tab.inputText)
@@ -3550,6 +3826,7 @@ const handleMinifyDirect = () => {
 
         showToast('压缩成功')
         autoCopyResult(minified)
+        recordHistoryItem(minified, tab.title)
       } catch (e2) {
         tab.validationError = `压缩失败: ${err.message}`
       }
@@ -3734,6 +4011,7 @@ const handleExtract = () => {
     tab.extractedFormat = null
     showToast(result.format !== 'JSON' ? `已从 ${result.format} 提取 JSON` : 'JSON 提取成功')
     autoCopyResult(activeTab.value.inputText)
+    recordHistoryItem(activeTab.value.inputText, tab.title)
   } catch (err) {
     tab.validationError = `提取失败: ${err.message}`
   }
@@ -3991,7 +4269,7 @@ const applyMaskToNewTab = async () => {
     await new Promise(r => setTimeout(r, 20))
     const res = await getFullMaskedData()
     if (!res) return
-    const newId = nextTabId++
+    const newId = generateTabId()
     const newTab = {
       id: newId,
       title: `脱敏数据`,
@@ -4112,7 +4390,7 @@ onMounted(() => {
       if (Array.isArray(parsed) && parsed.length > 0) {
         // 只要用户曾有过保存的 tabs（包括用户主动建立的多个 tab），都完整恢复标签页结构
         tabs.value = parsed.map(t => ({
-          id: t.id,
+          id: t.id || generateTabId(),
           title: t.title,
           inputText: t.inputText || '',
           outputText: '',
@@ -4124,10 +4402,8 @@ onMounted(() => {
           convertFormat: null,
           extractedFormat: null
         }))
-        nextTabId = Math.max(...parsed.map(t => t.id)) + 1
-        activeTabId.value = savedActive && parsed.some(t => String(t.id) === String(savedActive))
-          ? Number(savedActive)
-          : tabs.value[0].id
+        const matched = savedActive ? tabs.value.find(t => String(t.id) === String(savedActive)) : null
+        activeTabId.value = matched ? matched.id : tabs.value[0].id
         restored = true
 
         // 异步从 IndexedDB 读回全量文本（支持 80,000 行乃至数十万行大文件，彻底突破 localStorage 配额）
@@ -4176,10 +4452,11 @@ const checkExtractOnLoad = () => {
       if (!text) return
 
       // 为每次提取新建一个格式化标签页
-      const newId = nextTabId++
+      const newId = generateTabId()
+      const num = nextDisplayNumber()
       const newTab = {
         id: newId,
-        title: `格式化 ${newId}`,
+        title: `格式化 ${num}`,
         inputText: '',
         outputText: '',
         parsedObj: null,
@@ -4216,6 +4493,14 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', onConvertMenuClickOutside)
   document.removeEventListener('click', onJsonPathClickOutside)
 })
+
+defineExpose({
+  openInNewTab,
+  loadToCurrentTab,
+  getCurrentContent: () => activeTab.value?.inputText || '',
+  getActiveTabId: () => activeTabId.value,
+  getActiveTabTitle: () => activeTab.value?.title || ''
+})
 </script>
 
 <template>
@@ -4228,6 +4513,8 @@ onBeforeUnmount(() => {
           :key="tab.id"
           class="compare-tab"
           :class="{ active: tab.id === activeTabId }"
+          :data-tooltip-bottom="editingTabId === tab.id ? null : tab.title"
+          :title="tab.title"
           @click="activeTabId = tab.id"
           @dblclick.stop="startEditTab(tab.id)"
           @contextmenu="showTabContextMenu($event, tab.id)"
@@ -4242,7 +4529,7 @@ onBeforeUnmount(() => {
             @click.stop
             @mousedown.stop
           />
-          <span v-else>{{ tab.title }}</span>
+          <span v-else class="tab-title-text">{{ tab.title }}</span>
           <button
             v-if="tabs.length > 1"
             class="tab-close-btn"
@@ -4350,6 +4637,18 @@ onBeforeUnmount(() => {
               <span class="toolbar-label">脱敏</span>
             </button>
 
+            <!-- 10. 历史记录 (脱敏右侧) -->
+            <button
+              v-if="isToolVisible('history')"
+              class="toolbar-item"
+              :class="{ active: isHistoryDrawerOpen }"
+              @click="handleOpenHistory"
+              data-tooltip-bottom="历史记录"
+            >
+              <History class="toolbar-icon" />
+              <span class="toolbar-label">历史</span>
+            </button>
+
             <!-- 渐进式更多工具下拉（只要有工具被收起就动态出现） -->
             <div v-if="showMoreMenuButton" class="more-tools-dropdown" ref="moreToolsMenuRef">
               <button 
@@ -4373,7 +4672,7 @@ onBeforeUnmount(() => {
                       @click="handleToolAction(tool.id); showMoreToolsMenu = false"
                     >
                       <component :is="tool.icon" class="more-item-icon" />
-                      <span>{{ tool.id === 'import' ? '导入数据' : (tool.id === 'jsonpath' ? 'JSONPath 表达式提取' : (tool.id === 'extract' ? '智能提取 JSON' : (tool.id === 'removeComments' ? '去除 JSON 注释' : (tool.id === 'mask' ? '智能数据脱敏' : tool.label)))) }}</span>
+                      <span>{{ tool.id === 'import' ? '导入数据' : (tool.id === 'jsonpath' ? 'JSONPath 表达式提取' : (tool.id === 'extract' ? '智能提取 JSON' : (tool.id === 'removeComments' ? '去除 JSON 注释' : (tool.id === 'mask' ? '智能数据脱敏' : (tool.id === 'history' ? '历史记录' : tool.label))))) }}</span>
                     </button>
                   </template>
 
@@ -4686,13 +4985,111 @@ onBeforeUnmount(() => {
           </div>
           
           <div class="header-actions-group">
+            <button
+              class="action-btn outline icon-only"
+              :class="{ 'active': copyTreeSuccess }"
+              @click.stop="copyProcessedJson"
+              :disabled="!activeTab.parsedObj && !activeTab.outputText"
+              :data-tooltip-bottom="copyTreeSuccess ? '已复制处理后的 JSON' : '复制处理后的 JSON'"
+            >
+              <Check v-if="copyTreeSuccess" class="btn-icon success-color" />
+              <Copy v-else class="btn-icon" />
+            </button>
             <button class="action-btn outline icon-only" @click="hideOutput" data-tooltip-bottom="隐藏输出">
               <EyeOff class="btn-icon" />
             </button>
-            <button v-if="activeTab.viewMode === 'tree' || activeTab.viewMode === 'table' || activeTab.viewMode === 'code'" class="action-btn outline icon-only" @click="handleToggleExpand" :data-tooltip-bottom="treeExpanded ? '折叠全部节点' : '展开全部节点'">
-              <Maximize2 v-if="!treeExpanded" class="btn-icon" />
-              <Minimize2 v-else class="btn-icon" />
-            </button>
+            <!-- 折叠/展开层级面板下拉 -->
+            <div
+              v-if="activeTab.viewMode === 'tree' || activeTab.viewMode === 'table' || activeTab.viewMode === 'code'"
+              class="fold-level-dropdown"
+              ref="foldMenuRef"
+            >
+              <button
+                class="action-btn outline icon-only"
+                :class="{ 'active': showFoldMenu }"
+                @click.stop="showFoldMenu = !showFoldMenu"
+                :data-tooltip-bottom="showFoldMenu ? '' : (currentExpandLevel ? `已展开第 ${currentExpandLevel} 层` : (treeExpanded ? '折叠全部节点' : '展开全部节点'))"
+              >
+                <Maximize2 v-if="!treeExpanded" class="btn-icon" />
+                <Minimize2 v-else class="btn-icon" />
+              </button>
+
+              <Transition name="fade-slide">
+                <div v-if="showFoldMenu" class="fold-menu" @click.stop>
+                  <div class="fold-menu-header">
+                    <span>折叠 / 展开层级</span>
+                    <span v-if="maxJsonDepth > 0" class="fold-menu-depth-tag">共 {{ maxJsonDepth }} 层</span>
+                  </div>
+
+                  <!-- 展开全部 / 折叠全部 -->
+                  <button
+                    class="fold-menu-item"
+                    :class="{ 'active': treeExpanded && currentExpandLevel === null }"
+                    @click="handleExpandAll"
+                  >
+                    <div class="fold-item-left">
+                      <Maximize2 class="fold-item-icon" />
+                      <span>展开全部节点</span>
+                    </div>
+                    <Check v-if="treeExpanded && currentExpandLevel === null" class="check-icon" />
+                  </button>
+
+                  <button
+                    class="fold-menu-item"
+                    :class="{ 'active': !treeExpanded && currentExpandLevel === null }"
+                    @click="handleFoldAll"
+                  >
+                    <div class="fold-item-left">
+                      <Minimize2 class="fold-item-icon" />
+                      <span>折叠全部节点</span>
+                    </div>
+                    <Check v-if="!treeExpanded && currentExpandLevel === null" class="check-icon" />
+                  </button>
+
+                  <div class="fold-menu-divider"></div>
+
+                  <!-- 动态层级列表 -->
+                  <div class="fold-menu-section-header">
+                    <span class="fold-menu-section-title">
+                      {{ currentFoldActionType === 'fold' ? '按层级折叠' : '按层级展开' }}
+                    </span>
+                    <div class="fold-mode-toggle-group">
+                      <button
+                        type="button"
+                        class="fold-mode-toggle-btn"
+                        :class="{ 'active': currentFoldActionType === 'expand' }"
+                        @click="manualFoldMode = 'expand'"
+                      >展开</button>
+                      <button
+                        type="button"
+                        class="fold-mode-toggle-btn"
+                        :class="{ 'active': currentFoldActionType === 'fold' }"
+                        @click="manualFoldMode = 'fold'"
+                      >折叠</button>
+                    </div>
+                  </div>
+
+                  <div v-if="maxJsonDepth > 0" class="fold-levels-list">
+                    <button
+                      v-for="level in maxJsonDepth"
+                      :key="level"
+                      class="fold-menu-item"
+                      :class="{ 'active': currentExpandLevel === level }"
+                      @click="handleLevelAction(level)"
+                    >
+                      <div class="fold-item-left">
+                        <span class="fold-level-badge">L{{ level }}</span>
+                        <span>{{ currentFoldActionType === 'fold' ? `折叠第 ${level} 层` : `展开第 ${level} 层` }}</span>
+                      </div>
+                      <Check v-if="currentExpandLevel === level" class="check-icon" />
+                    </button>
+                  </div>
+                  <div v-else class="fold-menu-empty">
+                    暂无可折叠层级
+                  </div>
+                </div>
+              </Transition>
+            </div>
             <!-- 格式转换下拉 -->
             <div class="convert-dropdown" ref="convertMenuRef">
               <button
@@ -4704,10 +5101,22 @@ onBeforeUnmount(() => {
                 style="gap: 4px; white-space: nowrap;"
               >
                 <Shuffle class="btn-icon" />
-                <span v-if="convertFormat" class="convert-badge">{{ formatLabels[convertFormat] }}</span>
+                <span v-if="convertFormat" class="convert-badge">
+                  <span>{{ formatLabels[convertFormat] }}</span>
+                  <span
+                    class="convert-badge-clear"
+                    @click.stop="handleCancelConvert"
+                    title="点击取消转换 (恢复原始 JSON)"
+                  >
+                    <X class="convert-badge-x" />
+                  </span>
+                </span>
               </button>
               <Transition name="fade-slide">
                 <div v-if="showConvertMenu" class="convert-menu" @click.stop @mouseleave="showConvertMenu = false">
+                  <div v-if="convertFormat" class="convert-menu-top">
+                    <button class="convert-cancel-btn" @click="handleCancelConvert">取消转换</button>
+                  </div>
                   <div class="convert-menu-header">JSON → 其他格式</div>
                   <button
                     v-for="(label, key) in formatLabels"
@@ -4719,9 +5128,6 @@ onBeforeUnmount(() => {
                     <span>{{ label }}</span>
                     <Check v-if="convertFormat === key" class="check-icon" />
                   </button>
-                  <div v-if="convertFormat" class="convert-menu-footer">
-                    <button class="convert-cancel-btn" @click="handleCancelConvert">取消转换</button>
-                  </div>
                 </div>
               </Transition>
             </div>
@@ -4828,11 +5234,11 @@ onBeforeUnmount(() => {
         </template>
         <template v-else-if="activeTab.extractedFormat">
           <Check class="status-bar-icon success" />
-          <span class="status-bar-text success">已从 {{ activeTab.extractedFormat }} 提取 &nbsp;·&nbsp; JSON 有效 &nbsp;·&nbsp; {{ inputLinesCount }} 行</span>
+          <span class="status-bar-text success">已从 {{ activeTab.extractedFormat }} 提取 &nbsp;·&nbsp; JSON 有效 &nbsp;·&nbsp; {{ inputLinesCount }} 行 &nbsp;·&nbsp; {{ inputSizeText }}</span>
         </template>
         <template v-else-if="activeTab.inputText">
           <Check class="status-bar-icon success" />
-          <span class="status-bar-text success">JSON 有效 &nbsp;·&nbsp; {{ inputLinesCount }} 行</span>
+          <span class="status-bar-text success">JSON 有效 &nbsp;·&nbsp; {{ inputLinesCount }} 行 &nbsp;·&nbsp; {{ inputSizeText }}</span>
         </template>
         <template v-else>
           <span class="status-bar-text muted">在左侧输入 JSON</span>
@@ -6117,7 +6523,7 @@ onBeforeUnmount(() => {
 }
 
 .toolbar-label {
-  font-size: 10px;
+  font-size: 0.68rem;
   font-weight: 500;
   line-height: 1;
 }
@@ -6770,20 +7176,216 @@ body.utools-mode {
 }
 
 /* ─── Convert Dropdown ─── */
+.fold-level-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.fold-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: clamp(170px, 16vw, 210px);
+  max-width: min(280px, 85vw);
+  max-height: min(380px, 60vh);
+  background: var(--bg-panel, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.14);
+  z-index: 100;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.fold-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: clamp(9.5px, 0.8vw, 11px);
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+  padding: clamp(6px, 0.6vw, 8px) clamp(10px, 1vw, 14px) 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fold-menu-depth-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--primary-light, rgba(59, 130, 246, 0.1));
+  color: var(--primary-color, #3b82f6);
+  text-transform: none;
+}
+
+.fold-menu-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px clamp(10px, 1vw, 14px) 3px;
+}
+
+.fold-menu-section-title {
+  font-size: clamp(9px, 0.75vw, 10.5px);
+  font-weight: 600;
+  color: var(--text-secondary, #94a3b8);
+  padding: 0;
+  letter-spacing: 0.02em;
+}
+
+.fold-mode-toggle-group {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-app, #f1f5f9);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: 4px;
+  padding: 1px;
+}
+
+.fold-mode-toggle-btn {
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.2;
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.fold-mode-toggle-btn:hover {
+  color: var(--text-primary, #0f1729);
+}
+
+.fold-mode-toggle-btn.active {
+  background: var(--bg-panel, #ffffff);
+  color: var(--primary-color, #3b82f6);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.fold-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: clamp(11px, 0.85vw, 12.5px);
+  color: var(--text-primary, #0f1729);
+  padding: clamp(5px, 0.55vw, 7px) clamp(10px, 1vw, 14px);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  text-align: left;
+}
+
+.fold-menu-item:hover {
+  background: var(--bg-app, #f8fafc);
+}
+
+.fold-menu-item.active {
+  background: var(--primary-light, rgba(59, 130, 246, 0.08));
+  color: var(--primary-color, #3b82f6);
+  font-weight: 600;
+}
+
+.fold-item-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fold-item-icon {
+  width: 13px;
+  height: 13px;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+.fold-level-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  min-width: 22px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--border-color, #e2e8f0);
+  color: var(--text-secondary, #64748b);
+}
+
+.fold-menu-item.active .fold-level-badge {
+  background: var(--primary-color, #3b82f6);
+  color: #fff;
+}
+
+.fold-menu-divider {
+  height: 1px;
+  background: var(--border-color, #e2e8f0);
+  margin: 4px 0;
+}
+
+.fold-menu-empty {
+  padding: 10px 14px;
+  font-size: 11.5px;
+  color: var(--text-secondary, #94a3b8);
+  text-align: center;
+}
+
 .convert-dropdown {
   position: relative;
 }
 
 .convert-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10px;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
+  padding: 1px 4px 1px 6px;
+  border-radius: 4px;
   background: var(--primary-light, rgba(15, 23, 41, 0.08));
   color: var(--primary-color, #0f1729);
-  max-width: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  max-width: 120px;
+  user-select: none;
+}
+
+.convert-badge-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: all 0.15s ease;
+}
+
+.convert-badge-clear:hover {
+  opacity: 1;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  transform: scale(1.1);
+}
+
+.convert-badge-x {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.5;
+}
+
+.convert-menu-top {
+  border-bottom: 1px solid var(--border-color, #e2e8f0);
+  padding: clamp(4px, 0.4vw, 6px);
 }
 
 .convert-menu {

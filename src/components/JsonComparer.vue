@@ -128,6 +128,30 @@ const addTab = () => {
   scrollTabsToEnd()
 }
 
+const openInNewTab = (leftText = '', rightText = '', title = '') => {
+  const newId = nextTabId++
+  tabs.value.push({
+    id: newId,
+    title: title || `对比 ${newId}`,
+    leftText: leftText || '',
+    rightText: rightText || '',
+    leftError: null,
+    leftErrorLine: null,
+    rightError: null,
+    rightErrorLine: null
+  })
+  activeTabId.value = newId
+  scrollTabsToEnd()
+  saveComparerState()
+}
+
+const loadToCurrentTab = (leftText = '', rightText = '') => {
+  if (!activeTab.value) return
+  activeTab.value.leftText = leftText || ''
+  activeTab.value.rightText = rightText || ''
+  saveComparerState()
+}
+
 let canSave = false
 const saveComparerState = () => {
   if (!canSave) return
@@ -2504,6 +2528,11 @@ onBeforeUnmount(() => {
     cmpResizeObserver = null
   }
 })
+
+defineExpose({
+  openInNewTab,
+  loadToCurrentTab
+})
 </script>
 
 <template>
@@ -2516,6 +2545,8 @@ onBeforeUnmount(() => {
           :key="tab.id"
           class="compare-tab"
           :class="{ active: tab.id === activeTabId }"
+          :data-tooltip-bottom="editingTabId === tab.id ? null : tab.title"
+          :title="tab.title"
           @click="activeTabId = tab.id"
           @dblclick.stop="startEditTab(tab.id)"
           @contextmenu="showTabContextMenu($event, tab.id)"
@@ -2530,7 +2561,7 @@ onBeforeUnmount(() => {
             @click.stop
             @mousedown.stop
           />
-          <span v-else>{{ tab.title }}</span>
+          <span v-else class="tab-title-text">{{ tab.title }}</span>
           <button
             v-if="tabs.length > 1"
             class="tab-close-btn"

@@ -1,9 +1,9 @@
 // ─── JSON → 其他格式转换工具 ───
 
-import { safeParse, safeStringify } from './jsonBigInt.js'
+import { safeParse, safeStringify, isLosslessNumber } from './jsonBigInt.js'
 
 // 递归判断 JSON 值是对象还是数组
-const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) && !isLosslessNumber(v)
 const isArray  = (v) => v !== null && typeof v === 'object' &&  Array.isArray(v)
 
 // ═══ 1. JSON → XML ═══

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, watch, inject, provide, onMounted, onBeforeUnmount, nextTick, reactive } from 'vue'
 import { ExternalLink, Copy, Image as ImageIcon, Clock, Braces, X, UnfoldVertical, FoldVertical, Volume2, Video as VideoIcon, KeyRound, FileCode, Code2, CalendarClock } from 'lucide-vue-next'
-import { safeStringify } from '../utils/jsonBigInt.js'
+import { safeStringify, isLosslessNumber } from '../utils/jsonBigInt.js'
 import { isImageUrl, isHttpUrl, isColorValue, openExternalUrl } from '../utils/imageDetector.js'
 import { detectTimestamp, detectUnicode, detectNestedJson, getFormatNow } from '../utils/capsuleDetector.js'
 import { detectMedia, detectJwt, detectBase64Text, detectUrlEncoded, detectCron, detectHtml } from '../utils/advancedDetectors.js'
@@ -35,7 +35,9 @@ const handleCopyValue = (val) => {
   if (val === null || val === undefined) return
   const disp = getDisplayValue(val)
   let str = ''
-  if (typeof disp === 'object') {
+  if (isLosslessNumber(disp)) {
+    str = String(disp)
+  } else if (typeof disp === 'object') {
     str = safeStringify(disp, null, 2)
   } else if (typeof disp === 'string' && detectNestedJson(disp)) {
     str = JSON.stringify(disp)
@@ -187,12 +189,12 @@ const props = defineProps({
 
 const emit = defineEmits(['hover-path', 'click-path'])
 
-const isPrimitive = (v) => v === null || typeof v !== 'object'
+const isPrimitive = (v) => v === null || typeof v !== 'object' || isLosslessNumber(v)
 
 const getValueType = (v) => {
   if (v === null) return 'null'
   if (typeof v === 'boolean') return 'boolean'
-  if (typeof v === 'number' || typeof v === 'bigint') return 'number'
+  if (typeof v === 'number' || typeof v === 'bigint' || isLosslessNumber(v)) return 'number'
   if (typeof v === 'string') return 'string'
   return 'object'
 }
@@ -200,6 +202,7 @@ const getValueType = (v) => {
 const getPreview = (v) => {
   const disp = getDisplayValue(v)
   if (disp === null) return 'null'
+  if (isLosslessNumber(disp)) return String(disp)
   if (Array.isArray(disp)) return `[${disp.length} 项]`
   if (typeof disp === 'object') return `{${Object.keys(disp).length} 属性}`
   if (typeof disp === 'string') {
@@ -3058,7 +3061,6 @@ watch(currentSelectedPath, (newPath) => {
 :global(.dark-mode) .inner-grid-container.is-inner-virtual .inner-grid-header-row th.is-selected {
   background: linear-gradient(rgba(97, 175, 239, 0.35), rgba(97, 175, 239, 0.35)), #26262b !important;
   color: #61afef !important;
-  font-weight: 700 !important;
   box-shadow: inset 0 0 0 2px #61afef !important;
 }
 

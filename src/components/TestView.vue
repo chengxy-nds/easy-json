@@ -237,8 +237,8 @@ function getStatus(id) {
   margin: 0 auto;
   padding: 12px 24px;
 }
-.test-header-left { display: flex; align-items: center; gap: 12px; }
-.test-header-right { display: flex; align-items: center; gap: 10px; }
+.test-header-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.test-header-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
 
 .test-back-btn {
   display: inline-flex;
@@ -255,6 +255,8 @@ function getStatus(id) {
   border-radius: 6px;
   cursor: pointer;
   height: 28px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: transform 0.1s ease, background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
@@ -266,10 +268,10 @@ function getStatus(id) {
   transform: scale(0.96);
 }
 
-.test-title { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.02em; color: var(--text-primary); }
-.test-count { font-size: 12px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
+.test-title { font-size: 18px; font-weight: 700; margin: 0; letter-spacing: -0.02em; color: var(--text-primary); white-space: nowrap; }
+.test-count { font-size: 12px; color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
 
-.test-stats { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+.test-stats { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
 .stat-pass { color: #3fb950; }
 .stat-fail { color: #f85149; }
 .stat-total { color: var(--text-secondary); }
@@ -277,6 +279,7 @@ function getStatus(id) {
 .test-action-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   padding: 6px 14px;
   border-radius: 6px;
@@ -284,6 +287,10 @@ function getStatus(id) {
   font-weight: 600;
   border: 1px solid var(--border-color);
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  height: 30px;
+  box-sizing: border-box;
   transition: all 0.15s;
 }
 .test-action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -474,4 +481,69 @@ function getStatus(id) {
 .input-code { background: var(--bg-input); color: var(--text-primary); border: 1px solid var(--border-color); }
 .output-code { background: var(--diff-added-bg); color: var(--success-text, #3fb950); border: 1px solid var(--diff-added-border); }
 .error-code { background: var(--error-bg); color: var(--error-text, #f85149); border: 1px solid var(--diff-removed-border); }
+
+/* ═══ RESPONSIVE ═══ */
+@media (max-width: 640px) {
+  .test-header-inner {
+    padding: 10px 14px;
+    gap: 10px;
+  }
+  .test-header-left {
+    gap: 8px;
+    flex-shrink: 1;
+    min-width: 0;
+  }
+  .test-title {
+    font-size: 15px;
+  }
+  .test-count {
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 99px;
+    background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+  }
+  .dark-mode .test-count {
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .test-header-right {
+    gap: 6px;
+  }
+  .test-back-btn {
+    padding: 0 8px;
+    height: 28px;
+    font-size: 12px;
+  }
+  .test-action-btn {
+    padding: 0 10px;
+    height: 28px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
+  .test-main {
+    padding: 12px 14px 40px;
+  }
+  .test-card-left {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+  }
+  .test-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .test-header-inner {
+    padding: 8px 10px;
+  }
+  .test-count {
+    display: none;
+  }
+  .test-stats {
+    font-size: 11.5px;
+    gap: 4px;
+  }
+}
 </style>

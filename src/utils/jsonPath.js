@@ -1,6 +1,7 @@
 /**
  * jsonPath.js - 高性能轻量 JSONPath 表达式求值引擎
  */
+import { isLosslessNumber } from './jsonBigInt.js'
 
 /**
  * 执行 JSONPath 查询
@@ -78,7 +79,7 @@ export function queryJsonPath(root, pathExpr) {
 
       const descNodes = []
       function searchRecursive(node) {
-        if (node === null || typeof node !== 'object') return
+        if (node === null || typeof node !== 'object' || isLosslessNumber(node)) return
 
         if (Array.isArray(node)) {
           for (const item of node) {
@@ -114,7 +115,7 @@ export function queryJsonPath(root, pathExpr) {
       if (token === '*') {
         if (Array.isArray(node)) {
           nextNodes.push(...node)
-        } else if (typeof node === 'object') {
+        } else if (typeof node === 'object' && !isLosslessNumber(node)) {
           nextNodes.push(...Object.values(node))
         }
         continue
@@ -155,7 +156,7 @@ export function queryJsonPath(root, pathExpr) {
       }
 
       // 普通属性访问
-      if (typeof node === 'object' && Object.prototype.hasOwnProperty.call(node, token)) {
+      if (typeof node === 'object' && !isLosslessNumber(node) && Object.prototype.hasOwnProperty.call(node, token)) {
         nextNodes.push(node[token])
       }
     }
@@ -168,7 +169,7 @@ export function queryJsonPath(root, pathExpr) {
 
 // 评估过滤条件
 function evalPredicate(item, predicate) {
-  if (item === null || typeof item !== 'object') return false
+  if (item === null || typeof item !== 'object' || isLosslessNumber(item)) return false
 
   // 匹配形如: @.prop > 100, @.status == 'SUCCESS', @.active == true, @.name
   const match = predicate.match(/@(?:\.([\w-]+)|\[['"]([^'"]+)['"]\])\s*(==|!=|>=|<=|>|<|=~)?\s*(.*)?/)
