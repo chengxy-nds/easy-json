@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronRight, FileCode, Layers, Table2, Network, ListTree,
   ClipboardPaste, HelpCircle, Chrome, Laptop, Terminal, MessageCircle,
   Check, Plus, X, ArrowUpDown, MousePointerClick, RefreshCw,
-  Sun, Moon, FlaskConical, Menu, ExternalLink
+  Sun, Moon, FlaskConical, Menu, ExternalLink, Wrench
 } from 'lucide-vue-next'
 
 const isDark = inject('isDark')
@@ -1097,38 +1097,38 @@ onBeforeUnmount(() => {
 
             <div class="highlight-card">
               <div class="card-icon-box"><Braces class="highlight-icon" /></div>
-              <h3>智能提取 · 100+ 格式</h3>
-              <p>Java toString、Python dict、YAML、XML、URL 参数、CSV … 粘进来自动识别并转成标准 JSON。</p>
+              <h3>JSON 格式化 · 智能提取</h3>
+              <p>支持 100+ 格式输入，Java toString、Python dict、YAML、XML、CSV 粘进来自动完成 <strong>JSON 格式化</strong>与语法校验，一键压缩与转义。</p>
+            </div>
+
+            <div class="highlight-card">
+              <div class="card-icon-box"><Split class="highlight-icon" /></div>
+              <h3>JSON 对比 · 语义差异</h3>
+              <p>专业级 <strong>JSON 对比</strong>，先结构正规化再比对，无视 key 排序和缩进干扰，字符级精确高亮差异，排查接口变更快人一步。</p>
+            </div>
+
+            <div class="highlight-card">
+              <div class="card-icon-box"><Wrench class="highlight-icon" /></div>
+              <h3>开发者百宝箱 · 悬停即用</h3>
+              <p>深度集成<strong>时间戳转换</strong>、<strong>进制转换</strong>、<strong>Cron 表达式</strong>直译、<strong>HEX/RGB/HSL 转换</strong>、<strong>Unicode 编辑</strong>与 <strong>urlencode 编码</strong>，节点悬停智能直达。</p>
             </div>
 
             <div class="highlight-card">
               <div class="card-icon-box"><Chrome class="highlight-icon" /></div>
               <h3>浏览器插件 · 右键提取</h3>
-              <p>在 Kibana、Swagger、Console 里选中文本右键，直接提取并格式化 JSON，不用来回切窗口。</p>
+              <p>在 Kibana、Swagger、Console 选中文本右键直接提取并格式化，支持弹窗独立查看与快捷操作，开发零切换。</p>
             </div>
 
             <div class="highlight-card">
               <div class="card-icon-box"><Lock class="highlight-icon" /></div>
-              <h3>100% 离线</h3>
-              <p>所有解析都在本地完成，断网照样用。数据不出你的机器，适合处理生产环境的敏感数据。</p>
-            </div>
-
-            <div class="highlight-card">
-              <div class="card-icon-box"><ClipboardPaste class="highlight-icon" /></div>
-              <h3>自动粘贴</h3>
-              <p>复制内容后切回 easyJSON，自动检测剪贴板并格式化，全程零点击。</p>
+              <h3>100% 离线 · 数据安全</h3>
+              <p>所有解析与数据转换都在本地浏览器中完成，断网照样用。数据绝不出你的机器，妥善保护生产敏感数据与密钥。</p>
             </div>
 
             <div class="highlight-card">
               <div class="card-icon-box"><Layers class="highlight-icon" /></div>
-              <h3>多 Tab 管理</h3>
-              <p>每份数据一个 Tab，随时切换对照，不会互相覆盖，多任务并行处理。</p>
-            </div>
-
-            <div class="highlight-card">
-              <div class="card-icon-box"><Split class="highlight-icon" /></div>
-              <h3>语义对比</h3>
-              <p>先 normalize 再 diff — 无视 key 顺序和缩进差异，只标出值和结构的实际变更，字符级高亮。</p>
+              <h3>多 Tab 管理 · 自动粘贴</h3>
+              <p>每份数据独立 Tab 缓存不丢失；切回窗口自动检测剪贴板零操作格式化，多接口并行排查井井有条。</p>
             </div>
 
           </div>
