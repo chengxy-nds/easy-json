@@ -41,6 +41,37 @@ export function safeDecodeUnicodeString(str) {
 }
 
 /**
+ * 文本级极速 Unicode 解码流水线（基于 V8 原生 C++ 正则引擎）
+ * 专为 20万行+ 海量数据设计，避免在主线程中深度递归遍历数十万个 JS 对象
+ * 针对双引号(0x22)、反斜杠(0x5c)、控制字符(0x00-0x1f)实施严格语法保护，严防破坏 JSON 结构
+ * @param {string} text
+ * @returns {string}
+ */
+export function fastDecodeUnicodeText(text) {
+  if (typeof text !== 'string' || !text.includes('\\u')) return text
+
+  return text.replace(/\\\\u([dD][89abAB][0-9a-fA-F]{2})\\\\u([dD][c-fC-F][0-9a-fA-F]{2})|\\\\u([0-9a-fA-F]{4})|\\\\u\{([0-9a-fA-F]+)\}/g, (match, highHex, lowHex, hex4, hexVar) => {
+    try {
+      if (highHex && lowHex) {
+        const high = parseInt(highHex, 16)
+        const low = parseInt(lowHex, 16)
+        const cp = (high - 0xd800) * 0x400 + (low - 0xdc00) + 0x10000
+        return String.fromCodePoint(cp)
+      }
+      const hex = hex4 || hexVar
+      const cp = parseInt(hex, 16)
+      // 特殊保留字符保护：双引号(0x22)、反斜杠(0x5c)、控制字符(0x00-0x1f) 不能直接还原为裸字符
+      if (cp === 0x22 || cp === 0x5c || cp < 0x20) {
+        return match
+      }
+      return String.fromCodePoint(cp)
+    } catch (_) {
+      return match
+    }
+  })
+}
+
+/**
  * 递归处理 JSON 解析后的对象/数组，按配置执行 URL 解码和 Unicode 解码
  * 保留 LosslessNumber、BigInt 等大数结构完整无损
  * @param {any} obj - 目标对象
@@ -55,16 +86,18 @@ export function transformJsonValues(obj, { urlDecode = false, unicodeDecode = fa
 
   // 快速前置检查：若传入了原始文本，且既不包含 % 也不包含 \u，则不可能存在需要解码的内容，直接瞬返
   if (rawText && typeof rawText === 'string') {
-    // 超大文本保护：若原始文本超 150KB，跳过主线程深层 JS 递归遍历（原生 JSON.parse 已原生毫秒级解析标准 Unicode，防止主线程假死）
-    if (rawText.length > 150_000) return obj
-
     const hasPercent = urlDecode && rawText.includes('%')
     const hasUnicode = unicodeDecode && rawText.includes('\\u')
     if (!hasPercent && !hasUnicode) return obj
+
+    // 若原始文本超过 50,000 字符且仅需 Unicode 解码，则不需要遍历对象树，由 fastDecodeUnicodeText 文本流水线全权处理
+    if (rawText.length > 50_000 && unicodeDecode && !hasPercent) {
+      return obj
+    }
   }
 
   let nodeCount = 0
-  const MAX_NODES = 50_000
+  const MAX_NODES = 100_000
 
   function walk(val) {
     if (val === null || val === undefined) {

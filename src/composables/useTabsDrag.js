@@ -1,9 +1,36 @@
 import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 
-export function useTabsDrag(activeId) {
+export function useTabsDrag(activeId, editingTabId) {
   const tabsListRef = ref(null)
   const tabsOverflow = ref(false)
   const drag = { active: false, startX: 0, scrollLeft: 0 }
+
+  // ── Tab 溢出省略时才展示 Tooltip ──
+  const hoveredTabTooltip = ref({ id: null, text: null })
+
+  const handleTabMouseEnter = (e, tab) => {
+    if (editingTabId?.value === tab.id) {
+      hoveredTabTooltip.value = { id: null, text: null }
+      return
+    }
+    const textEl = e.currentTarget?.querySelector('.tab-title-text')
+    // 检查文字内容真实宽度是否超出当前可见容器宽度（发生单行截断省略）
+    if (textEl && textEl.scrollWidth > textEl.clientWidth + 1) {
+      hoveredTabTooltip.value = { id: tab.id, text: tab.title }
+    } else {
+      hoveredTabTooltip.value = { id: null, text: null }
+    }
+  }
+
+  const handleTabMouseLeave = (tabId) => {
+    if (hoveredTabTooltip.value.id === tabId) {
+      hoveredTabTooltip.value = { id: null, text: null }
+    }
+  }
+
+  const getTabTooltip = (tabId) => {
+    return hoveredTabTooltip.value.id === tabId ? hoveredTabTooltip.value.text : null
+  }
 
   const checkOverflow = () => {
     const el = tabsListRef.value
@@ -51,7 +78,9 @@ export function useTabsDrag(activeId) {
   const scrollToEnd = () => {
     nextTick(() => {
       const el = tabsListRef.value
-      if (el) el.scrollLeft = el.scrollWidth
+      if (el) {
+        el.scrollTo({ left: el.scrollWidth, behavior: 'smooth' })
+      }
       checkOverflow()
     })
   }
@@ -65,9 +94,9 @@ export function useTabsDrag(activeId) {
       const elRect = el.getBoundingClientRect()
       const tabRect = active.getBoundingClientRect()
       if (tabRect.left < elRect.left) {
-        el.scrollLeft += tabRect.left - elRect.left
+        el.scrollTo({ left: el.scrollLeft + (tabRect.left - elRect.left) - 16, behavior: 'smooth' })
       } else if (tabRect.right > elRect.right) {
-        el.scrollLeft += tabRect.right - elRect.right
+        el.scrollTo({ left: el.scrollLeft + (tabRect.right - elRect.right) + 16, behavior: 'smooth' })
       }
     })
   }
@@ -95,5 +124,16 @@ export function useTabsDrag(activeId) {
     watch(activeId, () => scrollToActive())
   }
 
-  return { tabsListRef, tabsOverflow, onMouseDown, onWheel, scrollToEnd, scrollToActive, checkOverflow }
+  return {
+    tabsListRef,
+    tabsOverflow,
+    onMouseDown,
+    onWheel,
+    scrollToEnd,
+    scrollToActive,
+    checkOverflow,
+    handleTabMouseEnter,
+    handleTabMouseLeave,
+    getTabTooltip
+  }
 }

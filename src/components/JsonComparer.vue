@@ -104,10 +104,33 @@ const tabs = ref([
   }
 ])
 const activeTabId = ref(1)
-const { tabsListRef, tabsOverflow, onMouseDown: onTabsMouseDown, onWheel: onTabsWheel, scrollToEnd: scrollTabsToEnd, scrollToActive: scrollTabsToActive, checkOverflow: checkTabsOverflow } = useTabsDrag(activeTabId)
+const editingTabId = ref(null)
+const {
+  tabsListRef,
+  tabsOverflow,
+  onMouseDown: onTabsMouseDown,
+  onWheel: onTabsWheel,
+  scrollToEnd: scrollTabsToEnd,
+  scrollToActive: scrollTabsToActive,
+  checkOverflow: checkTabsOverflow,
+  handleTabMouseEnter,
+  handleTabMouseLeave,
+  getTabTooltip
+} = useTabsDrag(activeTabId, editingTabId)
 
 const activeTab = computed(() => {
   return tabs.value.find(t => t.id === activeTabId.value) || tabs.value[0]
+})
+
+const isTabSwitching = ref(false)
+let tabSwitchTimer = null
+watch(activeTabId, () => {
+  isTabSwitching.value = true
+  if (tabSwitchTimer) clearTimeout(tabSwitchTimer)
+  tabSwitchTimer = setTimeout(() => {
+    isTabSwitching.value = false
+    tabSwitchTimer = null
+  }, 140)
 })
 
 let nextTabId = 2
@@ -201,7 +224,6 @@ watch(incomingCompareText, (text) => {
   incomingCompareText.value = null
 })
 
-const editingTabId = ref(null)
 
 const startEditTab = (tabId) => {
   editingTabId.value = tabId
@@ -2540,36 +2562,39 @@ defineExpose({
     <!-- Comparison Tab bar -->
     <div class="compare-tabs-bar">
       <div class="tabs-list" ref="tabsListRef" @mousedown="onTabsMouseDown" @wheel.prevent="onTabsWheel">
-        <div
-          v-for="tab in tabs"
-          :key="tab.id"
-          class="compare-tab"
-          :class="{ active: tab.id === activeTabId }"
-          :data-tooltip-bottom="editingTabId === tab.id ? null : tab.title"
-          :title="tab.title"
-          @click="activeTabId = tab.id"
-          @dblclick.stop="startEditTab(tab.id)"
-          @contextmenu="showTabContextMenu($event, tab.id)"
-        >
-          <input
-            v-if="editingTabId === tab.id"
-            class="tab-edit-input"
-            :value="tab.title"
-            @blur="finishEditTab(tab, $event)"
-            @keydown.enter="$event.target.blur()"
-            @keydown.escape="editingTabId = null"
-            @click.stop
-            @mousedown.stop
-          />
-          <span v-else class="tab-title-text">{{ tab.title }}</span>
-          <button
-            v-if="tabs.length > 1"
-            class="tab-close-btn"
-            @click.stop="closeTab(tab.id)"
+        <TransitionGroup name="tab-item">
+          <div
+            v-for="tab in tabs"
+            :key="tab.id"
+            class="compare-tab"
+            :class="{ active: tab.id === activeTabId }"
+            :data-tooltip-bottom="getTabTooltip(tab.id)"
+            @mouseenter="handleTabMouseEnter($event, tab)"
+            @mouseleave="handleTabMouseLeave(tab.id)"
+            @click="activeTabId = tab.id"
+            @dblclick.stop="startEditTab(tab.id)"
+            @contextmenu="showTabContextMenu($event, tab.id)"
           >
-            <X class="tab-close-icon" />
-          </button>
-        </div>
+            <input
+              v-if="editingTabId === tab.id"
+              class="tab-edit-input"
+              :value="tab.title"
+              @blur="finishEditTab(tab, $event)"
+              @keydown.enter="$event.target.blur()"
+              @keydown.escape="editingTabId = null"
+              @click.stop
+              @mousedown.stop
+            />
+            <span v-else class="tab-title-text">{{ tab.title }}</span>
+            <button
+              v-if="tabs.length > 1"
+              class="tab-close-btn"
+              @click.stop="closeTab(tab.id)"
+            >
+              <X class="tab-close-icon" />
+            </button>
+          </div>
+        </TransitionGroup>
         <button v-if="!tabsOverflow" class="add-tab-btn" @click="addTab" data-tooltip-bottom="新建对比">
           <Plus class="add-tab-icon" />
           <span>新建对比</span>
@@ -2599,7 +2624,7 @@ defineExpose({
     </Teleport>
 
     <!-- Workspace Area -->
-    <div class="workspace-body vertical-layout">
+    <div class="workspace-body vertical-layout" :class="{ 'tab-switching': isTabSwitching }">
       <div class="diff-grid-wrapper full-height">
         <div class="diff-grid">
           <!-- Left Pane (Original) -->
@@ -3310,6 +3335,11 @@ defineExpose({
   height: 100%;
   flex-grow: 1;
   min-height: 0;
+  transition: opacity 0.15s ease-out;
+}
+
+.workspace-body.vertical-layout.tab-switching {
+  opacity: 0.88;
 }
 
 /* Options Bar - Instruction Badge */

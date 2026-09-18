@@ -1812,18 +1812,34 @@ mark.search-match-current {
   background-color: var(--bg-app);
   border: none;
   border-right: 1px solid var(--border-color);
-  /* border-bottom: 1px solid var(--border-color); */
   cursor: pointer;
   font-size: clamp(10px, 0.75vw, 12px);
   color: var(--text-secondary);
   user-select: none;
-  transition: all 0.15s ease;
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   box-sizing: border-box;
   position: relative;
   flex-shrink: 0;
   white-space: nowrap;
   max-width: 160px;
   min-width: 60px;
+}
+
+/* 顶部流体品牌色指示条 */
+.compare-tab::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--primary-color), #3b82f6);
+  opacity: 0;
+  transform: scaleX(0.2);
+  transform-origin: center;
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  border-radius: 0 0 2px 2px;
+  z-index: 3;
 }
 
 .compare-tab>span,
@@ -1833,6 +1849,7 @@ mark.search-match-current {
   white-space: nowrap;
   min-width: 0;
   flex: 1;
+  transition: color 0.18s ease;
 }
 
 .compare-tab:hover {
@@ -1840,14 +1857,22 @@ mark.search-match-current {
   background-color: var(--bg-panel);
 }
 
+.compare-tab:hover:not(.active)::before {
+  opacity: 0.35;
+  transform: scaleX(0.6);
+}
+
 .compare-tab.active {
   color: var(--text-primary);
   background-color: var(--bg-panel);
-  border-bottom: 1px solid var(--bg-panel);
-  border-top: 2px solid var(--primary-color);
   font-weight: 600;
   z-index: 2;
-  height: calc(100% + 1px);
+  box-shadow: 0 -2px 8px -2px rgba(0, 0, 0, 0.04);
+}
+
+.compare-tab.active::before {
+  opacity: 1;
+  transform: scaleX(1);
 }
 
 .tab-close-btn {
@@ -1861,11 +1886,24 @@ mark.search-match-current {
   color: var(--text-muted);
   cursor: pointer;
   margin-left: 2px;
+  opacity: 0.65;
+  transition: all 0.15s ease;
+}
+
+.compare-tab:hover .tab-close-btn,
+.compare-tab.active .tab-close-btn {
+  opacity: 0.9;
 }
 
 .tab-close-btn:hover {
   background-color: var(--border-color);
   color: var(--text-primary);
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+.tab-close-btn:active {
+  transform: scale(0.92);
 }
 
 .tab-close-icon {
@@ -1882,8 +1920,9 @@ mark.search-match-current {
   font-size: inherit;
   font-family: inherit;
   padding: 0;
-  width: 80px;
-  min-width: 40px;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
 }
 
 .add-tab-btn {
@@ -1900,7 +1939,7 @@ mark.search-match-current {
   cursor: pointer;
   margin-left: 8px;
   margin-right: 6px;
-  transition: all 0.15s ease;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   flex-shrink: 0;
   align-self: center;
   white-space: nowrap;
@@ -1915,6 +1954,71 @@ mark.search-match-current {
   border-color: var(--border-color-active);
   background-color: var(--bg-panel);
   color: var(--text-primary);
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+}
+
+.add-tab-btn:active {
+  transform: scale(0.95);
+}
+
+/* ── Tab TransitionGroup (Smooth Expand / Collapse / Reorder) ── */
+.tab-item-enter-from {
+  opacity: 0;
+  transform: scale(0.9) translateY(4px);
+  max-width: 0 !important;
+  min-width: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  border-right-color: transparent !important;
+}
+
+.tab-item-enter-active {
+  transition: all 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.tab-item-enter-to {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+  max-width: 160px;
+  min-width: 60px;
+}
+
+.tab-item-leave-active {
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  position: relative;
+  pointer-events: none;
+}
+
+.tab-item-leave-to {
+  opacity: 0;
+  transform: scale(0.88) translateY(2px);
+  max-width: 0 !important;
+  min-width: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  border-right-color: transparent !important;
+}
+
+.tab-item-move {
+  transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Tab Workspace Switch Micro-transition ── */
+.tab-content-switch-enter-active {
+  transition: opacity 0.16s ease-out, transform 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tab-content-switch-enter-from {
+  opacity: 0.88;
+  transform: translateY(2px);
+}
+
+.tab-content-switch-enter-to {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .add-tab-icon {

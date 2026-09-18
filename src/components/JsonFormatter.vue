@@ -36,7 +36,7 @@ import {
 } from '../utils/tabStorage.js';
 import { addHistoryRecord, clearTabHistoryRecords } from '../utils/historyStorage.js';
 import { HAS_UNICODE_ESCAPE_RE } from '../utils/capsuleDetector.js';
-import { transformJsonValues } from '../utils/jsonValueDecoder.js';
+import { transformJsonValues, fastDecodeUnicodeText } from '../utils/jsonValueDecoder.js';
 
 const showToast = inject('showToast')
 const isDark = inject('isDark', ref(true))
@@ -50,8 +50,8 @@ const autoFormat = inject('autoFormat', ref(false))
 const autoCopy = inject('autoCopy', ref(false))
 const autoExtract = inject('autoExtract', ref(true))
 const autoPaste = inject('autoPaste', ref(false))
-const autoUrlDecode = inject('autoUrlDecode', ref(true))
-const autoUnicodeDecode = inject('autoUnicodeDecode', ref(true))
+const autoUrlDecode = inject('autoUrlDecode', ref(false))
+const autoUnicodeDecode = inject('autoUnicodeDecode', ref(false))
 const incomingExtractText = inject('incomingExtractText', ref(null))
 const isHistoryDrawerOpen = inject('isHistoryDrawerOpen', ref(false))
 const toggleHistoryDrawer = inject('toggleHistoryDrawer', () => {})
@@ -1153,14 +1153,36 @@ const tabs = ref([
   }
 ])
 const activeTabId = ref(initialTabId)
-const { tabsListRef, tabsOverflow, onMouseDown: onTabsMouseDown, onWheel: onTabsWheel, scrollToEnd: scrollTabsToEnd, scrollToActive: scrollTabsToActive, checkOverflow: checkTabsOverflow } = useTabsDrag(activeTabId)
+const editingTabId = ref(null)
+const {
+  tabsListRef,
+  tabsOverflow,
+  onMouseDown: onTabsMouseDown,
+  onWheel: onTabsWheel,
+  scrollToEnd: scrollTabsToEnd,
+  scrollToActive: scrollTabsToActive,
+  checkOverflow: checkTabsOverflow,
+  handleTabMouseEnter,
+  handleTabMouseLeave,
+  getTabTooltip
+} = useTabsDrag(activeTabId, editingTabId)
+
+const renderedTabId = ref(initialTabId)
+const isTabContentLoading = ref(false)
+let tabRenderTimer = null
+let tabRenderRaf = null
 
 const activeTab = computed(() => {
-  return tabs.value.find(t => t.id === activeTabId.value) || tabs.value[0]
+  return tabs.value.find(t => t.id === renderedTabId.value) || tabs.value.find(t => t.id === activeTabId.value) || tabs.value[0]
 })
 
-// 监听活跃 Tab 变化，实时同步当前 Tab 信息给历史记录抽屉
-watch(activeTabId, (newId) => {
+const isTabSwitching = ref(false)
+
+// 监听活跃 Tab 变化：Tab 标题高亮 0ms 瞬间响应，编辑区若有大数据则展示优雅 Loading 并在下一帧平滑挂载
+watch(activeTabId, (newId, oldId) => {
+  if (oldId && oldId !== newId) {
+    saveCurrentTabScrollPosition(oldId)
+  }
   const cur = tabs.value.find(t => t.id === newId)
   if (cur && setHistoryTabInfo) {
     setHistoryTabInfo({
@@ -1168,6 +1190,38 @@ watch(activeTabId, (newId) => {
       title: cur.title || ''
     })
   }
+
+  if (newId === renderedTabId.value) return
+
+  if (tabRenderTimer) clearTimeout(tabRenderTimer)
+  if (tabRenderRaf) cancelAnimationFrame(tabRenderRaf)
+
+  // 检测目标 Tab 是否包含大文本数据或大量对象节点
+  const isLarge = cur && (
+    (cur.inputText && cur.inputText.length > 20000) ||
+    (cur.parsedObj && typeof cur.parsedObj === 'object')
+  )
+
+  if (isLarge) {
+    isTabContentLoading.value = true
+  }
+  isTabSwitching.value = true
+
+  // 利用 requestAnimationFrame 让浏览器在当前帧（0ms）先完成 Tab 激活高亮与 Loading 动画的重绘
+  tabRenderRaf = requestAnimationFrame(() => {
+    tabRenderTimer = setTimeout(() => {
+      renderedTabId.value = newId
+      nextTick(() => {
+        requestAnimationFrame(() => {
+          isTabContentLoading.value = false
+          isTabSwitching.value = false
+          tabRenderTimer = null
+          tabRenderRaf = null
+          restoreTabScrollPosition(newId)
+        })
+      })
+    }, isLarge ? 25 : 0)
+  })
 })
 
 watch(() => activeTab.value?.viewMode, (mode) => {
@@ -1280,10 +1334,14 @@ const closeTab = (id) => {
       activeTabId.value = tabs.value[index + 1].id
     }
   }
+  if (renderedTabId.value === id) {
+    renderedTabId.value = activeTabId.value
+  }
   tabs.value.splice(index, 1)
   deleteTabContentFromDb(id)
   clearTabHistoryRecords(id)
   lastRecordedTabMap.delete(String(id))
+  tabScrollPositions.delete(id)
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
 }
@@ -1352,7 +1410,6 @@ const saveFormatterState = (immediate = false) => {
   }
 }
 
-const editingTabId = ref(null)
 
 const startEditTab = (tabId) => {
   editingTabId.value = tabId
@@ -1392,6 +1449,7 @@ const closeLeftTabs = () => {
     deleteTabContentFromDb(t.id)
     clearTabHistoryRecords(t.id)
     lastRecordedTabMap.delete(String(t.id))
+    tabScrollPositions.delete(t.id)
   })
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
@@ -1408,6 +1466,7 @@ const closeRightTabs = () => {
     deleteTabContentFromDb(t.id)
     clearTabHistoryRecords(t.id)
     lastRecordedTabMap.delete(String(t.id))
+    tabScrollPositions.delete(t.id)
   })
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
@@ -1423,6 +1482,7 @@ const closeOtherTabs = () => {
     deleteTabContentFromDb(t.id)
     clearTabHistoryRecords(t.id)
     lastRecordedTabMap.delete(String(t.id))
+    tabScrollPositions.delete(t.id)
   })
   saveFormatterState(true)
   nextTick(checkTabsOverflow)
@@ -1445,6 +1505,7 @@ const closeAllTabs = () => {
     extractedFormat: null
   }]
   activeTabId.value = freshId
+  tabScrollPositions.clear()
   removed.forEach(t => {
     deleteTabContentFromDb(t.id)
     clearTabHistoryRecords(t.id)
@@ -2115,7 +2176,11 @@ const formatJSON = () => {
   }
 
   try {
-    let obj = safeParse(tab.inputText)
+    let textToParse = tab.inputText
+    if (autoUnicodeDecode.value && textToParse && textToParse.includes('\\u')) {
+      textToParse = fastDecodeUnicodeText(textToParse)
+    }
+    let obj = safeParse(textToParse)
     tab.validationError = null
     tab.errorLine = null
     tab.extractedFormat = null
@@ -2131,16 +2196,16 @@ const formatJSON = () => {
       if (tab._unsortedText) {
         tab.inputText = tab._unsortedText
         tab._unsortedText = null
-        obj = safeParse(tab.inputText)
+        obj = safeParse(textToParse)
         tab.parsedObj = obj
       }
     }
 
-    if ((autoUrlDecode.value || autoUnicodeDecode.value) && !isHeavy(tab.inputText)) {
+    if (autoUrlDecode.value || autoUnicodeDecode.value) {
       obj = transformJsonValues(obj, {
         urlDecode: autoUrlDecode.value,
         unicodeDecode: autoUnicodeDecode.value,
-        rawText: tab.inputText
+        rawText: textToParse
       })
     }
     tab.parsedObj = obj
@@ -2408,8 +2473,8 @@ const scheduleFormatJSON = (immediate = false) => {
 // Watch inputs and format; save only input-derived fields (NOT tabs deeply — avoids infinite loop
 // because formatJSON() mutates tab.outputText/parsedObj which are inside tabs)
 watch(
-  [() => activeTab.value?.inputText, indentSize, sortKeys, activeTabId, autoUrlDecode, autoUnicodeDecode],
-  ([newText, newIndent, newSort, newTabId, newUrl, newUnicode], [oldText, oldIndent, oldSort, oldTabId, oldUrl, oldUnicode]) => {
+  [() => activeTab.value?.inputText, indentSize, sortKeys, activeTabId],
+  ([newText, newIndent, newSort, newTabId], [oldText, oldIndent, oldSort, oldTabId]) => {
     // 1. 如果是切换标签页 (newTabId !== oldTabId)：
     if (newTabId !== oldTabId) {
       // 若当前切换到的 Tab 已经有格式化结果或错误状态，直接复用已有的 parsedObj 与 outputText，绝不重复解析与存储，实现 0ms 顺滑瞬切
@@ -2420,7 +2485,7 @@ watch(
       return
     }
 
-    // 2. 如果是切换缩进、排序规则或转码开关（文本未变但设置改变）：立即执行格式化
+    // 2. 如果是切换缩进或排序规则（文本未变但设置改变）：立即执行格式化
     if (newText === oldText) {
       scheduleFormatJSON(true)
       return
@@ -2604,7 +2669,7 @@ const syncGutterScroll = () => {
   savedScrollState.inputLeft = scrollLeft
 
   // Sync Output Pane (text view & tree view)
-  if (activeScrollTarget.value === 'left') {
+  if (activeScrollTarget.value !== 'right') {
     if (outputPreRef.value) {
       outputPreRef.value.scrollTop = scrollTop
       outputPreRef.value.scrollLeft = scrollLeft
@@ -2612,8 +2677,13 @@ const syncGutterScroll = () => {
     }
     // Sync tree view
     if (treeWrapperRef.value) {
-      treeWrapperRef.value.scrollTop = scrollTop
-      treeWrapperRef.value.scrollLeft = scrollLeft
+      if (typeof treeWrapperRef.value.setScrollTop === 'function') {
+        treeWrapperRef.value.setScrollTop(scrollTop)
+        treeWrapperRef.value.setScrollLeft(scrollLeft)
+      } else {
+        treeWrapperRef.value.scrollTop = scrollTop
+        treeWrapperRef.value.scrollLeft = scrollLeft
+      }
     }
   }
 }
@@ -2660,6 +2730,84 @@ const syncGutterHeights = () => {
   }
 }
 
+// Tab 独立滚动记忆：保存每个 Tab 的编辑区与树形视图的滚动位置 (普通 Map 保证 0 响应式开销)
+const tabScrollPositions = new Map()
+
+const saveCurrentTabScrollPosition = (tabId) => {
+  const targetId = tabId || renderedTabId.value || activeTabId.value
+  if (!targetId) return
+  let inputTop = 0
+  let inputLeft = 0
+  if (cmEditorRef.value?.getScrollDOM) {
+    const dom = cmEditorRef.value.getScrollDOM()
+    if (dom) {
+      inputTop = dom.scrollTop || 0
+      inputLeft = dom.scrollLeft || 0
+    }
+  } else if (textareaRef.value) {
+    inputTop = textareaRef.value.scrollTop || 0
+    inputLeft = textareaRef.value.scrollLeft || 0
+  }
+  let treeTop = 0
+  let treeLeft = 0
+  if (treeWrapperRef.value) {
+    const treeDom = treeWrapperRef.value.getScrollDOM ? treeWrapperRef.value.getScrollDOM() : treeWrapperRef.value
+    if (treeDom) {
+      treeTop = treeDom.scrollTop || 0
+      treeLeft = treeDom.scrollLeft || 0
+    }
+  } else if (outputPreRef.value) {
+    treeTop = outputPreRef.value.scrollTop || 0
+    treeLeft = outputPreRef.value.scrollLeft || 0
+  }
+  tabScrollPositions.set(targetId, { inputTop, inputLeft, treeTop, treeLeft })
+}
+
+let restoreScrollTimer = null
+const restoreTabScrollPosition = (targetTabId) => {
+  if (!targetTabId) return
+  const saved = tabScrollPositions.get(targetTabId)
+  const inputTop = saved ? saved.inputTop : 0
+  const inputLeft = saved ? saved.inputLeft : 0
+  const treeTop = saved ? saved.treeTop : 0
+  const treeLeft = saved ? saved.treeLeft : 0
+
+  activeScrollTarget.value = 'restore'
+
+  if (cmEditorRef.value) {
+    cmEditorRef.value.setScrollTop(inputTop)
+    cmEditorRef.value.setScrollLeft(inputLeft)
+  } else if (textareaRef.value) {
+    textareaRef.value.scrollTop = inputTop
+    textareaRef.value.scrollLeft = inputLeft
+  }
+  if (gutterRef.value) {
+    gutterRef.value.scrollTop = inputTop
+  }
+
+  if (treeWrapperRef.value) {
+    if (typeof treeWrapperRef.value.setScrollTop === 'function') {
+      treeWrapperRef.value.setScrollTop(treeTop)
+      treeWrapperRef.value.setScrollLeft(treeLeft)
+    } else {
+      treeWrapperRef.value.scrollTop = treeTop
+      treeWrapperRef.value.scrollLeft = treeLeft
+    }
+  }
+  if (outputPreRef.value) {
+    outputPreRef.value.scrollTop = treeTop
+    outputPreRef.value.scrollLeft = treeLeft
+  }
+
+  if (restoreScrollTimer) clearTimeout(restoreScrollTimer)
+  restoreScrollTimer = setTimeout(() => {
+    if (activeScrollTarget.value === 'restore') {
+      activeScrollTarget.value = null
+    }
+    restoreScrollTimer = null
+  }, 60)
+}
+
 // KeepAlive 标签页切换时保存与恢复滚动位置，杜绝 DOM 分离导致 scrollTop 归零而 transform 滞留错位
 const savedScrollState = {
   inputTop: 0,
@@ -2676,22 +2824,7 @@ onDeactivated(() => {
 
 onActivated(() => {
   nextTick(() => {
-    activeScrollTarget.value = 'left'
-    if (cmEditorRef.value) {
-      cmEditorRef.value.setScrollTop(savedScrollState.inputTop)
-      cmEditorRef.value.setScrollLeft(savedScrollState.inputLeft)
-    } else if (textareaRef.value) {
-      textareaRef.value.scrollTop = savedScrollState.inputTop
-      textareaRef.value.scrollLeft = savedScrollState.inputLeft
-    }
-    if (outputPreRef.value) {
-      outputPreRef.value.scrollTop = savedScrollState.outputTop
-      outputPreRef.value.scrollLeft = savedScrollState.outputLeft
-    }
-    if (treeWrapperRef.value) {
-      treeWrapperRef.value.scrollTop = savedScrollState.treeTop
-      treeWrapperRef.value.scrollLeft = savedScrollState.treeLeft
-    }
+    restoreTabScrollPosition(renderedTabId.value || activeTabId.value)
     syncGutterScroll()
     syncGutterHeights()
   })
@@ -2706,13 +2839,34 @@ const handleEditorScroll = (e) => {
   savedScrollState.inputTop = scrollTop
   savedScrollState.inputLeft = scrollLeft
 
-  if (activeScrollTarget.value === 'left') {
-    if (outputPreRef.value) {
-      outputPreRef.value.scrollTop = scrollTop
-      outputPreRef.value.scrollLeft = scrollLeft
-      if (outputGutterRef.value) outputGutterRef.value.scrollTop = scrollTop
+  const currentId = renderedTabId.value || activeTabId.value
+  if (currentId) {
+    let pos = tabScrollPositions.get(currentId)
+    if (!pos) {
+      pos = { inputTop: scrollTop, inputLeft: scrollLeft, treeTop: scrollTop, treeLeft: scrollLeft }
+      tabScrollPositions.set(currentId, pos)
+    } else {
+      pos.inputTop = scrollTop
+      pos.inputLeft = scrollLeft
     }
-    if (treeWrapperRef.value) {
+  }
+
+  // 如果当前滚动是由右侧树形视图驱动的程序化滚动或正在恢复位置，则不反向同步，避免死循环震荡
+  if (activeScrollTarget.value === 'right' || activeScrollTarget.value === 'restore') {
+    return
+  }
+  activeScrollTarget.value = 'left'
+
+  if (outputPreRef.value) {
+    outputPreRef.value.scrollTop = scrollTop
+    outputPreRef.value.scrollLeft = scrollLeft
+    if (outputGutterRef.value) outputGutterRef.value.scrollTop = scrollTop
+  }
+  if (treeWrapperRef.value) {
+    if (typeof treeWrapperRef.value.setScrollTop === 'function') {
+      treeWrapperRef.value.setScrollTop(scrollTop)
+      treeWrapperRef.value.setScrollLeft(scrollLeft)
+    } else {
       treeWrapperRef.value.scrollTop = scrollTop
       treeWrapperRef.value.scrollLeft = scrollLeft
     }
@@ -2872,27 +3026,47 @@ const handleOutputScroll = () => {
 }
 
 // 树形视图滚动同步（垂直 + 水平双向同步）
-const handleTreeScroll = () => {
-  if (activeScrollTarget.value === 'right' && treeWrapperRef.value) {
-    const scrollTop = treeWrapperRef.value.scrollTop
-    const scrollLeft = treeWrapperRef.value.scrollLeft
-    savedScrollState.treeTop = scrollTop
-    savedScrollState.treeLeft = scrollLeft
-    if (cmEditorRef.value) {
-      cmEditorRef.value.setScrollTop(scrollTop)
-      cmEditorRef.value.setScrollLeft(scrollLeft)
-    } else if (textareaRef.value) {
-      textareaRef.value.scrollTop = scrollTop
-      textareaRef.value.scrollLeft = scrollLeft
+const handleTreeScroll = (e) => {
+  if (!treeWrapperRef.value) return
+  const target = e?.target || treeWrapperRef.value?.getScrollDOM?.() || treeWrapperRef.value?.containerRef || treeWrapperRef.value?.$el
+  const scrollTop = target ? target.scrollTop : (treeWrapperRef.value.scrollTop || 0)
+  const scrollLeft = target ? target.scrollLeft : (treeWrapperRef.value.scrollLeft || 0)
+
+  savedScrollState.treeTop = scrollTop
+  savedScrollState.treeLeft = scrollLeft
+
+  const currentId = renderedTabId.value || activeTabId.value
+  if (currentId) {
+    let pos = tabScrollPositions.get(currentId)
+    if (!pos) {
+      pos = { inputTop: scrollTop, inputLeft: scrollLeft, treeTop: scrollTop, treeLeft: scrollLeft }
+      tabScrollPositions.set(currentId, pos)
+    } else {
+      pos.treeTop = scrollTop
+      pos.treeLeft = scrollLeft
     }
-    if (gutterRef.value) {
-      gutterRef.value.scrollTop = scrollTop
-    }
-    if (inputHighlightRef.value) {
-      inputHighlightRef.value.scrollTop = 0
-      inputHighlightRef.value.scrollLeft = 0
-      inputHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
-    }
+  }
+
+  // 如果当前滚动是由左侧编辑区驱动的程序化滚动或正在恢复位置，则不反向同步，避免死循环震荡
+  if (activeScrollTarget.value === 'left' || activeScrollTarget.value === 'restore') {
+    return
+  }
+  activeScrollTarget.value = 'right'
+
+  if (cmEditorRef.value) {
+    cmEditorRef.value.setScrollTop(scrollTop)
+    cmEditorRef.value.setScrollLeft(scrollLeft)
+  } else if (textareaRef.value) {
+    textareaRef.value.scrollTop = scrollTop
+    textareaRef.value.scrollLeft = scrollLeft
+  }
+  if (gutterRef.value) {
+    gutterRef.value.scrollTop = scrollTop
+  }
+  if (inputHighlightRef.value) {
+    inputHighlightRef.value.scrollTop = 0
+    inputHighlightRef.value.scrollLeft = 0
+    inputHighlightRef.value.style.transform = `translate3d(-${scrollLeft}px, -${scrollTop}px, 0)`
   }
 }
 
@@ -3820,7 +3994,11 @@ const handleFormatDirect = () => {
         tab.inputText = tab._unsortedText
         tab._unsortedText = null
       }
-      let obj = safeParse(tab.inputText)
+      let textToParse = tab.inputText
+      if (autoUnicodeDecode.value && textToParse && textToParse.includes('\\u')) {
+        textToParse = fastDecodeUnicodeText(textToParse)
+      }
+      let obj = safeParse(textToParse)
       if (sortKeys.value) {
         obj = sortJSONKeys(obj, sortKeys.value === 2)
       }
@@ -3828,7 +4006,7 @@ const handleFormatDirect = () => {
         obj = transformJsonValues(obj, {
           urlDecode: autoUrlDecode.value,
           unicodeDecode: autoUnicodeDecode.value,
-          rawText: tab.inputText
+          rawText: textToParse
         })
       }
       const space = indentSize.value === 'tab' ? '\t' : parseInt(indentSize.value || '2')
@@ -3870,22 +4048,26 @@ const handleMinifyDirect = () => {
 
   const doMinify = () => {
     try {
-      // 优先复用现有的 parsedObj，避免重复解析
-      let obj = tab.parsedObj
+      let textToParse = tab.inputText
+      if (autoUnicodeDecode.value && textToParse && textToParse.includes('\\u')) {
+        textToParse = fastDecodeUnicodeText(textToParse)
+      }
+      // 若发生了 Unicode 文本解码，则不能复用未解码的 parsedObj，需基于解码后文本解析
+      let obj = (textToParse !== tab.inputText) ? safeParse(textToParse) : tab.parsedObj
       if (!obj) {
-        obj = safeParse(tab.inputText)
+        obj = safeParse(textToParse)
       }
       if (autoUrlDecode.value || autoUnicodeDecode.value) {
         obj = transformJsonValues(obj, {
           urlDecode: autoUrlDecode.value,
           unicodeDecode: autoUnicodeDecode.value,
-          rawText: tab.inputText
+          rawText: textToParse
         })
       }
 
-      // 避免重复 stringify：若已是紧凑单行形式直接使用（未开启解码转换时）
+      // 避免重复 stringify：若已是紧凑单行形式直接使用（未开启解码转换且未发生文本解码时）
       const hasTransform = autoUrlDecode.value || autoUnicodeDecode.value
-      const isAlreadyMinified = !hasTransform && !tab.inputText.includes('\n')
+      const isAlreadyMinified = !hasTransform && textToParse === tab.inputText && !tab.inputText.includes('\n')
       const minified = isAlreadyMinified ? tab.inputText.trim() : safeStringify(obj)
 
       tab.inputText = minified
@@ -3900,13 +4082,16 @@ const handleMinifyDirect = () => {
       recordHistoryItem(minified, tab.title, true)
     } catch (err) {
       try {
-        const jsonStr = convertJsObjectToJson(tab.inputText)
-        let obj = safeParse(jsonStr)
+        let textToParse = convertJsObjectToJson(tab.inputText)
+        if (autoUnicodeDecode.value && textToParse && textToParse.includes('\\u')) {
+          textToParse = fastDecodeUnicodeText(textToParse)
+        }
+        let obj = safeParse(textToParse)
         if (autoUrlDecode.value || autoUnicodeDecode.value) {
           obj = transformJsonValues(obj, {
             urlDecode: autoUrlDecode.value,
             unicodeDecode: autoUnicodeDecode.value,
-            rawText: tab.inputText
+            rawText: textToParse
           })
         }
         const minified = safeStringify(obj)
@@ -4605,36 +4790,39 @@ defineExpose({
     <!-- Formatter Tabs Bar -->
     <div class="compare-tabs-bar">
       <div class="tabs-list" ref="tabsListRef" @mousedown="onTabsMouseDown" @wheel.prevent="onTabsWheel">
-        <div
-          v-for="tab in tabs"
-          :key="tab.id"
-          class="compare-tab"
-          :class="{ active: tab.id === activeTabId }"
-          :data-tooltip-bottom="editingTabId === tab.id ? null : tab.title"
-          :title="tab.title"
-          @click="activeTabId = tab.id"
-          @dblclick.stop="startEditTab(tab.id)"
-          @contextmenu="showTabContextMenu($event, tab.id)"
-        >
-          <input
-            v-if="editingTabId === tab.id"
-            class="tab-edit-input"
-            :value="tab.title"
-            @blur="finishEditTab(tab, $event)"
-            @keydown.enter="$event.target.blur()"
-            @keydown.escape="editingTabId = null"
-            @click.stop
-            @mousedown.stop
-          />
-          <span v-else class="tab-title-text">{{ tab.title }}</span>
-          <button
-            v-if="tabs.length > 1"
-            class="tab-close-btn"
-            @click.stop="closeTab(tab.id)"
+        <TransitionGroup name="tab-item">
+          <div
+            v-for="tab in tabs"
+            :key="tab.id"
+            class="compare-tab"
+            :class="{ active: tab.id === activeTabId }"
+            :data-tooltip-bottom="getTabTooltip(tab.id)"
+            @mouseenter="handleTabMouseEnter($event, tab)"
+            @mouseleave="handleTabMouseLeave(tab.id)"
+            @click="activeTabId = tab.id"
+            @dblclick.stop="startEditTab(tab.id)"
+            @contextmenu="showTabContextMenu($event, tab.id)"
           >
-            <X class="tab-close-icon" />
-          </button>
-        </div>
+            <input
+              v-if="editingTabId === tab.id"
+              class="tab-edit-input"
+              :value="tab.title"
+              @blur="finishEditTab(tab, $event)"
+              @keydown.enter="$event.target.blur()"
+              @keydown.escape="editingTabId = null"
+              @click.stop
+              @mousedown.stop
+            />
+            <span v-else class="tab-title-text">{{ tab.title }}</span>
+            <button
+              v-if="tabs.length > 1"
+              class="tab-close-btn"
+              @click.stop="closeTab(tab.id)"
+            >
+              <X class="tab-close-icon" />
+            </button>
+          </div>
+        </TransitionGroup>
         <button v-if="!tabsOverflow" class="add-tab-btn" @click="addTab">
           <Plus class="add-tab-icon" />
           <span>新建格式化</span>
@@ -4668,11 +4856,20 @@ defineExpose({
     <div
       ref="workspaceGridRef"
       class="workspace-grid"
-      :class="{ 'single-panel': !showOutput, 'is-resizing': isDraggingSplitter }"
+      :class="{ 'single-panel': !showOutput, 'is-resizing': isDraggingSplitter, 'tab-switching': isTabSwitching }"
       :style="gridStyle"
       @dragover.prevent
       @drop.prevent="onDrop"
     >
+      <!-- Tab Content Loading Indicator (大数据切换时流畅加载遮罩) -->
+      <Transition name="fade-loading">
+        <div v-if="isTabContentLoading" class="workspace-loading-overlay">
+          <div class="workspace-loading-card">
+            <Loader2 class="workspace-loading-spinner spin-animate" />
+            <span class="workspace-loading-text">正在加载数据...</span>
+          </div>
+        </div>
+      </Transition>
       <!-- Input Panel -->
       <div ref="leftPanelRef" class="editor-panel" :class="{ 'is-collapsed': isLeftCollapsed, 'is-ultra-narrow': isUltraNarrow }">
         <div class="panel-header">
@@ -4954,7 +5151,13 @@ defineExpose({
         </Transition>
 
         <div class="panel-body">
-          <div class="editor-wrapper" @mouseenter="activeScrollTarget = 'left'" @touchstart="activeScrollTarget = 'left'">
+          <div
+            class="editor-wrapper"
+            @mouseenter="activeScrollTarget = 'left'"
+            @wheel.passive="activeScrollTarget = 'left'"
+            @touchstart.passive="activeScrollTarget = 'left'"
+            @mousedown.passive="activeScrollTarget = 'left'"
+          >
             <CodeMirrorEditor
               ref="cmEditorRef"
               v-model="activeTab.inputText"
@@ -5246,7 +5449,13 @@ defineExpose({
           </div>
         </div>
 
-        <div class="panel-body">
+        <div
+          class="panel-body"
+          @mouseenter="activeScrollTarget = 'right'"
+          @wheel.passive="activeScrollTarget = 'right'"
+          @touchstart.passive="activeScrollTarget = 'right'"
+          @mousedown.passive="activeScrollTarget = 'right'"
+        >
           <Transition name="fade-slide" mode="out-in">
             <!-- 格式转换输出视图 (当开启转换时自动呈现代码视图) -->
             <div v-if="convertFormat" class="output-wrapper" key="convert">
@@ -5279,7 +5488,9 @@ defineExpose({
               @click-path="handlePathClick"
               @toggle-fold="handleTreeToggleFold"
               @mouseenter="activeScrollTarget = 'right'"
-              @touchstart="activeScrollTarget = 'right'"
+              @wheel.passive="activeScrollTarget = 'right'"
+              @touchstart.passive="activeScrollTarget = 'right'"
+              @mousedown.passive="activeScrollTarget = 'right'"
             />
 
             <!-- Table view -->
@@ -5831,7 +6042,59 @@ defineExpose({
   height: 100%;
   width: 100%;
   position: relative;
-  transition: grid-template-columns 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: grid-template-columns 0.28s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease-out;
+}
+
+.workspace-grid.tab-switching {
+  opacity: 0.88;
+}
+
+/* ─── Tab Content Loading Overlay ─── */
+.workspace-loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(var(--bg-app-rgb, 15, 23, 42), 0.24);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+.workspace-loading-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 1.125rem;
+  border-radius: 0.5rem;
+  background: var(--bg-panel, #1e293b);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  color: var(--text-primary, #f8fafc);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.workspace-loading-spinner {
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--primary-color, #6366f1);
+}
+
+.fade-loading-enter-active,
+.fade-loading-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.fade-loading-enter-from,
+.fade-loading-leave-to {
+  opacity: 0;
 }
 
 .workspace-grid.single-panel {

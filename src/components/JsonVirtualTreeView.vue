@@ -1082,19 +1082,37 @@ onBeforeUnmount(() => {
 })
 
 // Expose container and DOM compatibility getters/methods for external scrolling sync
+const setScrollTop = (val) => {
+  const top = Math.max(0, Number(val) || 0)
+  scrollTop.value = top
+  if (containerRef.value && containerRef.value.scrollTop !== top) {
+    containerRef.value.scrollTop = top
+  }
+}
+
+const setScrollLeft = (val) => {
+  const left = Math.max(0, Number(val) || 0)
+  if (containerRef.value && containerRef.value.scrollLeft !== left) {
+    containerRef.value.scrollLeft = left
+  }
+}
+
 defineExpose({
   get scrollTop() {
-    return containerRef.value ? containerRef.value.scrollTop : 0
+    return containerRef.value ? containerRef.value.scrollTop : scrollTop.value
   },
   set scrollTop(val) {
-    if (containerRef.value) containerRef.value.scrollTop = val
+    setScrollTop(val)
   },
   get scrollLeft() {
     return containerRef.value ? containerRef.value.scrollLeft : 0
   },
   set scrollLeft(val) {
-    if (containerRef.value) containerRef.value.scrollLeft = val
+    setScrollLeft(val)
   },
+  setScrollTop,
+  setScrollLeft,
+  getScrollDOM: () => containerRef.value,
   querySelector(selector) {
     return containerRef.value ? containerRef.value.querySelector(selector) : null
   },
@@ -1107,10 +1125,12 @@ defineExpose({
   foldAll,
   unfoldAll,
   scrollToTop: () => {
-    if (containerRef.value) containerRef.value.scrollTop = 0
+    setScrollTop(0)
   },
   scrollToBottom: () => {
-    if (containerRef.value) containerRef.value.scrollTop = containerRef.value.scrollHeight
+    if (containerRef.value) {
+      setScrollTop(containerRef.value.scrollHeight)
+    }
   }
 })
 </script>
@@ -1139,6 +1159,7 @@ defineExpose({
           top: `${row.topPosition}px`,
           height: isWrap ? 'auto' : `${editorLineHeight}px`,
           minHeight: `${editorLineHeight}px`,
+          maxHeight: isWrap ? 'none' : `${editorLineHeight}px`,
           lineHeight: `${editorLineHeight}px`,
           width: isWrap ? '100%' : `${maxLineWidth}px`,
           minWidth: isWrap ? '100%' : `${maxLineWidth}px`,
@@ -1496,10 +1517,27 @@ defineExpose({
   overflow: auto;
   position: relative;
   box-sizing: border-box;
-  padding: 4px 12px;
+  padding: 4px 12px 24px 12px;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
   font-size: var(--editor-font-size, 13px);
+  line-height: var(--editor-line-height, 20px);
   user-select: text;
+}
+
+.virtual-tree-row {
+  min-height: var(--editor-line-height, 20px);
+  line-height: var(--editor-line-height, 20px);
+  box-sizing: border-box;
+}
+
+.json-virtual-tree-container.is-nowrap .virtual-tree-row {
+  height: var(--editor-line-height, 20px);
+  max-height: var(--editor-line-height, 20px);
+}
+
+.json-virtual-tree-container.is-wrap .virtual-tree-row {
+  height: auto;
+  max-height: none;
 }
 
 /* Nowrap Mode: expands horizontally so container scrolls smoothly */
