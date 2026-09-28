@@ -41,6 +41,13 @@
     <link rel="stylesheet" href="/css/css2.css" />
     <script>
       window.addEventListener('error', function(e) {
+        if (e.message && (
+          e.message.indexOf('ResizeObserver loop completed with undelivered notifications') !== -1 ||
+          e.message.indexOf('ResizeObserver loop limit exceeded') !== -1
+        )) {
+          e.stopImmediatePropagation();
+          return;
+        }
         var el = document.getElementById('easyjson-fatal-error');
         if (!el) {
           el = document.createElement('pre');

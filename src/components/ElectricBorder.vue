@@ -252,10 +252,15 @@ function startAnimation() {
     animationId = requestAnimationFrame(drawElectricBorder)
   }
 
+  let resizeRaf = null
   resizeObserver = new ResizeObserver(() => {
-    const newSize = updateSize()
-    width = newSize.width
-    height = newSize.height
+    if (resizeRaf) cancelAnimationFrame(resizeRaf)
+    resizeRaf = requestAnimationFrame(() => {
+      resizeRaf = null
+      const newSize = updateSize()
+      width = newSize.width
+      height = newSize.height
+    })
   })
   resizeObserver.observe(container)
 
@@ -267,6 +272,10 @@ function stopAnimation() {
   if (animationId) {
     cancelAnimationFrame(animationId)
     animationId = null
+  }
+  if (resizeRaf) {
+    cancelAnimationFrame(resizeRaf)
+    resizeRaf = null
   }
   if (resizeObserver) {
     resizeObserver.disconnect()

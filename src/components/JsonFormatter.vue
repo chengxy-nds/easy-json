@@ -9,7 +9,8 @@ import {
   Pencil, ArrowLeft, ArrowRight, Wand2, GripVertical, ArrowLeftToLine, ArrowRightToLine, MoreHorizontal,
   ShieldCheck, Workflow, History,
   Smartphone, IdCard, Mail, CreditCard, Globe,
-  Car, Building2, BookUser, Database, Loader2
+  Car, Building2, BookUser, Database, Loader2,
+  Replace, ReplaceAll, ArrowDown, ArrowUp
 } from 'lucide-vue-next'
 import JsonTreeNode   from './JsonTreeNode.vue'
 import JsonVirtualTreeView from './JsonVirtualTreeView.vue'
@@ -122,6 +123,15 @@ const setSelectedPath = (path, type = 'all') => {
 }
 const searchQuery = ref('')
 const searchExpanded = ref(false)
+const searchCaseSensitive = ref(false)
+const searchWholeWord = ref(false)
+const searchRegex = ref(false)
+const searchPreserveCase = ref(false)
+const searchHistory = ref([])
+const searchHistoryIndex = ref(-1)
+const isSearchFocused = ref(false)
+const isReplaceFocused = ref(false)
+let tempSearchQuery = ''
 
 // ── 图片悬停预览状态与提供者 ──
 const imagePreviewState = ref({
@@ -381,12 +391,30 @@ provide('selectedPath', selectedPath)
 provide('selectedType', selectedType)
 provide('setSelectedPath', setSelectedPath)
 
-const expandSearch = () => {
+const openSearch = (withReplace = false) => {
   showJsonPathBar.value = false
   searchExpanded.value = true
+  if (withReplace) {
+    replaceExpanded.value = true
+  }
+  // 若当前编辑器内有选中文本，自动填入搜索框
+  const selText = cmEditorRef.value?.getSelectedText?.()
+  if (selText && !selText.includes('\n') && selText.length <= 120) {
+    searchQuery.value = selText
+  }
   nextTick(() => {
-    searchInputRef.value?.focus()
+    if (withReplace) {
+      replaceInputRef.value?.focus()
+      replaceInputRef.value?.select()
+    } else {
+      searchInputRef.value?.focus()
+      searchInputRef.value?.select()
+    }
   })
+}
+
+const expandSearch = () => {
+  openSearch(false)
 }
 
 const collapseSearch = () => {
@@ -396,13 +424,18 @@ const collapseSearch = () => {
   replaceExpanded.value = false
   currentMatchIndex.value = 0
   totalMatches.value = 0
+  searchHistoryIndex.value = -1
+  if (cmEditorRef.value?.focus) {
+    cmEditorRef.value.focus()
+  } else if (textareaRef.value) {
+    textareaRef.value.focus()
+  }
 }
 
 const toggleSearch = () => {
   if (searchExpanded.value) {
     collapseSearch()
   } else {
-    showJsonPathBar.value = false
     expandSearch()
   }
 }
@@ -410,18 +443,90 @@ const toggleSearch = () => {
 const toggleReplace = () => {
   replaceExpanded.value = !replaceExpanded.value
   if (replaceExpanded.value) {
-    nextTick(() => replaceInputRef.value?.focus())
+    nextTick(() => {
+      replaceInputRef.value?.focus()
+      replaceInputRef.value?.select()
+    })
+  }
+}
+
+const toggleCaseSensitive = () => {
+  searchCaseSensitive.value = !searchCaseSensitive.value
+}
+
+const toggleWholeWord = () => {
+  searchWholeWord.value = !searchWholeWord.value
+}
+
+const toggleRegex = () => {
+  searchRegex.value = !searchRegex.value
+}
+
+const togglePreserveCase = () => {
+  searchPreserveCase.value = !searchPreserveCase.value
+}
+
+const pushSearchHistory = (q) => {
+  if (!q || !q.trim()) return
+  const val = q.trim()
+  const idx = searchHistory.value.indexOf(val)
+  if (idx !== -1) {
+    searchHistory.value.splice(idx, 1)
+  }
+  searchHistory.value.unshift(val)
+  if (searchHistory.value.length > 20) {
+    searchHistory.value.pop()
+  }
+  searchHistoryIndex.value = -1
+}
+
+const navigateSearchHistory = (direction) => {
+  if (searchHistory.value.length === 0) return
+  if (searchHistoryIndex.value === -1) {
+    tempSearchQuery = searchQuery.value
+  }
+
+  if (direction === 'up') {
+    if (searchHistoryIndex.value < searchHistory.value.length - 1) {
+      searchHistoryIndex.value++
+      searchQuery.value = searchHistory.value[searchHistoryIndex.value]
+    }
+  } else if (direction === 'down') {
+    if (searchHistoryIndex.value > 0) {
+      searchHistoryIndex.value--
+      searchQuery.value = searchHistory.value[searchHistoryIndex.value]
+    } else if (searchHistoryIndex.value === 0) {
+      searchHistoryIndex.value = -1
+      searchQuery.value = tempSearchQuery
+    }
+  }
+}
+
+const buildSearchRegex = (global = true) => {
+  const query = searchQuery.value
+  if (!query) return null
+  let pattern = query
+  let flags = global ? 'g' : ''
+  if (!searchCaseSensitive.value) flags += 'i'
+  if (!searchRegex.value) {
+    pattern = pattern.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+  }
+  if (searchWholeWord.value) {
+    pattern = `\\b${pattern}\\b`
+  }
+  try {
+    return new RegExp(pattern, flags)
+  } catch (e) {
+    return null
   }
 }
 
 const searchMatches = computed(() => {
-  const query = searchQuery.value
-  if (!query) return []
+  const regex = buildSearchRegex(true)
+  if (!regex) return []
   const text = activeTab.value?.inputText || ''
   if (!text) return []
   try {
-    const escaped = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-    const regex = new RegExp(escaped, 'gi')
     return [...text.matchAll(regex)]
   } catch (e) {
     return []
@@ -439,6 +544,13 @@ watch([searchMatches, searchQuery], ([matches, query]) => {
     }
   }
 }, { immediate: true })
+
+watch([searchCaseSensitive, searchWholeWord, searchRegex], () => {
+  currentMatchIndex.value = 0
+  if (searchQuery.value) {
+    scrollToCurrentMatch()
+  }
+})
 
 const goNextMatch = () => {
   if (totalMatches.value === 0) return
@@ -542,10 +654,22 @@ const scrollToErrorLine = () => {
   })
 }
 
-const buildSearchRegex = () => {
-  if (!searchQuery.value) return null
-  const escaped = searchQuery.value.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-  return new RegExp(escaped, 'gi')
+// Preserve Case 辅助函数（完全还原 VSCode 规则）
+const applyPreserveCase = (original, replacement) => {
+  if (!original || !replacement) return replacement
+  // 1. 全大写: FOO -> BAR
+  if (original === original.toUpperCase() && original !== original.toLowerCase()) {
+    return replacement.toUpperCase()
+  }
+  // 2. 全小写: foo -> bar
+  if (original === original.toLowerCase() && original !== original.toUpperCase()) {
+    return replacement.toLowerCase()
+  }
+  // 3. 首字母大写 (Title/Pascal Case): Foo -> Bar
+  if (original[0] === original[0].toUpperCase() && original[0] !== original[0].toLowerCase()) {
+    return replacement.charAt(0).toUpperCase() + replacement.slice(1).toLowerCase()
+  }
+  return replacement
 }
 
 const replaceCurrent = () => {
@@ -560,7 +684,8 @@ const replaceCurrent = () => {
     const m = matches[idx]
     const tab = activeTab.value
     const text = tab.inputText
-    tab.inputText = text.substring(0, m.index) + replaceText.value + text.substring(m.index + m[0].length)
+    const targetReplacement = searchPreserveCase.value ? applyPreserveCase(m[0], replaceText.value) : replaceText.value
+    tab.inputText = text.substring(0, m.index) + targetReplacement + text.substring(m.index + m[0].length)
     if (currentMatchIndex.value >= matches.length - 1) {
       currentMatchIndex.value = 0
     }
@@ -574,9 +699,11 @@ const replaceAllMatches = () => {
   if (cmEditorRef.value?.replaceAll) {
     cmEditorRef.value.replaceAll(replaceText.value)
   } else {
-    const regex = buildSearchRegex()
+    const regex = buildSearchRegex(true)
     if (regex) {
-      activeTab.value.inputText = activeTab.value.inputText.replace(regex, replaceText.value)
+      activeTab.value.inputText = activeTab.value.inputText.replace(regex, (m) => {
+        return searchPreserveCase.value ? applyPreserveCase(m, replaceText.value) : replaceText.value
+      })
     }
   }
   currentMatchIndex.value = 0
@@ -586,15 +713,55 @@ const replaceAllMatches = () => {
 const handleSearchKeydown = (e) => {
   if (e.key === 'Enter') {
     e.preventDefault()
+    pushSearchHistory(searchQuery.value)
     if (e.shiftKey) goPrevMatch()
     else goNextMatch()
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    navigateSearchHistory('up')
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    navigateSearchHistory('down')
+  } else if (e.altKey && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) {
+    e.preventDefault()
+    toggleCaseSensitive()
+  } else if (e.altKey && (e.key === 'w' || e.key === 'W' || e.code === 'KeyW')) {
+    e.preventDefault()
+    toggleWholeWord()
+  } else if (e.altKey && (e.key === 'r' || e.key === 'R' || e.code === 'KeyR')) {
+    e.preventDefault()
+    toggleRegex()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    collapseSearch()
   }
 }
 
 const handleReplaceKeydown = (e) => {
   if (e.key === 'Enter') {
     e.preventDefault()
-    replaceCurrent()
+    if (e.ctrlKey || e.metaKey || (e.altKey && (e.ctrlKey || e.metaKey))) {
+      replaceAllMatches()
+    } else {
+      replaceCurrent()
+    }
+  } else if (e.altKey && (e.key === 'p' || e.key === 'P' || e.code === 'KeyP')) {
+    e.preventDefault()
+    togglePreserveCase()
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    collapseSearch()
+  }
+}
+
+const onGlobalSearchKeyDown = (e) => {
+  const isCtrl = e.ctrlKey || e.metaKey
+  if (isCtrl && (e.key === 'f' || e.key === 'F' || e.code === 'KeyF')) {
+    e.preventDefault()
+    openSearch(false)
+  } else if (isCtrl && (e.key === 'h' || e.key === 'H' || e.code === 'KeyH')) {
+    e.preventDefault()
+    openSearch(true)
   }
 }
 
@@ -2126,13 +2293,18 @@ onMounted(() => {
   document.addEventListener('click', handleClickOutsideMoreTools)
 
   if (leftPanelRef.value) {
+    let leftResizeRaf = null
     leftResizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect) {
-          leftPanelWidth.value = entry.contentRect.width
-          requestSyncGutterHeights()
+      if (leftResizeRaf) cancelAnimationFrame(leftResizeRaf)
+      leftResizeRaf = requestAnimationFrame(() => {
+        leftResizeRaf = null
+        for (const entry of entries) {
+          if (entry.contentRect) {
+            leftPanelWidth.value = entry.contentRect.width
+            requestSyncGutterHeights()
+          }
         }
-      }
+      })
     })
     leftResizeObserver.observe(leftPanelRef.value)
     if (textareaRef.value) {
@@ -4769,11 +4941,13 @@ const checkExtractOnLoad = () => {
   // 点击面板外部收起
   document.addEventListener('click', onConvertMenuClickOutside)
   document.addEventListener('click', onJsonPathClickOutside)
+  window.addEventListener('keydown', onGlobalSearchKeyDown)
 }
 onBeforeUnmount(() => {
   stopContinuousScroll()
   document.removeEventListener('click', onConvertMenuClickOutside)
   document.removeEventListener('click', onJsonPathClickOutside)
+  window.removeEventListener('keydown', onGlobalSearchKeyDown)
 })
 
 defineExpose({
@@ -5059,46 +5233,132 @@ defineExpose({
             <div
               v-if="searchExpanded"
               class="search-replace-box"
-              :style="{ width: Math.min(310, Math.max(160, (leftPanelWidth || 800) - 16)) + 'px', maxWidth: 'calc(100vw - 20px)' }"
+              :style="{ width: Math.min(360, Math.max(220, (leftPanelWidth || 800) - 16)) + 'px', maxWidth: 'calc(100vw - 20px)' }"
+              @click.stop
             >
               <!-- Search row -->
               <div class="search-row">
-                <button class="sr-toggle-btn" @click="toggleReplace" data-tooltip-bottom="替换">
+                <button
+                  class="sr-toggle-btn"
+                  @click="toggleReplace"
+                  :data-tooltip-bottom="replaceExpanded ? '折叠替换' : '展开替换'"
+                >
                   <ChevronRight class="sr-toggle-icon" :class="{ 'is-open': replaceExpanded }" />
                 </button>
-                <input
-                  type="text"
-                  placeholder="搜索"
-                  class="sr-input"
-                  v-model="searchQuery"
-                  ref="searchInputRef"
-                  @keydown="handleSearchKeydown"
-                  @keydown.escape="collapseSearch"
-                />
-                <span v-if="searchQuery" class="match-count">{{ totalMatches > 0 ? `${currentMatchIndex + 1}/${totalMatches}` : '无' }}</span>
-                <button class="sr-nav-btn" @click="goPrevMatch" :disabled="totalMatches === 0" data-tooltip-bottom="上一个">
-                  <ChevronUp class="sr-nav-icon" />
+                <div class="sr-input-container" :class="{ 'is-focused': isSearchFocused }">
+                  <input
+                    type="text"
+                    :placeholder="searchHistory.length ? '搜索 (使用 ↑↓ 查看历史记录)' : '搜索'"
+                    class="sr-input-field"
+                    v-model="searchQuery"
+                    ref="searchInputRef"
+                    @focus="isSearchFocused = true"
+                    @blur="isSearchFocused = false"
+                    @keydown="handleSearchKeydown"
+                  />
+                  <div class="sr-inline-actions">
+                    <button
+                      type="button"
+                      class="sr-inline-btn"
+                      :class="{ 'is-active': searchCaseSensitive }"
+                      @click.stop="toggleCaseSensitive"
+                      data-tooltip-bottom="区分大小写 (Alt+C)"
+                    >
+                      <span class="btn-text-icon case-icon">Aa</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="sr-inline-btn"
+                      :class="{ 'is-active': searchWholeWord }"
+                      @click.stop="toggleWholeWord"
+                      data-tooltip-bottom="全字匹配 (Alt+W)"
+                    >
+                      <span class="btn-text-icon whole-word-icon">ab</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="sr-inline-btn"
+                      :class="{ 'is-active': searchRegex }"
+                      @click.stop="toggleRegex"
+                      data-tooltip-bottom="使用正则表达式 (Alt+R)"
+                    >
+                      <span class="btn-text-icon regex-icon">.*</span>
+                    </button>
+                  </div>
+                </div>
+
+                <span v-if="searchQuery" class="match-count" :class="{ 'no-matches': totalMatches === 0 }">
+                  {{ totalMatches > 0 ? `${currentMatchIndex + 1}/${totalMatches}` : '无结果' }}
+                </span>
+
+                <button
+                  class="sr-nav-btn"
+                  @click="goPrevMatch"
+                  :disabled="totalMatches === 0"
+                  data-tooltip-bottom="上一个匹配 (Shift+Enter)"
+                >
+                  <ArrowUp class="sr-nav-icon" />
                 </button>
-                <button class="sr-nav-btn" @click="goNextMatch" :disabled="totalMatches === 0" data-tooltip-bottom="下一个">
-                  <ChevronDown class="sr-nav-icon" />
+                <button
+                  class="sr-nav-btn"
+                  @click="goNextMatch"
+                  :disabled="totalMatches === 0"
+                  data-tooltip-bottom="下一个匹配 (Enter)"
+                >
+                  <ArrowDown class="sr-nav-icon" />
                 </button>
-                <button class="sr-nav-btn" @click="collapseSearch">
+                <button
+                  class="sr-nav-btn"
+                  @click="collapseSearch"
+                  data-tooltip-bottom="关闭 (Escape)"
+                >
                   <X class="sr-nav-icon" />
                 </button>
               </div>
+
               <!-- Replace row -->
               <div v-if="replaceExpanded" class="replace-row">
-                <input
-                  type="text"
-                  placeholder="替换"
-                  class="sr-input"
-                  v-model="replaceText"
-                  ref="replaceInputRef"
-                  @keydown="handleReplaceKeydown"
-                  @keydown.escape="collapseSearch"
-                />
-                <button class="sr-action-btn" @click="replaceCurrent" :disabled="totalMatches === 0" data-tooltip-bottom="替换当前">替换</button>
-                <button class="sr-action-btn" @click="replaceAllMatches" :disabled="totalMatches === 0" data-tooltip-bottom-right="全部替换">全部</button>
+                <div class="sr-toggle-spacer"></div>
+                <div class="sr-input-container" :class="{ 'is-focused': isReplaceFocused }">
+                  <input
+                    type="text"
+                    placeholder="替换"
+                    class="sr-input-field"
+                    v-model="replaceText"
+                    ref="replaceInputRef"
+                    @focus="isReplaceFocused = true"
+                    @blur="isReplaceFocused = false"
+                    @keydown="handleReplaceKeydown"
+                  />
+                  <div class="sr-inline-actions">
+                    <button
+                      type="button"
+                      class="sr-inline-btn"
+                      :class="{ 'is-active': searchPreserveCase }"
+                      @click.stop="togglePreserveCase"
+                      data-tooltip-bottom="保留大小写 (Alt+P)"
+                    >
+                      <span class="btn-text-icon preserve-case-icon">AB</span>
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  class="sr-action-icon-btn"
+                  @click="replaceCurrent"
+                  :disabled="totalMatches === 0"
+                  data-tooltip-bottom="替换当前 (Enter)"
+                >
+                  <Replace class="sr-action-icon" />
+                </button>
+                <button
+                  class="sr-action-icon-btn"
+                  @click="replaceAllMatches"
+                  :disabled="totalMatches === 0"
+                  data-tooltip-bottom-right="全部替换 (Ctrl+Alt+Enter)"
+                >
+                  <ReplaceAll class="sr-action-icon" />
+                </button>
               </div>
             </div>
           </div>
@@ -5164,6 +5424,10 @@ defineExpose({
               :error-line="activeTab.errorLine"
               :duplicate-lines="activeTab.duplicateLines"
               :search-query="searchQuery"
+              :search-case-sensitive="searchCaseSensitive"
+              :search-whole-word="searchWholeWord"
+              :search-regex="searchRegex"
+              :search-preserve-case="searchPreserveCase"
               :replace-query="replaceText"
               :word-wrap="editorWordWrap === 'wrap' || isInputMinified"
               :show-line-numbers="showLineNumbers"
@@ -7301,7 +7565,7 @@ body.utools-mode {
   flex-shrink: 0;
 }
 
-/* Search & Replace Box */
+/* Search & Replace Box (VSCode 风格) */
 .search-replace-box {
   position: absolute;
   top: calc(100% + 4px);
@@ -7310,62 +7574,66 @@ body.utools-mode {
   flex-direction: column;
   background-color: var(--bg-panel);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  width: 310px;
+  border-radius: 6px;
+  width: 340px;
   max-width: calc(100vw - 20px);
   height: auto;
   box-sizing: border-box;
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 1px 4px rgba(0, 0, 0, 0.06);
   z-index: 100;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  transition: box-shadow 0.2s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .dark-mode .search-replace-box {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.25);
-  background-color: rgba(40, 40, 46, 0.95);
-}
-
-.search-replace-box:focus-within {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16), 0 0 0 2px var(--primary-light);
-}
-
-.dark-mode .search-replace-box:focus-within {
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 0 2px var(--primary-light);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+  background-color: #1e1e24;
+  border-color: #33333d;
 }
 
 .search-row,
 .replace-row {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
-  min-height: 28px;
+  gap: 4px;
+  padding: 4px 6px;
+  min-height: 32px;
   box-sizing: border-box;
   width: 100%;
 }
 
 .replace-row {
   border-top: 1px solid var(--border-color);
-  padding-left: 25px;
+  background-color: rgba(0, 0, 0, 0.015);
+}
+
+.dark-mode .replace-row {
+  border-top-color: #2b2b33;
+  background-color: rgba(0, 0, 0, 0.15);
 }
 
 .sr-toggle-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: clamp(16px, 1.2vw, 20px);
-  height: clamp(16px, 1.2vw, 20px);
+  width: 18px;
+  height: 24px;
   padding: 0;
   border: none;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 3px;
   flex-shrink: 0;
   transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.sr-toggle-spacer {
+  width: 18px;
+  height: 24px;
+  flex-shrink: 0;
 }
 
 .sr-toggle-btn:hover {
@@ -7374,112 +7642,182 @@ body.utools-mode {
 }
 
 .sr-toggle-icon {
-  width: clamp(10px, 0.8vw, 14px);
-  height: clamp(10px, 0.8vw, 14px);
-  transition: transform 0.2s ease;
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s ease;
 }
 
 .sr-toggle-icon.is-open {
   transform: rotate(90deg);
 }
 
-.sr-input {
-  border: 1px solid var(--border-color);
+/* VSCode 风格复合输入框（带内部行内按钮） */
+.sr-input-container {
+  display: flex;
+  align-items: center;
+  flex-grow: 1;
+  min-width: 0;
+  height: 26px;
   background: var(--bg-app);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-sizing: border-box;
+  padding: 0 2px 0 6px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dark-mode .sr-input-container {
+  background: #25252d;
+  border-color: #3a3a46;
+}
+
+.sr-input-container.is-focused {
+  border-color: #007acc;
+  box-shadow: 0 0 0 1px #007acc;
+}
+
+.dark-mode .sr-input-container.is-focused {
+  border-color: #007fd4;
+  box-shadow: 0 0 0 1px #007fd4;
+}
+
+.sr-input-field {
+  border: none;
+  background: transparent;
   color: var(--text-primary);
-  font-size: clamp(10px, 0.75vw, 12px);
+  font-size: 12px;
   font-family: var(--font-mono);
   flex-grow: 1;
   min-width: 0;
-  padding: clamp(1px, 0.15vw, 3px) clamp(4px, 0.4vw, 8px);
-  height: clamp(18px, 1.5vw, 24px);
-  border-radius: 4px;
+  height: 100%;
+  padding: 0;
   outline: none;
   box-sizing: border-box;
-  transition: border-color 0.15s ease;
 }
 
-.sr-input:focus {
-  border-color: var(--primary-color);
-}
-
-.sr-input::placeholder {
+.sr-input-field::placeholder {
   color: var(--text-muted);
   font-family: var(--font-sans);
-  font-size: clamp(9px, 0.7vw, 11px);
+  font-size: 11px;
+}
+
+.sr-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.sr-inline-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.sr-inline-btn:hover {
+  background-color: rgba(128, 128, 128, 0.15);
+  color: var(--text-primary);
+}
+
+.sr-inline-btn.is-active {
+  background-color: rgba(0, 122, 204, 0.15);
+  border-color: #007acc;
+  color: #007acc;
+}
+
+.dark-mode .sr-inline-btn.is-active {
+  background-color: rgba(0, 127, 212, 0.25);
+  border-color: #007fd4;
+  color: #38bdf8;
+}
+
+.btn-text-icon {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+.case-icon {
+  font-size: 12px;
+  letter-spacing: -0.8px;
+}
+
+.whole-word-icon {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.regex-icon {
+  font-size: 13px;
+  letter-spacing: -0.5px;
+}
+
+.preserve-case-icon {
+  font-size: 11px;
+  letter-spacing: -0.5px;
 }
 
 .match-count {
-  font-size: clamp(9px, 0.65vw, 11px);
+  font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-muted);
   white-space: nowrap;
   flex-shrink: 0;
-  min-width: clamp(22px, 1.8vw, 32px);
+  padding: 0 4px;
   text-align: center;
+  min-width: 26px;
 }
 
-.sr-nav-btn {
+.match-count.no-matches {
+  color: #ef4444;
+}
+
+.sr-nav-btn,
+.sr-action-icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: clamp(16px, 1.3vw, 22px);
-  height: clamp(16px, 1.3vw, 22px);
+  width: 22px;
+  height: 22px;
   padding: 0;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 3px;
   flex-shrink: 0;
   transition: color 0.1s ease, background-color 0.1s ease;
 }
 
-.sr-nav-btn:hover:not(:disabled) {
+.sr-nav-btn:hover:not(:disabled),
+.sr-action-icon-btn:hover:not(:disabled) {
   color: var(--text-primary);
   background-color: var(--border-color);
 }
 
-.sr-nav-btn:disabled {
+.sr-nav-btn:disabled,
+.sr-action-icon-btn:disabled {
   opacity: 0.3;
   cursor: default;
 }
 
-.sr-nav-icon {
-  width: clamp(10px, 0.8vw, 14px);
-  height: clamp(10px, 0.8vw, 14px);
-}
-
-.sr-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 clamp(5px, 0.5vw, 10px);
-  height: clamp(18px, 1.5vw, 24px);
-  border: 1px solid var(--border-color);
-  background: var(--bg-panel);
-  color: var(--text-primary);
-  font-size: clamp(9px, 0.7vw, 11px);
-  font-weight: 500;
-  font-family: var(--font-sans);
-  border-radius: 4px;
-  cursor: pointer;
-  flex-shrink: 0;
-  white-space: nowrap;
-  transition: background-color 0.1s ease, transform 0.1s ease;
-}
-
-.sr-action-btn:hover:not(:disabled) {
-  background-color: var(--bg-app);
-}
-
-.sr-action-btn:active:not(:disabled) {
-  transform: scale(0.95);
-}
-
-.sr-action-btn:disabled {
-  opacity: 0.35;
-  cursor: default;
+.sr-nav-icon,
+.sr-action-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .shortcut-badge {

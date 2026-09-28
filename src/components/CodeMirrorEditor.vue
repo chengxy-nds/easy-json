@@ -177,6 +177,22 @@ const props = defineProps({
     type: String,
     default: ''
   },
+  searchCaseSensitive: {
+    type: Boolean,
+    default: false
+  },
+  searchWholeWord: {
+    type: Boolean,
+    default: false
+  },
+  searchRegex: {
+    type: Boolean,
+    default: false
+  },
+  searchPreserveCase: {
+    type: Boolean,
+    default: false
+  },
   replaceQuery: {
     type: String,
     default: ''
@@ -405,31 +421,45 @@ const searchMatchSelectedMark = Decoration.mark({ class: 'cm-searchMatch cm-sear
 const searchHighlightPlugin = ViewPlugin.fromClass(
   class {
     constructor(view) {
-      this.currentQuery = props.searchQuery || ''
-      this.decorations = this.buildDecorations(view, this.currentQuery)
+      this.currentSearchConfig = {
+        query: props.searchQuery || '',
+        caseSensitive: !!props.searchCaseSensitive,
+        wholeWord: !!props.searchWholeWord,
+        isRegex: !!props.searchRegex
+      }
+      this.decorations = this.buildDecorations(view, this.currentSearchConfig)
     }
 
     update(update) {
-      let queryChanged = false
+      let configChanged = false
       for (const tr of update.transactions) {
         for (const e of tr.effects) {
           if (e.is(setSearchQueryEffect)) {
-            this.currentQuery = e.value
-            queryChanged = true
+            this.currentSearchConfig = e.value
+            configChanged = true
           }
         }
       }
-      if (queryChanged || update.docChanged || update.selectionSet || update.viewportChanged) {
-        this.decorations = this.buildDecorations(update.view, this.currentQuery)
+      if (configChanged || update.docChanged || update.selectionSet || update.viewportChanged) {
+        this.decorations = this.buildDecorations(update.view, this.currentSearchConfig)
       }
     }
 
-    buildDecorations(view, query) {
-      if (!query) return Decoration.none
-      const escaped = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+    buildDecorations(view, config) {
+      if (!config || !config.query) return Decoration.none
+      const query = config.query
+      let pattern = query
+      let flags = 'g'
+      if (!config.caseSensitive) flags += 'i'
+      if (!config.isRegex) {
+        pattern = pattern.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+      }
+      if (config.wholeWord) {
+        pattern = `\\b${pattern}\\b`
+      }
       let regex
       try {
-        regex = new RegExp(escaped, 'gi')
+        regex = new RegExp(pattern, flags)
       } catch (e) {
         return Decoration.none
       }
@@ -1015,21 +1045,48 @@ watch(() => props.modelValue, (newVal) => {
 const syncSearchQuery = () => {
   if (!editorView) return
   const q = props.searchQuery || ''
-  editorView.dispatch({
-    effects: [
-      setSearchQueryEffect.of(q),
-      setSearchQuery.of(
-        new SearchQuery({
-          search: q,
-          caseSensitive: false,
-          literal: true
-        })
-      )
-    ]
-  })
+  const searchConfig = {
+    query: q,
+    caseSensitive: !!props.searchCaseSensitive,
+    wholeWord: !!props.searchWholeWord,
+    isRegex: !!props.searchRegex
+  }
+  if (!q) {
+    editorView.dispatch({
+      effects: [
+        setSearchQueryEffect.of(searchConfig),
+        setSearchQuery.of(new SearchQuery({ search: '' }))
+      ]
+    })
+    return
+  }
+  try {
+    const query = new SearchQuery({
+      search: q,
+      caseSensitive: !!props.searchCaseSensitive,
+      literal: !props.searchRegex,
+      regexp: !!props.searchRegex,
+      wholeWord: !!props.searchWholeWord,
+      replace: props.replaceQuery || ''
+    })
+    editorView.dispatch({
+      effects: [
+        setSearchQueryEffect.of(searchConfig),
+        setSearchQuery.of(query)
+      ]
+    })
+  } catch (err) {
+    // 忽略正则不完整时的语法报错
+  }
 }
 
-watch(() => props.searchQuery, () => {
+watch([
+  () => props.searchQuery,
+  () => props.searchCaseSensitive,
+  () => props.searchWholeWord,
+  () => props.searchRegex,
+  () => props.replaceQuery
+], () => {
   syncSearchQuery()
 })
 
@@ -1090,75 +1147,134 @@ const doFindPrevious = () => {
   return findPrevious(editorView)
 }
 
+// Preserve Case 辅助函数（完全还原 VSCode 规则）
+const applyPreserveCase = (original, replacement) => {
+  if (!original || !replacement) return replacement
+  // 1. 全大写: FOO -> BAR
+  if (original === original.toUpperCase() && original !== original.toLowerCase()) {
+    return replacement.toUpperCase()
+  }
+  // 2. 全小写: foo -> bar
+  if (original === original.toLowerCase() && original !== original.toUpperCase()) {
+    return replacement.toLowerCase()
+  }
+  // 3. 首字母大写 (Title/Pascal Case): Foo -> Bar
+  if (original[0] === original[0].toUpperCase() && original[0] !== original[0].toLowerCase()) {
+    return replacement.charAt(0).toUpperCase() + replacement.slice(1).toLowerCase()
+  }
+  return replacement
+}
+
 const doReplaceNext = (replaceWith) => {
   if (!editorView) return false
-  if (replaceWith !== undefined) {
-    const currentQuery = getSearchQuery(editorView.state)
-    if (currentQuery && currentQuery.search) {
-      editorView.dispatch({
-        effects: setSearchQuery.of(
-          new SearchQuery({
-            search: currentQuery.search,
-            replace: replaceWith,
-            caseSensitive: currentQuery.caseSensitive,
-            literal: currentQuery.literal
-          })
-        )
-      })
+  const targetReplace = replaceWith !== undefined ? replaceWith : (props.replaceQuery || '')
+  const currentQuery = getSearchQuery(editorView.state)
+  if (currentQuery && currentQuery.search) {
+    let finalReplace = targetReplace
+    // 如果启用了 Preserve Case，检查当前选区是否为匹配项并自动映射大小写
+    if (props.searchPreserveCase) {
+      const sel = editorView.state.selection.main
+      if (!sel.empty) {
+        const selectedText = editorView.state.sliceDoc(sel.from, sel.to)
+        finalReplace = applyPreserveCase(selectedText, targetReplace)
+      }
     }
+    editorView.dispatch({
+      effects: setSearchQuery.of(
+        new SearchQuery({
+          search: currentQuery.search,
+          replace: finalReplace,
+          caseSensitive: currentQuery.caseSensitive,
+          literal: currentQuery.literal,
+          regexp: currentQuery.regexp,
+          wholeWord: currentQuery.wholeWord
+        })
+      )
+    })
   }
   return replaceNext(editorView)
 }
 
 const doReplaceAll = (replaceWith) => {
   if (!editorView) return false
-  if (replaceWith !== undefined) {
-    const currentQuery = getSearchQuery(editorView.state)
-    if (currentQuery && currentQuery.search) {
-      editorView.dispatch({
-        effects: setSearchQuery.of(
-          new SearchQuery({
-            search: currentQuery.search,
-            replace: replaceWith,
-            caseSensitive: currentQuery.caseSensitive,
-            literal: currentQuery.literal
-          })
-        )
-      })
+  const targetReplace = replaceWith !== undefined ? replaceWith : (props.replaceQuery || '')
+  const currentQuery = getSearchQuery(editorView.state)
+  if (currentQuery && currentQuery.search) {
+    if (props.searchPreserveCase) {
+      try {
+        let pattern = currentQuery.search
+        let flags = 'g'
+        if (!currentQuery.caseSensitive) flags += 'i'
+        if (!currentQuery.regexp) {
+          pattern = pattern.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        }
+        if (currentQuery.wholeWord) {
+          pattern = `\\b${pattern}\\b`
+        }
+        const regex = new RegExp(pattern, flags)
+        const docText = editorView.state.doc.toString()
+        const newText = docText.replace(regex, (m) => applyPreserveCase(m, targetReplace))
+        editorView.dispatch({
+          changes: { from: 0, to: editorView.state.doc.length, insert: newText }
+        })
+        return true
+      } catch (e) {}
     }
+
+    editorView.dispatch({
+      effects: setSearchQuery.of(
+        new SearchQuery({
+          search: currentQuery.search,
+          replace: targetReplace,
+          caseSensitive: currentQuery.caseSensitive,
+          literal: currentQuery.literal,
+          regexp: currentQuery.regexp,
+          wholeWord: currentQuery.wholeWord
+        })
+      )
+    })
   }
   return replaceAll(editorView)
 }
 
 const goToMatch = (targetIndex) => {
   if (!editorView || !props.searchQuery) return
-  const query = new SearchQuery({
-    search: props.searchQuery,
-    caseSensitive: false,
-    literal: true
-  })
-  const cursor = query.getCursor(editorView.state.doc)
-  let count = 0
-  let targetMatch = null
-  let match = cursor.next()
-  while (!match.done) {
-    if (count === targetIndex) {
-      targetMatch = match.value
-      break
-    }
-    count++
-    match = cursor.next()
-  }
-  if (targetMatch) {
-    editorView.dispatch({
-      selection: { anchor: targetMatch.from, head: targetMatch.to },
-      effects: [
-        EditorView.scrollIntoView(targetMatch.from, { y: 'center' }),
-        setSearchQuery.of(query),
-        setSearchQueryEffect.of(props.searchQuery)
-      ]
+  try {
+    const query = new SearchQuery({
+      search: props.searchQuery,
+      caseSensitive: !!props.searchCaseSensitive,
+      literal: !props.searchRegex,
+      regexp: !!props.searchRegex,
+      wholeWord: !!props.searchWholeWord
     })
-  }
+    const cursor = query.getCursor(editorView.state.doc)
+    let count = 0
+    let targetMatch = null
+    let match = cursor.next()
+    while (!match.done) {
+      if (count === targetIndex) {
+        targetMatch = match.value
+        break
+      }
+      count++
+      match = cursor.next()
+    }
+    if (targetMatch) {
+      editorView.dispatch({
+        selection: { anchor: targetMatch.from, head: targetMatch.to },
+        effects: [
+          EditorView.scrollIntoView(targetMatch.from, { y: 'center' }),
+          setSearchQuery.of(query),
+          setSearchQueryEffect.of({
+            query: props.searchQuery,
+            caseSensitive: !!props.searchCaseSensitive,
+            wholeWord: !!props.searchWholeWord,
+            isRegex: !!props.searchRegex
+          })
+        ]
+      })
+    }
+  } catch (e) {}
 }
 
 const scrollToLine = (lineNumber) => {
@@ -1494,6 +1610,11 @@ defineExpose({
   replaceAll: doReplaceAll,
   goToMatch,
   syncSearchQuery,
+  getSelectedText: () => {
+    if (!editorView) return ''
+    const sel = editorView.state.selection.main
+    return sel.empty ? '' : editorView.state.sliceDoc(sel.from, sel.to)
+  },
   foldPath,
   foldAll: foldAllNodes,
   unfoldAll: unfoldAllNodes,

@@ -865,8 +865,13 @@ let tableResizeObserver = null
 onMounted(() => {
   if (props.depth === 0 && scrollContainerRef.value) {
     updateViewportHeight()
+    let tableResizeRaf = null
     tableResizeObserver = new ResizeObserver(() => {
-      updateViewportHeight()
+      if (tableResizeRaf) cancelAnimationFrame(tableResizeRaf)
+      tableResizeRaf = requestAnimationFrame(() => {
+        tableResizeRaf = null
+        updateViewportHeight()
+      })
     })
     tableResizeObserver.observe(scrollContainerRef.value)
   }

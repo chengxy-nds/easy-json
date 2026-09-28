@@ -361,12 +361,17 @@ export function useHeroParticles() {
       target.addEventListener('mousemove', onMouseMove, { passive: true })
     }
 
+    let heroResizeRaf = null
     resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-          initParticleSystem()
+      if (heroResizeRaf) cancelAnimationFrame(heroResizeRaf)
+      heroResizeRaf = requestAnimationFrame(() => {
+        heroResizeRaf = null
+        for (const entry of entries) {
+          if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+            initParticleSystem()
+          }
         }
-      }
+      })
     })
     resizeObserver.observe(el)
 

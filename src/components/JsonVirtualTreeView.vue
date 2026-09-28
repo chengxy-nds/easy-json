@@ -1039,8 +1039,13 @@ onMounted(() => {
   updateDimensions()
   initRowObserver()
   if (containerRef.value) {
+    let treeResizeRaf = null
     resizeObserver = new ResizeObserver(() => {
-      updateDimensions()
+      if (treeResizeRaf) cancelAnimationFrame(treeResizeRaf)
+      treeResizeRaf = requestAnimationFrame(() => {
+        treeResizeRaf = null
+        updateDimensions()
+      })
     })
     resizeObserver.observe(containerRef.value)
   }

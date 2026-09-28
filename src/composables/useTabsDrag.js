@@ -32,10 +32,15 @@ export function useTabsDrag(activeId, editingTabId) {
     return hoveredTabTooltip.value.id === tabId ? hoveredTabTooltip.value.text : null
   }
 
+  let overflowRaf = null
   const checkOverflow = () => {
-    const el = tabsListRef.value
-    if (!el) return
-    tabsOverflow.value = el.scrollWidth > el.clientWidth
+    if (overflowRaf) cancelAnimationFrame(overflowRaf)
+    overflowRaf = requestAnimationFrame(() => {
+      overflowRaf = null
+      const el = tabsListRef.value
+      if (!el) return
+      tabsOverflow.value = el.scrollWidth > el.clientWidth
+    })
   }
 
   let resizeObs = null
