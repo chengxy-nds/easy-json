@@ -22,6 +22,17 @@
   --editor-font-size: 13px;
   --editor-line-height: 20px;
 
+  /* ── Motion Tokens (motion-web physics & timing system) ── */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);     /* Fast in → soft landing (reveals, panels, drawers) */
+  --ease-in-expo: cubic-bezier(0.7, 0, 0.84, 0);      /* Fast acceleration out (exits, collapses) */
+  --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1); /* Playful subtle overshoot */
+  --spring-snappy: cubic-bezier(0.34, 1.4, 0.64, 1);  /* Micro-bounce button press/feedback */
+  --spring-bouncy: cubic-bezier(0.34, 1.56, 0.64, 1); /* Spring bounce confirmation */
+  --duration-instant: 100ms;  /* Tooltip, cursor feedback */
+  --duration-fast: 180ms;     /* Button hover/active, toggle, badges */
+  --duration-standard: 280ms; /* Panel expand, drawer slide, search box */
+  --duration-medium: 380ms;   /* Modals, heavy view transitions */
+
   /* Path breadcrumbs (light mode) */
   --breadcrumb-bg: rgba(0, 0, 0, 0.035);
   --breadcrumb-border: rgba(0, 0, 0, 0.08);
@@ -1816,7 +1827,7 @@ mark.search-match-current {
   font-size: clamp(10px, 0.75vw, 12px);
   color: var(--text-secondary);
   user-select: none;
-  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: color var(--duration-fast) ease, background-color var(--duration-fast) ease, border-color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
   box-sizing: border-box;
   position: relative;
   flex-shrink: 0;
@@ -1837,7 +1848,7 @@ mark.search-match-current {
   opacity: 0;
   transform: scaleX(0.2);
   transform-origin: center;
-  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+  transition: transform var(--duration-standard) var(--ease-out-expo), opacity var(--duration-fast) ease;
   border-radius: 0 0 2px 2px;
   z-index: 3;
 }
@@ -1849,7 +1860,7 @@ mark.search-match-current {
   white-space: nowrap;
   min-width: 0;
   flex: 1;
-  transition: color 0.18s ease;
+  transition: color var(--duration-fast) ease;
 }
 
 .compare-tab:hover {
@@ -1887,7 +1898,7 @@ mark.search-match-current {
   cursor: pointer;
   margin-left: 2px;
   opacity: 0.65;
-  transition: all 0.15s ease;
+  transition: transform var(--duration-fast) var(--spring-snappy), opacity var(--duration-fast) ease, background-color var(--duration-fast) ease;
 }
 
 .compare-tab:hover .tab-close-btn,
@@ -1899,11 +1910,12 @@ mark.search-match-current {
   background-color: var(--border-color);
   color: var(--text-primary);
   opacity: 1;
-  transform: scale(1.05);
+  transform: scale(1.08);
 }
 
 .tab-close-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.86);
+  transition: transform 50ms ease-out;
 }
 
 .tab-close-icon {
@@ -1939,7 +1951,7 @@ mark.search-match-current {
   cursor: pointer;
   margin-left: 8px;
   margin-right: 6px;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all var(--duration-fast) var(--ease-out-expo);
   flex-shrink: 0;
   align-self: center;
   white-space: nowrap;
@@ -1959,13 +1971,14 @@ mark.search-match-current {
 }
 
 .add-tab-btn:active {
-  transform: scale(0.95);
+  transform: scale(0.93);
+  transition: transform 50ms ease-out;
 }
 
 /* ── Tab TransitionGroup (Smooth Expand / Collapse / Reorder) ── */
 .tab-item-enter-from {
   opacity: 0;
-  transform: scale(0.9) translateY(4px);
+  transform: scale(0.92) translateY(4px);
   max-width: 0 !important;
   min-width: 0 !important;
   padding-left: 0 !important;
@@ -1974,7 +1987,7 @@ mark.search-match-current {
 }
 
 .tab-item-enter-active {
-  transition: all 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all var(--duration-standard) var(--ease-out-expo);
   overflow: hidden;
 }
 
@@ -1986,7 +1999,7 @@ mark.search-match-current {
 }
 
 .tab-item-leave-active {
-  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all var(--duration-fast) var(--ease-in-expo);
   overflow: hidden;
   position: relative;
   pointer-events: none;
@@ -2003,7 +2016,7 @@ mark.search-match-current {
 }
 
 .tab-item-move {
-  transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform var(--duration-standard) var(--ease-out-expo);
 }
 
 /* ── Tab Workspace Switch Micro-transition ── */
@@ -2976,3 +2989,37 @@ mark.search-match-current {
   height: 11px !important;
   stroke-width: 2 !important;
 }
+
+/* ── View Transitions: 消除 plus-lighter 加法混合导致过渡期文字发虚白底白字过曝 ── */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.22s;
+  animation-timing-function: var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1));
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  animation: none;
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  animation-name: vt-theme-fade-in;
+  z-index: 2;
+}
+
+@keyframes vt-theme-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.theme-smooth-transition,
+.theme-smooth-transition * {
+  transition: background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.18s ease !important;
+}

@@ -5185,8 +5185,10 @@ defineExpose({
                 :data-tooltip-bottom="copySuccess ? '已复制' : (activeTab.outputText ? '复制结果' : '复制输入')"
                 style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
               >
-                <Check v-if="copySuccess" class="btn-icon success-color" />
-                <Copy v-else class="btn-icon" />
+                <Transition name="icon-morph" mode="out-in">
+                  <Check v-if="copySuccess" class="btn-icon success-color" key="check" />
+                  <Copy v-else class="btn-icon" key="copy" />
+                </Transition>
                 <!-- Snake border ring -->
                 <svg v-if="copySuccess" class="snake-ring" viewBox="0 0 28 28">
                   <rect x="1" y="1" width="26" height="26" rx="5"
@@ -5211,7 +5213,6 @@ defineExpose({
                 class="action-btn outline icon-only"
                 :class="{ 'active': searchExpanded }"
                 @click.stop="toggleSearch"
-                data-tooltip-bottom-right="搜索 / 替换"
                 style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
               >
                 <Search class="btn-icon" />
@@ -5230,137 +5231,140 @@ defineExpose({
               </button>
             </template>
 
-            <div
-              v-if="searchExpanded"
-              class="search-replace-box"
-              :style="{ width: Math.min(360, Math.max(220, (leftPanelWidth || 800) - 16)) + 'px', maxWidth: 'calc(100vw - 20px)' }"
-              @click.stop
-            >
-              <!-- Search row -->
-              <div class="search-row">
-                <button
-                  class="sr-toggle-btn"
-                  @click="toggleReplace"
-                  :data-tooltip-bottom="replaceExpanded ? '折叠替换' : '展开替换'"
-                >
-                  <ChevronRight class="sr-toggle-icon" :class="{ 'is-open': replaceExpanded }" />
-                </button>
-                <div class="sr-input-container" :class="{ 'is-focused': isSearchFocused }">
-                  <input
-                    type="text"
-                    :placeholder="searchHistory.length ? '搜索 (使用 ↑↓ 查看历史记录)' : '搜索'"
-                    class="sr-input-field"
-                    v-model="searchQuery"
-                    ref="searchInputRef"
-                    @focus="isSearchFocused = true"
-                    @blur="isSearchFocused = false"
-                    @keydown="handleSearchKeydown"
-                  />
-                  <div class="sr-inline-actions">
-                    <button
-                      type="button"
-                      class="sr-inline-btn"
-                      :class="{ 'is-active': searchCaseSensitive }"
-                      @click.stop="toggleCaseSensitive"
-                      data-tooltip-bottom="区分大小写 (Alt+C)"
-                    >
-                      <span class="btn-text-icon case-icon">Aa</span>
-                    </button>
-                    <button
-                      type="button"
-                      class="sr-inline-btn"
-                      :class="{ 'is-active': searchWholeWord }"
-                      @click.stop="toggleWholeWord"
-                      data-tooltip-bottom="全字匹配 (Alt+W)"
-                    >
-                      <span class="btn-text-icon whole-word-icon">ab</span>
-                    </button>
-                    <button
-                      type="button"
-                      class="sr-inline-btn"
-                      :class="{ 'is-active': searchRegex }"
-                      @click.stop="toggleRegex"
-                      data-tooltip-bottom="使用正则表达式 (Alt+R)"
-                    >
-                      <span class="btn-text-icon regex-icon">.*</span>
-                    </button>
+            <Transition name="sr-drawer">
+              <div
+                v-if="searchExpanded"
+                class="search-replace-box"
+                :style="{ width: Math.min(360, Math.max(220, (leftPanelWidth || 800) - 16)) + 'px', maxWidth: 'calc(100vw - 20px)' }"
+                @click.stop
+              >
+                <!-- Search row -->
+                <div class="search-row">
+                  <button
+                    class="sr-toggle-btn"
+                    @click="toggleReplace"
+                    :data-tooltip-bottom="replaceExpanded ? '折叠替换' : '展开替换'"
+                  >
+                    <ChevronRight class="sr-toggle-icon" :class="{ 'is-open': replaceExpanded }" />
+                  </button>
+                  <div class="sr-input-container" :class="{ 'is-focused': isSearchFocused }">
+                    <input
+                      type="text"
+                      :placeholder="searchHistory.length ? '搜索 (使用 ↑↓ 查看历史记录)' : '搜索'"
+                      class="sr-input-field"
+                      v-model="searchQuery"
+                      ref="searchInputRef"
+                      @focus="isSearchFocused = true"
+                      @blur="isSearchFocused = false"
+                      @keydown="handleSearchKeydown"
+                    />
+                    <div class="sr-inline-actions">
+                      <button
+                        type="button"
+                        class="sr-inline-btn"
+                        :class="{ 'is-active': searchCaseSensitive }"
+                        @click.stop="toggleCaseSensitive"
+                        data-tooltip-bottom="区分大小写 (Alt+C)"
+                      >
+                        <span class="btn-text-icon case-icon">Aa</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="sr-inline-btn"
+                        :class="{ 'is-active': searchWholeWord }"
+                        @click.stop="toggleWholeWord"
+                        data-tooltip-bottom="全字匹配 (Alt+W)"
+                      >
+                        <span class="btn-text-icon whole-word-icon">ab</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="sr-inline-btn"
+                        :class="{ 'is-active': searchRegex }"
+                        @click.stop="toggleRegex"
+                        data-tooltip-bottom="使用正则表达式 (Alt+R)"
+                      >
+                        <span class="btn-text-icon regex-icon">.*</span>
+                      </button>
+                    </div>
                   </div>
+
+                  <span v-if="searchQuery" class="match-count" :class="{ 'no-matches': totalMatches === 0 }">
+                    {{ totalMatches > 0 ? `${currentMatchIndex + 1}/${totalMatches}` : '无结果' }}
+                  </span>
+
+                  <button
+                    class="sr-nav-btn"
+                    @click="goPrevMatch"
+                    :disabled="totalMatches === 0"
+                    data-tooltip-bottom="上一个匹配 (Shift+Enter)"
+                  >
+                    <ArrowUp class="sr-nav-icon" />
+                  </button>
+                  <button
+                    class="sr-nav-btn"
+                    @click="goNextMatch"
+                    :disabled="totalMatches === 0"
+                    data-tooltip-bottom="下一个匹配 (Enter)"
+                  >
+                    <ArrowDown class="sr-nav-icon" />
+                  </button>
+                  <button
+                    class="sr-nav-btn"
+                    @click="collapseSearch"
+                  >
+                    <X class="sr-nav-icon" />
+                  </button>
                 </div>
 
-                <span v-if="searchQuery" class="match-count" :class="{ 'no-matches': totalMatches === 0 }">
-                  {{ totalMatches > 0 ? `${currentMatchIndex + 1}/${totalMatches}` : '无结果' }}
-                </span>
+                <!-- Replace row -->
+                <Transition name="sr-row-slide">
+                  <div v-if="replaceExpanded" class="replace-row">
+                    <div class="sr-toggle-spacer"></div>
+                    <div class="sr-input-container" :class="{ 'is-focused': isReplaceFocused }">
+                      <input
+                        type="text"
+                        placeholder="替换"
+                        class="sr-input-field"
+                        v-model="replaceText"
+                        ref="replaceInputRef"
+                        @focus="isReplaceFocused = true"
+                        @blur="isReplaceFocused = false"
+                        @keydown="handleReplaceKeydown"
+                      />
+                      <div class="sr-inline-actions">
+                        <button
+                          type="button"
+                          class="sr-inline-btn"
+                          :class="{ 'is-active': searchPreserveCase }"
+                          @click.stop="togglePreserveCase"
+                          data-tooltip-bottom="保留大小写 (Alt+P)"
+                        >
+                          <span class="btn-text-icon preserve-case-icon">AB</span>
+                        </button>
+                      </div>
+                    </div>
 
-                <button
-                  class="sr-nav-btn"
-                  @click="goPrevMatch"
-                  :disabled="totalMatches === 0"
-                  data-tooltip-bottom="上一个匹配 (Shift+Enter)"
-                >
-                  <ArrowUp class="sr-nav-icon" />
-                </button>
-                <button
-                  class="sr-nav-btn"
-                  @click="goNextMatch"
-                  :disabled="totalMatches === 0"
-                  data-tooltip-bottom="下一个匹配 (Enter)"
-                >
-                  <ArrowDown class="sr-nav-icon" />
-                </button>
-                <button
-                  class="sr-nav-btn"
-                  @click="collapseSearch"
-                  data-tooltip-bottom="关闭 (Escape)"
-                >
-                  <X class="sr-nav-icon" />
-                </button>
-              </div>
-
-              <!-- Replace row -->
-              <div v-if="replaceExpanded" class="replace-row">
-                <div class="sr-toggle-spacer"></div>
-                <div class="sr-input-container" :class="{ 'is-focused': isReplaceFocused }">
-                  <input
-                    type="text"
-                    placeholder="替换"
-                    class="sr-input-field"
-                    v-model="replaceText"
-                    ref="replaceInputRef"
-                    @focus="isReplaceFocused = true"
-                    @blur="isReplaceFocused = false"
-                    @keydown="handleReplaceKeydown"
-                  />
-                  <div class="sr-inline-actions">
                     <button
-                      type="button"
-                      class="sr-inline-btn"
-                      :class="{ 'is-active': searchPreserveCase }"
-                      @click.stop="togglePreserveCase"
-                      data-tooltip-bottom="保留大小写 (Alt+P)"
+                      class="sr-action-icon-btn"
+                      @click="replaceCurrent"
+                      :disabled="totalMatches === 0"
+                      data-tooltip-bottom="替换当前 (Enter)"
                     >
-                      <span class="btn-text-icon preserve-case-icon">AB</span>
+                      <Replace class="sr-action-icon" />
+                    </button>
+                    <button
+                      class="sr-action-icon-btn"
+                      @click="replaceAllMatches"
+                      :disabled="totalMatches === 0"
+                      data-tooltip-bottom-right="全部替换 (Ctrl+Alt+Enter)"
+                    >
+                      <ReplaceAll class="sr-action-icon" />
                     </button>
                   </div>
-                </div>
-
-                <button
-                  class="sr-action-icon-btn"
-                  @click="replaceCurrent"
-                  :disabled="totalMatches === 0"
-                  data-tooltip-bottom="替换当前 (Enter)"
-                >
-                  <Replace class="sr-action-icon" />
-                </button>
-                <button
-                  class="sr-action-icon-btn"
-                  @click="replaceAllMatches"
-                  :disabled="totalMatches === 0"
-                  data-tooltip-bottom-right="全部替换 (Ctrl+Alt+Enter)"
-                >
-                  <ReplaceAll class="sr-action-icon" />
-                </button>
+                </Transition>
               </div>
-            </div>
+            </Transition>
           </div>
         </div>
 
@@ -6230,16 +6234,19 @@ defineExpose({
   white-space: nowrap;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   transform: scale(1);
-  transition: transform 0.1s ease, background-color 0.15s ease, color 0.15s ease;
+  transition: transform var(--duration-fast) var(--spring-snappy), background-color var(--duration-fast) ease, color var(--duration-fast) ease, border-color var(--duration-fast) ease, box-shadow var(--duration-fast) var(--ease-out-expo);
 }
 
 .action-btn:hover:not(:disabled) {
   background-color: var(--bg-app);
   color: var(--text-primary);
+  transform: translateY(-0.5px);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.07);
 }
 
 .action-btn:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(0.93) translateY(1px);
+  transition: transform 50ms ease-out;
 }
 
 
@@ -7052,10 +7059,28 @@ defineExpose({
   color: inherit;
 }
 
-/* Fade Dropdown Transition */
-.fade-dropdown-enter-active,
+/* Fade Dropdown Transition (motion-web ease-out-expo soft landing) */
+.fade-dropdown-enter-active {
+  transition: transform var(--duration-fast) var(--ease-out-expo),
+              opacity var(--duration-fast) var(--ease-out-expo);
+  transform-origin: top left;
+}
+.fade-dropdown-enter-from {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+}
+.fade-dropdown-enter-to {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
 .fade-dropdown-leave-active {
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform var(--duration-instant) var(--ease-in-expo),
+              opacity var(--duration-instant) var(--ease-in-expo);
+  transform-origin: top left;
+}
+.fade-dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-4px) scale(0.96);
 }
 
 .more-menu-divider {
@@ -7112,7 +7137,7 @@ defineExpose({
   font-family: var(--font-sans);
   white-space: nowrap;
   transform: scale(1);
-  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  transition: background-color var(--duration-fast) ease, color var(--duration-fast) ease, transform var(--duration-fast) var(--spring-snappy), box-shadow var(--duration-fast) var(--ease-out-expo);
 }
 
 :global(.dark-mode) .toolbar-item {
@@ -7122,17 +7147,20 @@ defineExpose({
 .toolbar-item:hover:not(:disabled) {
   background-color: var(--segmented-indicator-bg);
   color: var(--text-primary);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
 :global(.dark-mode) .toolbar-item:hover:not(:disabled),
 :global(.dark-mode) .toolbar-item.active {
   color: #ffffff;
   background-color: rgba(255, 255, 255, 0.10);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
 .toolbar-item:active:not(:disabled) {
-  transform: scale(0.95);
+  transform: scale(0.92) translateY(1px);
+  transition: transform 50ms ease-out;
 }
 
 .toolbar-item:disabled {
@@ -7799,13 +7827,98 @@ body.utools-mode {
   cursor: pointer;
   border-radius: 3px;
   flex-shrink: 0;
-  transition: color 0.1s ease, background-color 0.1s ease;
+  transform: scale(1);
+  transition: color var(--duration-instant) ease, background-color var(--duration-instant) ease, transform var(--duration-fast) var(--spring-snappy);
 }
 
 .sr-nav-btn:hover:not(:disabled),
 .sr-action-icon-btn:hover:not(:disabled) {
   color: var(--text-primary);
   background-color: var(--border-color);
+  transform: scale(1.06);
+}
+
+.sr-nav-btn:active:not(:disabled),
+.sr-action-icon-btn:active:not(:disabled) {
+  transform: scale(0.88);
+  transition: transform 50ms ease-out;
+}
+
+/* ─── Search & Replace Drawer Transition (motion-web physics) ─── */
+.sr-drawer-enter-active {
+  transition: transform var(--duration-standard) var(--ease-out-expo),
+              opacity var(--duration-fast) var(--ease-out-expo);
+}
+.sr-drawer-enter-from {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.97);
+}
+.sr-drawer-enter-to {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+.sr-drawer-leave-active {
+  transition: transform var(--duration-fast) var(--ease-in-expo),
+              opacity var(--duration-instant) var(--ease-in-expo);
+}
+.sr-drawer-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.97);
+}
+
+/* ─── Replace Row Drawer Slide Transition ─── */
+.sr-row-slide-enter-active {
+  transition: max-height var(--duration-standard) var(--ease-out-expo),
+              opacity var(--duration-fast) var(--ease-out-expo),
+              transform var(--duration-standard) var(--ease-out-expo);
+  overflow: hidden;
+}
+.sr-row-slide-enter-from {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.sr-row-slide-enter-to {
+  max-height: 48px;
+  opacity: 1;
+  transform: translateY(0);
+}
+.sr-row-slide-leave-active {
+  transition: max-height var(--duration-fast) var(--ease-in-expo),
+              opacity var(--duration-instant) var(--ease-in-expo),
+              transform var(--duration-fast) var(--ease-in-expo);
+  overflow: hidden;
+}
+.sr-row-slide-leave-to {
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ─── Icon Morphing (Check vs Copy) ─── */
+.icon-morph-enter-active {
+  transition: transform var(--duration-fast) var(--spring-snappy), opacity var(--duration-fast) ease;
+}
+.icon-morph-enter-from {
+  transform: scale(0.4) rotate(-25deg);
+  opacity: 0;
+}
+.icon-morph-leave-active {
+  transition: transform var(--duration-instant) ease-in, opacity var(--duration-instant) ease-in;
+}
+.icon-morph-leave-to {
+  transform: scale(0.5) rotate(25deg);
+  opacity: 0;
+}
+
+/* ─── Copy Button Pulse Feedback ─── */
+.copy-btn.copy-success-ring {
+  animation: copy-pop 0.32s var(--spring-snappy);
+}
+@keyframes copy-pop {
+  0% { transform: scale(0.92); }
+  45% { transform: scale(1.08); }
+  100% { transform: scale(1); }
 }
 
 .sr-nav-btn:disabled,
@@ -8752,13 +8865,37 @@ body.utools-mode {
   opacity: 0.9;
 }
 
-.modal-fade-enter-active,
-.modal-fade-leave-active {
-  transition: opacity 0.2s ease;
+.modal-fade-enter-active {
+  transition: opacity var(--duration-fast) var(--ease-out-expo);
+}
+.modal-fade-enter-active .ej-modal-dialog,
+.modal-fade-enter-active .mask-modal-dialog {
+  transition: transform var(--duration-standard) var(--ease-out-expo), opacity var(--duration-fast) ease;
 }
 
-.modal-fade-enter-from,
+.modal-fade-enter-from {
+  opacity: 0;
+}
+.modal-fade-enter-from .ej-modal-dialog,
+.modal-fade-enter-from .mask-modal-dialog {
+  transform: translateY(12px) scale(0.96);
+  opacity: 0;
+}
+
+.modal-fade-leave-active {
+  transition: opacity var(--duration-fast) var(--ease-in-expo);
+}
+.modal-fade-leave-active .ej-modal-dialog,
+.modal-fade-leave-active .mask-modal-dialog {
+  transition: transform var(--duration-fast) var(--ease-in-expo), opacity var(--duration-fast) ease;
+}
+
 .modal-fade-leave-to {
+  opacity: 0;
+}
+.modal-fade-leave-to .ej-modal-dialog,
+.modal-fade-leave-to .mask-modal-dialog {
+  transform: translateY(8px) scale(0.97);
   opacity: 0;
 }
 

@@ -2047,19 +2047,4 @@ onBeforeUnmount(() => {
   opacity: 0;
   transform: scale(0.95) translateY(2px);
 }
-
-/* ── Smooth Theme Switch Animation ── */
-::view-transition-old(root),
-::view-transition-new(root) {
-  animation-duration: 0.22s;
-  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.theme-smooth-transition,
-.theme-smooth-transition * {
-  transition: background-color 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-              border-color 0.22s cubic-bezier(0.4, 0, 0.2, 1),
-              color 0.2s ease !important;
-}
-
 </style>
