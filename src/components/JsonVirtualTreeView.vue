@@ -1237,13 +1237,13 @@ defineExpose({
               @click.stop="handleCopyValue(row.value, row.path)"
               data-tooltip="点击复制子树 JSON"
             >{{ row.type === 'array' ? '[]' : '{}' }}</span>
-            <span v-if="row.isEmpty && !row.isLast" class="node-comma">,</span>
             <span
               v-else
               class="node-bracket"
               @click.stop="handleCopyValue(row.value, row.path)"
               data-tooltip="点击复制子树 JSON"
             >{{ row.type === 'array' ? '[' : '{' }}</span>
+            <span v-if="row.isEmpty && !row.isLast" class="node-comma">,</span>
 
             <!-- Collapsed Summary -->
             <template v-if="!row.isExpanded && !row.isEmpty">
