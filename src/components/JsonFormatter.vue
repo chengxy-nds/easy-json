@@ -5233,7 +5233,7 @@ defineExpose({
 
             <Transition name="sr-drawer">
               <div
-                v-if="searchExpanded"
+                v-if="searchExpanded && !isLeftCollapsed"
                 class="search-replace-box"
                 :style="{ width: Math.min(360, Math.max(220, (leftPanelWidth || 800) - 16)) + 'px', maxWidth: 'calc(100vw - 20px)' }"
                 @click.stop
@@ -5553,6 +5553,151 @@ defineExpose({
           </div>
           
           <div class="header-actions-group">
+            <!-- 左侧编辑区折叠时，搜索按钮与搜索抽屉改在此处显示（左侧顶栏随折叠隐藏） -->
+            <button
+              v-if="isLeftCollapsed"
+              class="action-btn outline icon-only"
+              :class="{ 'active': searchExpanded }"
+              @click.stop="toggleSearch"
+              data-tooltip-bottom="搜索 / 替换"
+              style="height: 28px; width: 28px; display: flex; align-items: center; justify-content: center; padding: 0;"
+            >
+              <Search class="btn-icon" />
+            </button>
+            <Transition name="sr-drawer">
+              <div
+                v-if="searchExpanded && isLeftCollapsed"
+                class="search-replace-box"
+                :style="{ width: Math.min(360, Math.max(220, (leftPanelWidth || 800) - 16)) + 'px', maxWidth: 'calc(100vw - 20px)' }"
+                @click.stop
+              >
+                <!-- Search row -->
+                <div class="search-row">
+                  <button
+                    class="sr-toggle-btn"
+                    @click="toggleReplace"
+                    :data-tooltip-bottom="replaceExpanded ? '折叠替换' : '展开替换'"
+                  >
+                    <ChevronRight class="sr-toggle-icon" :class="{ 'is-open': replaceExpanded }" />
+                  </button>
+                  <div class="sr-input-container" :class="{ 'is-focused': isSearchFocused }">
+                    <input
+                      type="text"
+                      :placeholder="searchHistory.length ? '搜索 (使用 ↑↓ 查看历史记录)' : '搜索'"
+                      class="sr-input-field"
+                      v-model="searchQuery"
+                      ref="searchInputRef"
+                      @focus="isSearchFocused = true"
+                      @blur="isSearchFocused = false"
+                      @keydown="handleSearchKeydown"
+                    />
+                    <div class="sr-inline-actions">
+                      <button
+                        type="button"
+                        class="sr-inline-btn"
+                        :class="{ 'is-active': searchCaseSensitive }"
+                        @click.stop="toggleCaseSensitive"
+                        data-tooltip-bottom="区分大小写 (Alt+C)"
+                      >
+                        <span class="btn-text-icon case-icon">Aa</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="sr-inline-btn"
+                        :class="{ 'is-active': searchWholeWord }"
+                        @click.stop="toggleWholeWord"
+                        data-tooltip-bottom="全字匹配 (Alt+W)"
+                      >
+                        <span class="btn-text-icon whole-word-icon">ab</span>
+                      </button>
+                      <button
+                        type="button"
+                        class="sr-inline-btn"
+                        :class="{ 'is-active': searchRegex }"
+                        @click.stop="toggleRegex"
+                        data-tooltip-bottom="使用正则表达式 (Alt+R)"
+                      >
+                        <span class="btn-text-icon regex-icon">.*</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <span v-if="searchQuery" class="match-count" :class="{ 'no-matches': totalMatches === 0 }">
+                    {{ totalMatches > 0 ? `${currentMatchIndex + 1}/${totalMatches}` : '无结果' }}
+                  </span>
+
+                  <button
+                    class="sr-nav-btn"
+                    @click="goPrevMatch"
+                    :disabled="totalMatches === 0"
+                    data-tooltip-bottom="上一个匹配 (Shift+Enter)"
+                  >
+                    <ArrowUp class="sr-nav-icon" />
+                  </button>
+                  <button
+                    class="sr-nav-btn"
+                    @click="goNextMatch"
+                    :disabled="totalMatches === 0"
+                    data-tooltip-bottom="下一个匹配 (Enter)"
+                  >
+                    <ArrowDown class="sr-nav-icon" />
+                  </button>
+                  <button
+                    class="sr-nav-btn"
+                    @click="collapseSearch"
+                  >
+                    <X class="sr-nav-icon" />
+                  </button>
+                </div>
+
+                <!-- Replace row -->
+                <Transition name="sr-row-slide">
+                  <div v-if="replaceExpanded" class="replace-row">
+                    <div class="sr-toggle-spacer"></div>
+                    <div class="sr-input-container" :class="{ 'is-focused': isReplaceFocused }">
+                      <input
+                        type="text"
+                        placeholder="替换"
+                        class="sr-input-field"
+                        v-model="replaceText"
+                        ref="replaceInputRef"
+                        @focus="isReplaceFocused = true"
+                        @blur="isReplaceFocused = false"
+                        @keydown="handleReplaceKeydown"
+                      />
+                      <div class="sr-inline-actions">
+                        <button
+                          type="button"
+                          class="sr-inline-btn"
+                          :class="{ 'is-active': searchPreserveCase }"
+                          @click.stop="togglePreserveCase"
+                          data-tooltip-bottom="保留大小写 (Alt+P)"
+                        >
+                          <span class="btn-text-icon preserve-case-icon">AB</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      class="sr-action-icon-btn"
+                      @click="replaceCurrent"
+                      :disabled="totalMatches === 0"
+                      data-tooltip-bottom="替换当前 (Enter)"
+                    >
+                      <Replace class="sr-action-icon" />
+                    </button>
+                    <button
+                      class="sr-action-icon-btn"
+                      @click="replaceAllMatches"
+                      :disabled="totalMatches === 0"
+                      data-tooltip-bottom-right="全部替换 (Ctrl+Alt+Enter)"
+                    >
+                      <ReplaceAll class="sr-action-icon" />
+                    </button>
+                  </div>
+                </Transition>
+              </div>
+            </Transition>
             <button
               class="action-btn outline icon-only"
               :class="{ 'active': copyTreeSuccess }"
