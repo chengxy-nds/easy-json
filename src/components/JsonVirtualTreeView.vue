@@ -228,6 +228,26 @@ const flatRows = computed(() => {
       const keys = isArr ? null : Object.keys(targetVal)
       const childCount = isArr ? targetVal.length : keys.length
 
+      // 空容器（{} / []）只占一行，与左侧格式化文本保持行对齐，不再拆成 opening + closing 两行
+      if (childCount === 0) {
+        rows.push({
+          id,
+          path,
+          depth,
+          name,
+          value: targetVal,
+          type: isArr ? 'array' : 'object',
+          isExpanded: false,
+          childCount: 0,
+          isLast,
+          isEmpty: true,
+          isNestedExpanded: !!isNestedExpanded,
+          rawNestedValue: isNestedExpanded ? val : undefined,
+          nestedJsonData: nestedData
+        })
+        return
+      }
+
       // Opening bracket row
       rows.push({
         id,
@@ -1183,11 +1203,12 @@ defineExpose({
         <template v-if="row.type === 'object' || row.type === 'array'">
           <div
             class="node-header expandable"
-            @click="toggleNode(row.id, row.depth, row.path); onKeyClick(row.path)"
+            @click="() => { if (!row.isEmpty) toggleNode(row.id, row.depth, row.path); onKeyClick(row.path) }"
             @mouseenter="onKeyMouseEnter(row.path)"
             @mouseleave="onKeyMouseLeave"
           >
-            <span class="icon-wrapper">
+            <span v-if="row.isEmpty" class="icon-spacer"></span>
+            <span v-else class="icon-wrapper">
               <ChevronDown v-if="row.isExpanded" class="toggle-icon" />
               <ChevronRight v-else class="toggle-icon" />
             </span>
@@ -1211,13 +1232,21 @@ defineExpose({
               <Braces class="capsule-icon" />
             </span>
             <span
+              v-if="row.isEmpty"
+              class="node-bracket"
+              @click.stop="handleCopyValue(row.value, row.path)"
+              data-tooltip="点击复制子树 JSON"
+            >{{ row.type === 'array' ? '[]' : '{}' }}</span>
+            <span v-if="row.isEmpty && !row.isLast" class="node-comma">,</span>
+            <span
+              v-else
               class="node-bracket"
               @click.stop="handleCopyValue(row.value, row.path)"
               data-tooltip="点击复制子树 JSON"
             >{{ row.type === 'array' ? '[' : '{' }}</span>
 
             <!-- Collapsed Summary -->
-            <template v-if="!row.isExpanded">
+            <template v-if="!row.isExpanded && !row.isEmpty">
               <span
                 class="node-collapsed-summary"
                 @click.stop="handleCopyValue(row.value, row.path)"
