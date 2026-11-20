@@ -31,6 +31,7 @@ const isDark = inject('isDark', ref(true))
 const treeExpanded = inject('treeExpanded', ref(true))
 const showToast = inject('showToast', (msg) => console.log(msg))
 const searchQuery = inject('searchQuery', ref(''))
+const currentMatchIndex = inject('currentMatchIndex', ref(0))
 const setHoveredPath = inject('setHoveredPath', null)
 const setSelectedPath = inject('setSelectedPath', null)
 const imagePreview = inject('imagePreview', null)
@@ -666,23 +667,95 @@ const visibleRows = computed(() => {
   return slice.map((row, idx) => {
     const actualIdx = startIndex.value + idx
     const enriched = enrichVisibleRow(row)
+    // Global match ordinals for this row, so the current match can be marked:
+    // key matches first, then (for primitives) value matches.
+    const matchStart = rowMatchPrefix.value[actualIdx]
+    const keyCount = countSearchMatches(row.name)
+    const valueCount = row.type === 'primitive' ? countSearchMatches(formatPrimitiveValue(row.value)) : 0
     return {
       ...enriched,
       actualIndex: actualIdx,
-      topPosition: offsets[actualIdx]
+      topPosition: offsets[actualIdx],
+      keyMatchStart: keyCount > 0 ? matchStart : -1,
+      valueMatchStart: valueCount > 0 ? matchStart + keyCount : -1
     }
   })
 })
 
 // Highlighting & Copy Handlers
-const highlightText = (text, query) => {
+// highlightText marks every match with .search-match; the occurrence whose
+// global ordinal equals currentOrdinal additionally gets .search-match-current
+// (same convention as the code view in JsonFormatter.vue). baseOrdinal is the
+// global ordinal of the first match inside this text fragment (-1 = none).
+const highlightText = (text, query, currentOrdinal = -1, baseOrdinal = -1) => {
   if (text === null || text === undefined) return ''
   const str = String(text)
   if (!query) return escapeHtml(str)
   const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
   const regex = new RegExp(`(${escapedQuery})`, 'gi')
   const escapedText = escapeHtml(str)
-  return escapedText.replace(regex, '<mark class="search-match">$1</mark>')
+  let ordinal = baseOrdinal
+  return escapedText.replace(regex, (m) => {
+    const isCurrent = currentOrdinal >= 0 && ordinal === currentOrdinal
+    ordinal++
+    return isCurrent
+      ? `<mark class="search-match search-match-current">${m}</mark>`
+      : `<mark class="search-match">${m}</mark>`
+  })
+}
+
+// Count literal (case-insensitive) matches in a text fragment, mirroring highlightText
+const countSearchMatches = (text) => {
+  const query = searchQuery.value
+  if (!query || text === null || text === undefined) return 0
+  const escapedQuery = query.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+  const regex = new RegExp(escapedQuery, 'gi')
+  return (String(text).match(regex) || []).length
+}
+
+// Matches in one flat row, in document order: key first, then primitive value.
+// (Uses the raw value, same as the parent's search over the raw input text.)
+const rowSearchMatchCount = (row) => {
+  if (!searchQuery.value) return 0
+  let count = 0
+  if (row.name !== undefined && row.name !== null) count += countSearchMatches(row.name)
+  if (row.type === 'primitive') count += countSearchMatches(formatPrimitiveValue(row.value))
+  return count
+}
+
+// Prefix sums: rowMatchPrefix[i] = global ordinal of the first match in flatRows[i]
+const rowMatchPrefix = computed(() => {
+  const rows = flatRows.value
+  const prefix = new Array(rows.length)
+  let acc = 0
+  for (let i = 0; i < rows.length; i++) {
+    prefix[i] = acc
+    acc += rowSearchMatchCount(rows[i])
+  }
+  return prefix
+})
+
+const totalTreeMatches = computed(() => {
+  const rows = flatRows.value
+  if (rows.length === 0) return 0
+  return rowMatchPrefix.value[rows.length - 1] + rowSearchMatchCount(rows[rows.length - 1])
+})
+
+// Row index containing the targetIndex-th match (document order), or -1
+const findRowForMatch = (targetIndex) => {
+  const rows = flatRows.value
+  if (targetIndex < 0 || targetIndex >= totalTreeMatches.value) return -1
+  const prefix = rowMatchPrefix.value
+  let low = 0, high = rows.length - 1
+  while (low <= high) {
+    const mid = (low + high) >> 1
+    const start = prefix[mid]
+    const end = start + rowSearchMatchCount(rows[mid])
+    if (targetIndex < start) high = mid - 1
+    else if (targetIndex >= end) low = mid + 1
+    else return mid
+  }
+  return -1
 }
 
 const escapeHtml = (str) => {
@@ -693,8 +766,8 @@ const escapeHtml = (str) => {
     .replace(/>/g, '&gt;')
 }
 
-const highlightKey = (name) => {
-  return `"${highlightText(name, searchQuery.value)}"`
+const highlightKey = (name, matchStart = -1) => {
+  return `"${highlightText(name, searchQuery.value, currentMatchIndex.value, matchStart)}"`
 }
 
 const formatPrimitiveValue = (val) => {
@@ -703,9 +776,9 @@ const formatPrimitiveValue = (val) => {
   return String(val)
 }
 
-const highlightPrimitiveValue = (val) => {
+const highlightPrimitiveValue = (val, matchStart = -1) => {
   const formatted = formatPrimitiveValue(val)
-  return highlightText(formatted, searchQuery.value)
+  return highlightText(formatted, searchQuery.value, currentMatchIndex.value, matchStart)
 }
 
 const handleCopyKey = (name, path) => {
@@ -1122,6 +1195,29 @@ const setScrollLeft = (val) => {
   }
 }
 
+// Scroll the virtual list so the row containing the targetIndex-th search match
+// is centered, then center the exact current-match mark once the row renders.
+// (Without this, the tree only ever has plain .search-match marks, so the
+// parent's scrollToCurrentMatch falls back to the FIRST match and "find next"
+// appears to do nothing when the left editor is collapsed and only the
+// preview is visible.)
+const scrollToMatch = (targetIndex) => {
+  if (!searchQuery.value) return false
+  const rowIdx = findRowForMatch(targetIndex)
+  if (rowIdx < 0) return false
+  const offsets = rowOffsets.value
+  const rowTop = offsets[rowIdx]
+  const rowH = offsets[rowIdx + 1] - offsets[rowIdx]
+  setScrollTop(rowTop - viewportHeight.value / 2 + rowH / 2)
+  nextTick(() => {
+    requestAnimationFrame(() => {
+      const el = containerRef.value?.querySelector('.search-match-current')
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    })
+  })
+  return true
+}
+
 defineExpose({
   get scrollTop() {
     return containerRef.value ? containerRef.value.scrollTop : scrollTop.value
@@ -1149,6 +1245,7 @@ defineExpose({
   expandToLevel,
   foldAll,
   unfoldAll,
+  scrollToMatch,
   scrollToTop: () => {
     setScrollTop(0)
   },
@@ -1218,7 +1315,7 @@ defineExpose({
               class="node-key"
               @click.stop="handleCopyKey(row.name, row.path)"
               data-tooltip="点击复制键名"
-              v-html="highlightKey(row.name)"
+              v-html="highlightKey(row.name, row.keyMatchStart)"
             ></span>
             <span v-if="row.name !== undefined && row.name !== null" class="node-colon">:</span>
             <!-- 嵌套 JSON 展开状态徽标 -->
@@ -1289,7 +1386,7 @@ defineExpose({
               class="node-key"
               @click.stop="handleCopyKey(row.name, row.path)"
               data-tooltip="点击复制键名"
-              v-html="highlightKey(row.name)"
+              v-html="highlightKey(row.name, row.keyMatchStart)"
             ></span>
             <span v-if="row.name !== undefined && row.name !== null" class="node-colon">:</span>
 
@@ -1424,7 +1521,7 @@ defineExpose({
               @mouseenter="onValMouseEnter(row.value, $event, row)"
               @mouseleave="onValMouseLeave(row.value)"
               :data-tooltip="row.cronData ? `${row.cronData.translation}` : (row.mediaData?.mediaType === 'audio' ? '音频直链 (悬停试听，点击复制)' : (row.mediaData?.mediaType === 'video' ? '视频直链 (悬停播放，点击复制)' : (row.isImageValue ? '图片链接 (悬停预览，点击复制)' : (row.isOtherUrlValue ? '点击复制键值，点击左侧图标可直接打开' : '点击复制键值'))))"
-              v-html="highlightPrimitiveValue(row.displayValue)"
+              v-html="highlightPrimitiveValue(row.displayValue, row.valueMatchStart)"
             ></span>
             <span v-if="!row.isLast" class="node-comma">,</span>
           </div>
