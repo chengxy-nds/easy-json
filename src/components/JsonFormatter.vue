@@ -385,6 +385,7 @@ const convertFormat = computed({
   set: (val) => { if (activeTab.value) activeTab.value.convertFormat = val }
 })
 provide('searchQuery', searchQuery)
+provide('currentMatchIndex', currentMatchIndex)
 provide('setHoveredPath', setHoveredPath)
 provide('hoveredPath', hoveredPath)
 provide('selectedPath', selectedPath)
@@ -594,11 +595,17 @@ const scrollToCurrentMatch = () => {
       }
     }
 
-    // 3. 右侧树形视图：滚动到对应匹配节点
+    // 3. 右侧树形视图：滚动到对应匹配节点（树内部按文档顺序定位第 N 个匹配；
+    // 旧的 querySelector 方式在树里永远只能找到第一个匹配，因为树之前从不标注
+    // .search-match-current，折叠后只剩预览区时“下一个”就看起来没反应）
     if (treeWrapperRef.value) {
-      const treeTarget = treeWrapperRef.value.querySelector('.search-match-current') || treeWrapperRef.value.querySelector('.search-match')
-      if (treeTarget) {
-        treeTarget.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      if (typeof treeWrapperRef.value.scrollToMatch === 'function') {
+        treeWrapperRef.value.scrollToMatch(currentMatchIndex.value)
+      } else {
+        const treeTarget = treeWrapperRef.value.querySelector('.search-match-current') || treeWrapperRef.value.querySelector('.search-match')
+        if (treeTarget) {
+          treeTarget.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
       }
     }
   })
@@ -3028,6 +3035,12 @@ const handleEditorScroll = (e) => {
     return
   }
   activeScrollTarget.value = 'left'
+
+  // 左侧折叠后编辑器是 0 宽布局，CodeMirror 按 0 宽换行计算行高，scrollHeight 会
+  // 膨胀到几万 px，滚动位置是错的；此时再 1:1 同步给右侧预览区会把树/代码视图拖
+  // 到底，导致折叠后搜索“下一个”看起来没反应（计数走了，预览区不动）。只保存
+  // 位置，不向右侧同步；编辑器自身的选区仍会跟随当前匹配，展开后能看到。
+  if (isLeftCollapsed.value) return
 
   if (outputPreRef.value) {
     outputPreRef.value.scrollTop = scrollTop
